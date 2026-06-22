@@ -1,49 +1,49 @@
-# 02 — Módulo `dominio` (contratos de dados)
+# 02 — Module `domain` (data contracts)
 
-## Responsabilidade
-Definir os **modelos de dados compartilhados** entre módulos. É a "linguagem comum":
-qualquer módulo que troca dados usa estes contratos. Sem lógica, só estrutura + validação.
+## Responsibility
+Define the **shared data models** used across modules. This is the "common language":
+any module that exchanges data uses these contracts. No logic, only structure + validation.
 
-## Interface exposta (contrato)
+## Exposed interface (contract)
 
 ```
-Atributo  = { inicial: int, atual: int }   # invariante: 0 <= atual <= inicial
+Attribute  = { initial: int, current: int }   # invariant: 0 <= current <= initial
 
-Ficha = {
-    nome: str,
-    habilidade: Atributo, energia: Atributo, sorte: Atributo,
-    inventario: str[], ouro: int, provisoes: int,
-    condicoes: str[], vivo: bool
+CharacterSheet = {
+    name: str,
+    skill: Attribute, stamina: Attribute, luck: Attribute,
+    inventory: str[], gold: int, provisions: int,
+    conditions: str[], alive: bool
 }
 
-Mundo = {
-    local_atual: str, locais_visitados: str[],
-    npcs_conhecidos: { nome: str, estado: str }[],
-    flags: { [chave: str]: bool }, turno: int
+World = {
+    current_location: str, visited_locations: str[],
+    known_npcs: { name: str, state: str }[],
+    flags: { [key: str]: bool }, turn: int
 }
 
-Evento = { turno: int, tipo: str, dados: object, timestamp: str }
+Event = { turn: int, type: str, data: object, timestamp: str }
 
-Combate = {
-    combate_id: str,
-    inimigos: { nome, habilidade, energia }[],
-    rodada: int, fuga_permitida: bool, encerrado: bool,
-    vencedor?: "heroi" | "inimigo"
+Combat = {
+    combat_id: str,
+    enemies: { name, skill, stamina }[],
+    round: int, flee_allowed: bool, ended: bool,
+    winner?: "hero" | "enemy"
 }
 
-RegistroArquivo = {   # cemitério / hall da fama
-    nome, turnos, desfecho: "morte"|"vitoria",
-    local, causa?, inventario_final: str[]
+ArchiveRecord = {   # graveyard / hall of fame
+    name, turns, outcome: "death" | "victory",
+    location, cause?, final_inventory: str[]
 }
 ```
 
-## Dependências
-Nenhuma. É a base da pirâmide.
+## Dependencies
+None. This is the base of the pyramid.
 
-## Plugabilidade
-Não plugável, mas **versionável**: mudanças no schema devem ser retrocompatíveis ou ter
-migração. O schema da `Ficha` foi desenhado pra virar tabela no Postgres quase 1:1.
+## Pluggability
+Not pluggable, but **versionable**: schema changes must be backwards-compatible or include
+a migration. The `CharacterSheet` schema was designed to map almost 1:1 to a Postgres table.
 
-## Critérios de pronto
-- Validação dos invariantes (ex.: `atual <= inicial`) centralizada aqui.
-- Serialização/desserialização redonda (objeto → JSON → objeto idêntico).
+## Definition of done
+- Invariant validation (e.g. `current <= initial`) is centralized here.
+- Round-trip serialization: object → JSON → identical object.

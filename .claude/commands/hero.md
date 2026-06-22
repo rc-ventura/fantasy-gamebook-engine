@@ -2,7 +2,7 @@
 description: Show the hero's character sheet (skill/stamina/luck, gold, provisions, inventory, conditions) from real MCP state. Works even during combat.
 ---
 
-# /stats
+# /hero
 
 Print the hero's full character sheet from **real engine state**. This is a read-out, not a
 story turn — it must reflect exactly what the MCP returns, **never** a narrated or remembered

@@ -1,52 +1,52 @@
-# 07 — Módulo `harness` (o mestre / narrador) ⭐
+# 07 — Module `harness` (the master / narrator) ⭐
 
-## Responsabilidade
-Ser o **mestre**: conversar com o jogador, narrar, propor escolhas, ler o módulo de aventura
-e chamar o MCP pra tudo que é numérico ou de estado. É a fronteira plugável nº 3:
-Claude Code (Fase 1) ↔ PydanticAI/FastAPI (Fase 2), reusando o mesmo MCP.
+## Responsibility
+Be the **master**: converse with the player, narrate, propose choices, read the adventure
+module, and call the MCP for everything numeric or state-related. This is swap boundary #3:
+Claude Code (Phase 1) ↔ PydanticAI/FastAPI (Phase 2), reusing the same MCP.
 
-## Interface exposta (contrato de comportamento do mestre)
-Não é uma API de código, é um **contrato de comportamento** (vive no SKILL.md / system prompt):
+## Exposed interface (master behavior contract)
+Not a code API — a **behavior contract** (lives in SKILL.md / system prompt):
 
 ```
-ABERTURA DE SESSÃO:
-  ler_ficha + ler_mundo + ler_eventos + ler_resumo  ANTES de narrar.
-  sem personagem vivo -> oferecer criar_personagem.
-  com personagem -> retomar do ponto exato (nunca recomeçar do zero).
+SESSION OPENING:
+  read_character_sheet + read_world + read_events + read_summary  BEFORE narrating.
+  no living character -> offer create_character.
+  living character -> resume from the exact point (never restart from zero).
 
-TURNO NORMAL:
-  narrar 2–4 parágrafos, 2ª pessoa, tom do módulo de aventura;
-  terminar com opções numeradas; aceitar texto livre;
-  toda mudança de estado -> via MCP;
-  NUNCA rolar dado em texto -> sempre rolar_dado / testar_sorte.
+NORMAL TURN:
+  narrate 2–4 paragraphs, 2nd person, adventure module's tone;
+  end with numbered choices; accept free text;
+  every state change -> via MCP;
+  NEVER roll dice in prose -> always roll_dice / test_luck.
 
-ENCONTRO DE COMBATE:
-  delegar ao sub-agente de combate (passar herói, inimigos, fuga_permitida);
-  receber ResultadoFinal; narrar vitória ou morte.
+COMBAT ENCOUNTER:
+  delegate to the combat sub-agent (pass hero, enemies, flee_allowed);
+  receive FinalResult; narrate victory or death.
 
-CONTROLE DE CONTEXTO:
-  a cada N turnos compactar resumo (atualizar_resumo);
-  fatos duros migram pra mundo/eventos (estruturado), não só prosa.
+CONTEXT CONTROL:
+  every N turns compact the summary (update_summary);
+  hard facts migrate to world/events (structured), not just prose.
 
-FINS:
-  morte -> arquivar cemitério, game over;
-  flag de vitória do módulo -> epílogo + hall da fama.
+END-STATES:
+  death -> archive to graveyard, game over;
+  module victory flag -> epilogue + hall of fame.
 ```
 
-## Sub-componentes (Fase 1, Claude Code)
-- `SKILL.md` do **mestre** (tom + formato do turno).
-- `SKILL.md` do **sub-agente de combate** (enxuto, só regras de combate).
-- `CLAUDE.md` (regra de abertura de sessão).
+## Sub-components (Phase 1, Claude Code)
+- `SKILL.md` of the **master** (tone + turn format).
+- `SKILL.md` of the **combat sub-agent** (lean, combat rules only).
+- `CLAUDE.md` (session-opening rule).
 
-## Dependências (só contrato)
-- Contrato de ferramentas do `mcp` (05).
-- Contrato `ModuloAventura` (06).
+## Dependencies (contract only)
+- MCP tool contract from `mcp` (05).
+- `AdventureModule` contract from module 06.
 
-## Plugabilidade ⭐
-- **Fase 1:** Claude Code consome o MCP + skills.
-- **Fase 2:** Agent do PydanticAI com **saída estruturada** — define um tipo `Cena`
-  ({ narrativa, escolhas[], efeitos[] }) que o frontend renderiza. Mesmo MCP, mesmo módulo de aventura.
+## Pluggability ⭐
+- **Phase 1:** Claude Code consumes the MCP + skills.
+- **Phase 2:** PydanticAI agent with **structured output** — defines a `Scene` type
+  ({ narrative, choices[], effects[] }) that the frontend renders. Same MCP, same adventure module.
 
-## Critérios de pronto
-- Uma sessão joga abertura → exploração → combate → fim sem o mestre inventar números.
-- Trocar o harness não exige mudar MCP nem módulo de aventura.
+## Definition of done
+- A session plays opening → exploration → combat → end without the master inventing numbers.
+- Swapping the harness requires no changes to MCP or adventure module.

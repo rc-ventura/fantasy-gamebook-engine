@@ -22,7 +22,7 @@
    construct concrete impls and inject them.
 4. **Do NOT run `uv add`.** Deps are already installed (`pydantic`, `mcp`, `pytest`). If
    you need a new dependency, message the lead.
-5. **Determinism:** `regras` is pure; RNG is injected. Tests use a seeded RNG.
+5. **Determinism:** `rules` is pure; RNG is injected. Tests use a seeded RNG.
 6. **Atomic storage:** never corrupt state on a mid-write crash (temp file + `os.replace`).
 7. **JSON round-trip:** object → JSON → identical object, for every domain model.
 8. **The AI never rolls dice in prose** — all randomness/state goes through MCP tools.
@@ -47,34 +47,34 @@ Literals: `"heroi"`→`"hero"`, `"inimigo"`→`"enemy"`, `"empate"`→`"tie"`,
 
 ## 1. Module layering (where each type lives)
 
-- **`dominio`** holds only the **persistent entities** (things that get stored):
+- **`domain`** holds only the **persistent entities** (things that get stored):
   `Attribute, CharacterSheet, World, Event, Combat, ArchiveRecord` (+ value objects
   `Npc`, `Enemy`). Schema designed to map ~1:1 to Postgres tables later. No logic except
   validation. Depends on nothing.
-- **`regras`** holds the **rules result types** (`DiceResult, GeneratedAttributes,
+- **`rules`** holds the **rules result types** (`DiceResult, GeneratedAttributes,
   LuckTestResult, RoundResult`) and the `RandomSource` protocol, plus pure functions.
-  Imports only `dominio` types (for `Attribute`).
-- **`storage`** holds `StorageBackend` (Protocol) + impls. Imports only `dominio`.
-- **`combate`** holds combat lifecycle result types (`RoundOutcome, FleeResult,
-  FinalResult`) + `CombatEngine` (Protocol) + impl. Imports `regras.interfaces`,
-  `storage.interfaces`, `dominio` — **never** `storage.json_storage`.
-- **`mcp`** is the façade; imports all `*.interfaces` + `dominio`. Only `server.main()`
+  Imports only `domain` types (for `Attribute`).
+- **`storage`** holds `StorageBackend` (Protocol) + impls. Imports only `domain`.
+- **`combat`** holds combat lifecycle result types (`RoundOutcome, FleeResult,
+  FinalResult`) + `CombatEngine` (Protocol) + impl. Imports `rules.interfaces`,
+  `storage.interfaces`, `domain` — **never** `storage.json_storage`.
+- **`mcp`** is the façade; imports all `*.interfaces` + `domain`. Only `server.main()`
   constructs concretes.
 
 **Audit rule (binding on QA):** the ONLY forbidden cross-module imports are storage
 *concrete* impls (`gamebook.storage.json_storage`, `gamebook.storage.in_memory`) inside
-`combate` and `mcp` non-root modules. `regras.implementation` (pure functions) MAY be
-imported by `combate`/`mcp` — `regras` is the stable core, not a swap boundary, so it has
-no interface/impl split to enforce. `combate` references `storage.interfaces.StorageBackend`
+`combat` and `mcp` non-root modules. `rules.implementation` (pure functions) MAY be
+imported by `combat`/`mcp` — `rules` is the stable core, not a swap boundary, so it has
+no interface/impl split to enforce. `combat` references `storage.interfaces.StorageBackend`
 under `if TYPE_CHECKING:` (so it has NO runtime dependency on storage at all — even better
-than importing the interface). Consequence for runtime isolation checks: `combate`'s
+than importing the interface). Consequence for runtime isolation checks: `combat`'s
 `sys.modules` will NOT contain `storage.interfaces`; assert only that it does NOT contain
 `storage.json_storage` / `storage.in_memory` / `gamebook.mcp`. The ast audit still sees the
 `TYPE_CHECKING` import and will catch any concrete leak.
 
 ---
 
-## 2. `dominio/models.py` (pydantic v2 `BaseModel`)
+## 2. `domain/models.py` (pydantic v2 `BaseModel`)
 
 ```python
 class Attribute(BaseModel):
@@ -138,7 +138,7 @@ class ArchiveRecord(BaseModel):
 
 ---
 
-## 3. `regras/interfaces.py` + `regras/implementation.py`
+## 3. `rules/interfaces.py` + `rules/implementation.py`
 
 ```python
 # interfaces.py
@@ -205,7 +205,7 @@ English filenames e.g. `character.json`, `world.json`, `events.json`, `summary.m
 
 ---
 
-## 5. `combate/interfaces.py` — `CombatEngine` (Protocol) + impl `CombatService`
+## 5. `combat/interfaces.py` — `CombatEngine` (Protocol) + impl `CombatService`
 
 ```python
 class RoundOutcome(BaseModel):
@@ -335,9 +335,9 @@ copyrighted book). Bestiary enemies map to `Enemy{name, skill, stamina}` for `st
 ## 8. Harness & commands (content-designer, modules 07/08)
 
 Game-master `SKILL.md`, combat sub-agent `SKILL.md`, root `CLAUDE.md` session-opening
-rule, and slash commands `/stats /mochila /mapa /salvar` — all reference the **exact MCP
-tool names in §6**. `/stats` always prints real MCP state (`read_character_sheet`), never
+rule, and slash commands `/hero /backpack /map /save` — all reference the **exact MCP
+tool names in §6**. `/hero` always prints real MCP state (`read_character_sheet`), never
 a narrated value. Files: `.claude/skills/{game-master,combat-sub-agent,ignarok}/SKILL.md`,
-`.claude/commands/{stats,mochila,mapa,salvar}.md`.
+`.claude/commands/{hero,backpack,map,save}.md`.
 ```
 ```

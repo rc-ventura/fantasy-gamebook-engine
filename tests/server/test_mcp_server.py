@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from gamebook.combate.implementation import CombatService
+from gamebook.combat.implementation import CombatService
 from gamebook.mcp.server import build_server
 from gamebook.storage.in_memory import InMemoryStorage
 

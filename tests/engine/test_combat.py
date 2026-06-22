@@ -6,8 +6,8 @@ import random
 
 import pytest
 
-from gamebook.combate.implementation import CombatService
-from gamebook.dominio.models import Attribute, CharacterSheet, Enemy
+from gamebook.combat.implementation import CombatService
+from gamebook.domain.models import Attribute, CharacterSheet, Enemy
 from gamebook.storage.in_memory import InMemoryStorage  # allowed in tests
 
 

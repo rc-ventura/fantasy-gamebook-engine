@@ -1,8 +1,8 @@
 """MCP server — the façade that exposes the engine to a harness (swap point #3).
 
 This module is the *only* place the AI narrator talks to the engine. It contains
-**no game rules of its own**: every tool merely orchestrates the pure ``regras``
-math, the ``combate`` lifecycle, and a ``StorageBackend``. This is what makes the
+**no game rules of its own**: every tool merely orchestrates the pure ``rules``
+math, the ``combat`` lifecycle, and a ``StorageBackend``. This is what makes the
 hard rule of the project enforceable — "the AI never rolls dice in prose", because
 all randomness and state flow through these tools.
 
@@ -15,8 +15,8 @@ allowed to build concretes (``JSONStorage``, ``CombatService``, ``random.Random`
 and inject them. Those concrete imports live *inside* ``main`` precisely so that
 merely importing this module never drags a storage backend into ``sys.modules``.
 
-At module scope we import only ``dominio`` (persistent entities), the stable pure
-core ``regras`` (allowed cross-import — it is not a swap boundary), and the
+At module scope we import only ``domain`` (persistent entities), the stable pure
+core ``rules`` (allowed cross-import — it is not a swap boundary), and the
 ``*.interfaces`` result types used as tool return annotations.
 """
 
@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import FastMCP
 
-from gamebook.combate.interfaces import FinalResult, FleeResult, RoundOutcome
-from gamebook.dominio.models import (
+from gamebook.combat.interfaces import FinalResult, FleeResult, RoundOutcome
+from gamebook.domain.models import (
     ArchiveRecord,
     CharacterSheet,
     Combat,
@@ -36,12 +36,12 @@ from gamebook.dominio.models import (
     Event,
     World,
 )
-from gamebook.regras import implementation as rules
-from gamebook.regras.interfaces import DiceResult, LuckTestResult
+from gamebook.rules import implementation as rules
+from gamebook.rules.interfaces import DiceResult, LuckTestResult
 
 if TYPE_CHECKING:
-    from gamebook.combate.interfaces import CombatEngine
-    from gamebook.regras.interfaces import RandomSource
+    from gamebook.combat.interfaces import CombatEngine
+    from gamebook.rules.interfaces import RandomSource
     from gamebook.storage.interfaces import StorageBackend
 
 SERVER_NAME = "gamebook"
@@ -316,7 +316,7 @@ def main() -> None:
     """
     import random
 
-    from gamebook.combate.implementation import CombatService
+    from gamebook.combat.implementation import CombatService
     from gamebook.storage.json_storage import JSONStorage
 
     storage = JSONStorage("estado")

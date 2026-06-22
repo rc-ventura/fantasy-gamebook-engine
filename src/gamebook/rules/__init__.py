@@ -5,14 +5,14 @@ reproducible under a seeded generator. This is the stable core that travels inta
 to Phase 2.
 """
 
-from gamebook.regras.implementation import (
+from gamebook.rules.implementation import (
     apply_luck_modifier,
     generate_attributes,
     resolve_round,
     roll_dice,
     test_luck,
 )
-from gamebook.regras.interfaces import (
+from gamebook.rules.interfaces import (
     DiceResult,
     GeneratedAttributes,
     LuckTestResult,

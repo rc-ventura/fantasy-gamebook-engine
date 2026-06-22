@@ -1,49 +1,49 @@
-# 04 — Módulo `combate` (ciclo de vida)
+# 04 — Module `combat` (lifecycle)
 
-## Responsabilidade
-Orquestrar o **sub-loop de combate**: abrir um combate, resolver rodadas (usando o motor
-`regras`), aplicar dano à ficha e aos inimigos, persistir o estado e encerrar com um
-resultado. É o "modo de luta" separado da narrativa.
+## Responsibility
+Orchestrate the **combat sub-loop**: open a fight, resolve rounds (using the `rules` engine),
+apply damage to the character sheet and enemies, persist state, and conclude with a result.
+This is the "fight mode" separated from the narrative.
 
-## Interface exposta (contrato)
+## Exposed interface (contract)
 
 ```
-iniciar_combate(inimigos: {nome,habilidade,energia}[], fuga_permitida: bool) -> Combate
-    # cria combate_id, persiste estado inicial
+start_combat(enemies: {name, skill, stamina}[], flee_allowed: bool) -> Combat
+    # creates combat_id, persists initial state
 
-resolver_rodada(combate_id, usar_sorte: bool) -> {
-    fa_heroi, fa_inimigo, quem_acertou,
-    dano_aplicado, energia_heroi, energia_inimigo,
-    sorte_usada?: { rolagem, sucesso },
-    fim: bool, vencedor?: "heroi"|"inimigo"
+resolve_round(combat_id, use_luck: bool) -> {
+    hero_attack, enemy_attack, hit_by,
+    damage_applied, hero_stamina, enemy_stamina,
+    luck_used?: { roll, success },
+    ended: bool, winner?: "hero" | "enemy"
 }
-    # lê ficha + combate, chama regras.resolver_rodada (+ modificador de sorte se usar_sorte),
-    # atualiza energias, persiste. Se herói chega a 0 -> marca derrota.
+    # reads sheet + combat, calls rules.resolve_round (+ luck modifier if use_luck),
+    # updates stamina values, persists. Hero reaching 0 -> marks defeat.
 
-escapar(combate_id) -> { dano_sofrido: 2, energia_heroi, fim: true }
-    # só se fuga_permitida
+flee(combat_id) -> { damage_taken: 2, hero_stamina, ended: true }
+    # only if flee_allowed
 
-encerrar_combate(combate_id) -> ResultadoFinal {
-    vencedor, energia_final_heroi, sorte_gasta, rodadas, drops?: str[]
+end_combat(combat_id) -> FinalResult {
+    winner, hero_final_stamina, luck_spent, rounds, drops?: str[]
 }
-    # vitória: grava energia na ficha; derrota: ficha.vivo=false
+    # victory: saves stamina to sheet; defeat: sheet.alive = false
 ```
 
-## Dependências (só interfaces)
-- `regras` (01) para a matemática da rodada.
-- `storage` (03) para ler/gravar `Combate` e `Ficha`.
-- `dominio` (02) para os tipos.
+## Dependencies (interfaces only)
+- `rules` (01) for round math.
+- `storage` (03) for reading/writing `Combat` and `CharacterSheet`.
+- `domain` (02) for types.
 
-## Plugabilidade
-Não é plugável em si, mas isola o combate de modo que ele possa ser invocado por qualquer
-harness — inclusive como sub-agente no Claude Code (recebe contexto, roda, devolve
-`ResultadoFinal`).
+## Pluggability
+Not pluggable in itself, but isolates combat so it can be invoked by any harness —
+including as a sub-agent in Claude Code (receives context, runs, returns `FinalResult`).
 
-## Nota sobre interação com o jogador
-A decisão "testar sorte ou não" a cada rodada vem do **harness** (que fala com o jogador).
-Este módulo é stateless quanto à UI: recebe `usar_sorte` já decidido e devolve o resultado.
+## Note on player interaction
+The "test luck or not" decision each round comes from the **harness** (which talks to the
+player). This module is stateless with respect to the UI: it receives `use_luck` already
+decided and returns the result.
 
-## Critérios de pronto
-- Combate em andamento sobrevive a reinício (estado persistido por `combate_id`).
-- Morte em combate propaga corretamente `vivo: false`.
-- Testável com `storage` em memória e `regras` com seed fixa.
+## Definition of done
+- An active combat survives a restart (state persisted by `combat_id`).
+- Death in combat correctly propagates `alive: false`.
+- Testable with in-memory `storage` and `rules` with a fixed seed.

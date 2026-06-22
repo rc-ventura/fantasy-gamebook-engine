@@ -1,49 +1,50 @@
-# 05 — Módulo `mcp` (servidor / contrato de ferramentas)
+# 05 — Module `mcp` (server / tool contract)
 
-## Responsabilidade
-Expor o motor de regras + estado como **ferramentas MCP** consumíveis por qualquer harness.
-É a fachada que o narrador (IA) usa. Não contém regra de jogo própria — só orquestra
-`regras`, `combate` e `storage`. É o que garante "a IA nunca rola dado em texto".
+## Responsibility
+Expose the rules engine + state as **MCP tools** consumable by any harness. It is the
+facade the narrator (AI) uses. Contains no game rules of its own — only orchestrates
+`rules`, `combat`, and `storage`. This is what enforces "the AI never rolls dice in prose."
 
-## Interface exposta (contrato de ferramentas MCP)
+## Exposed interface (MCP tool contract)
 
 ```
-# Dados / sorte
-rolar_dado(notacao) -> { rolagens, total }
-testar_sorte() -> { rolagem, sucesso, sorte_depois }
+# Dice / luck
+roll_dice(notation) -> { rolls, total }
+test_luck() -> { roll, success, luck_after }
 
-# Ficha
-criar_personagem(nome) -> Ficha
-ler_ficha() -> Ficha
-atualizar_ficha(mudancas) -> Ficha       # valida invariantes via dominio
+# Character sheet
+create_character(name) -> CharacterSheet
+read_character_sheet() -> CharacterSheet
+update_character_sheet(changes) -> CharacterSheet   # enforces invariants via domain
 
-# Mundo / eventos
-ler_mundo() -> Mundo
-registrar_evento(tipo, dados) -> None
-ler_eventos() -> Evento[]
-ler_resumo() -> str
-atualizar_resumo(texto) -> None
+# World / events
+read_world() -> World
+update_world(changes) -> World
+register_event(type, data) -> None
+read_events() -> Event[]
+read_summary() -> str
+update_summary(text) -> None
 
-# Combate (delega ao módulo 04)
-iniciar_combate(inimigos, fuga_permitida) -> Combate
-resolver_rodada_combate(combate_id, usar_sorte) -> ResultadoRodada
-escapar_combate(combate_id) -> ResultadoFuga
-encerrar_combate(combate_id) -> ResultadoFinal
+# Combat (delegates to module 04)
+start_combat(enemies, flee_allowed) -> Combat
+resolve_combat_round(combat_id, use_luck) -> RoundOutcome
+flee_combat(combat_id) -> FleeResult
+end_combat(combat_id) -> FinalResult
 
-# Fins / sessão
-arquivar_personagem(destino) -> None
-salvar_progresso(slot?) / carregar_progresso(slot?)
+# End-of-game / session
+archive_character(destination) -> None
+save_progress(slot?) / load_progress(slot?)
 ```
 
-## Dependências (só interfaces)
-- `regras` (01), `combate` (04), `storage` (03 — recebe a implementação por injeção), `dominio` (02).
+## Dependencies (interfaces only)
+- `rules` (01), `combat` (04), `storage` (03 — implementation injected at startup), `domain` (02).
 
-## Plugabilidade
-O **contrato de ferramentas é estável**: é a fronteira plugável nº 3 vista do outro lado.
-Qualquer harness (Claude Code agora, PydanticAI depois) fala o mesmo MCP sem mudanças.
-A implementação de `storage` é injetada na inicialização do servidor (JSON ou Postgres).
+## Pluggability
+The **tool contract is stable**: it is swap boundary #3 seen from the other side. Any
+harness (Claude Code now, PydanticAI later) speaks the same MCP without changes. The
+`storage` implementation is injected at server startup (JSON or Postgres).
 
-## Critérios de pronto
-- Servidor sobe e lista todas as ferramentas.
-- Cada ferramenta valida entrada e nunca deixa estado inconsistente.
-- Trocar `JSONStorage` por outra impl. não exige mudança em nenhuma ferramenta.
+## Definition of done
+- Server starts and lists all tools.
+- Each tool validates input and never leaves state inconsistent.
+- Swapping `JSONStorage` for another implementation requires no tool changes.

@@ -5,7 +5,7 @@ on for persistence. Concrete implementations (``InMemoryStorage``,
 ``JSONStorage``, a future ``PostgresStorage``) are injected at the composition
 root (``mcp.server.main``); no other module constructs them.
 
-This module depends solely on ``gamebook.dominio`` types, and only for typing
+This module depends solely on ``gamebook.domain`` types, and only for typing
 (imports are guarded behind ``TYPE_CHECKING``), keeping the contract free of any
 runtime coupling.
 """
@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from gamebook.dominio.models import (
+    from gamebook.domain.models import (
         ArchiveRecord,
         CharacterSheet,
         Combat,

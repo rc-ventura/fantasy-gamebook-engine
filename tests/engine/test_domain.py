@@ -7,7 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from gamebook.dominio.models import (
+from gamebook.domain.models import (
     ArchiveRecord,
     Attribute,
     CharacterSheet,

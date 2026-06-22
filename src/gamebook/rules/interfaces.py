@@ -1,6 +1,6 @@
 """Rules engine contracts: the ``RandomSource`` protocol and result types.
 
-``regras`` is the pure, deterministic core of the engine. It knows nothing about
+``rules`` is the pure, deterministic core of the engine. It knows nothing about
 storage, the MCP server, or the AI. Randomness is supplied through the injected
 ``RandomSource`` protocol so tests can drive it with a seeded ``random.Random``
 and get reproducible results.
@@ -15,7 +15,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from gamebook.dominio.models import Attribute
+from gamebook.domain.models import Attribute
 
 
 @runtime_checkable

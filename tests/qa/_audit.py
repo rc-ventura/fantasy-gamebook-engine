@@ -33,7 +33,7 @@ GAMEBOOK_ROOT = Path(gamebook.__file__).resolve().parent  # .../src/gamebook
 SRC_ROOT = GAMEBOOK_ROOT.parent  # .../src  (module name == path relative to here)
 
 # The five engine packages, bottom-to-top of the dependency pyramid.
-ENGINE_PACKAGES = ("dominio", "regras", "storage", "combate", "mcp")
+ENGINE_PACKAGES = ("domain", "rules", "storage", "combat", "mcp")
 
 
 # --------------------------------------------------------------------------- static (ast)
@@ -46,7 +46,7 @@ def package_files(pkg: str) -> list[Path]:
 
 
 def module_name_for(path: Path) -> str:
-    """Dotted module name (``gamebook.combate.implementation``) for a source file."""
+    """Dotted module name (``gamebook.combat.implementation``) for a source file."""
     rel = path.resolve().relative_to(SRC_ROOT).with_suffix("")
     parts = list(rel.parts)
     if parts and parts[-1] == "__init__":

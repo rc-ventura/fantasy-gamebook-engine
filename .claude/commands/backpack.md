@@ -3,7 +3,7 @@ description: Open the backpack — list inventory, gold and provisions from real
 argument-hint: [item to use, optional]
 ---
 
-# /mochila  (backpack)
+# /backpack
 
 Show inventory in detail and let the player **use** an item. Reading is a pure read-out;
 using an item is the one allowed explicit state change (it must go through MCP, never prose).

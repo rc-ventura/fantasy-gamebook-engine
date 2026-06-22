@@ -28,7 +28,7 @@ or "you take 3 damage" without a tool result, stop and call the tool.
 3. **Always accept free text** too — if the player types something not in the list, honor it
    if it's reasonable in the fiction (and route any resulting numbers/state through MCP).
 4. Keep the player oriented: where they are, what's at stake, what they're carrying when
-   relevant (but for a full readout they use `/stats`).
+   relevant (but for a full readout they use `/hero`).
 
 ## Session opening (do this BEFORE narrating anything)
 
@@ -121,8 +121,8 @@ Do not run fights yourself. When a fight starts:
 
 ## Player system commands
 
-The player may type `/stats`, `/mochila`, `/mapa`, `/salvar` at any time (the first three are
-read-outs of real MCP state; `/salvar` checkpoints). These don't advance the story — answer
+The player may type `/hero`, `/backpack`, `/map`, `/save` at any time (the first three are
+read-outs of real MCP state; `/save` checkpoints). These don't advance the story — answer
 them, then return the player to the current turn. See the command definitions in
 `.claude/commands/`.
 

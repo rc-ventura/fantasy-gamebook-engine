@@ -2,7 +2,7 @@
 
 Holds all state in process memory. It exists to prove that every other module
 works without touching disk (the point of swap point #1) and to give fast,
-isolated unit tests for ``combate`` and ``mcp``.
+isolated unit tests for ``combat`` and ``mcp``.
 
 Every value is deep-copied on the way in and on the way out, so a stored object
 can never be mutated through an aliased reference held by a caller. This makes
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from gamebook.dominio.models import (
+from gamebook.domain.models import (
     ArchiveRecord,
     CharacterSheet,
     Combat,

@@ -1,4 +1,4 @@
-"""Serialization round-trip + invariant guardian coverage for `dominio`.
+"""Serialization round-trip + invariant guardian coverage for `domain`.
 
 Independent QA coverage of two ``CONTRACTS.md`` global rules:
 
@@ -6,11 +6,11 @@ Independent QA coverage of two ``CONTRACTS.md`` global rules:
   must hold for *every* domain model -- object -> JSON -> identical object. This
   is what guarantees ``JSONStorage`` (and a future ``PostgresStorage``) can
   faithfully persist and restore state.
-* **Invariants live in `dominio`:** an out-of-range ``Attribute`` (and the other
+* **Invariants live in `domain`:** an out-of-range ``Attribute`` (and the other
   non-negative constraints) can never be *constructed*, so a malformed state can
   never enter the system.
 
-This overlaps the core team's own ``tests/engine/test_dominio.py`` on purpose --
+This overlaps the core team's own ``tests/engine/test_domain.py`` on purpose --
 QA owns an independent check of the contract regardless of how the models evolve.
 """
 
@@ -22,8 +22,8 @@ import json
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from gamebook.dominio import models as dominio_models
-from gamebook.dominio.models import (
+from gamebook.domain import models as domain_models
+from gamebook.domain.models import (
     ArchiveRecord,
     Attribute,
     CharacterSheet,
@@ -119,14 +119,14 @@ def test_json_round_trip_is_identity(model: BaseModel) -> None:
     assert restored.model_dump_json() == model.model_dump_json()
 
 
-def test_every_dominio_model_is_covered() -> None:
+def test_every_domain_model_is_covered() -> None:
     """Guard against a new domain model slipping past the round-trip parametrize."""
     declared = {
         obj
-        for _name, obj in inspect.getmembers(dominio_models, inspect.isclass)
+        for _name, obj in inspect.getmembers(domain_models, inspect.isclass)
         if issubclass(obj, BaseModel)
         and obj is not BaseModel
-        and obj.__module__ == dominio_models.__name__
+        and obj.__module__ == domain_models.__name__
     }
     covered = {type(m) for m in _model_instances()}
     missing = declared - covered

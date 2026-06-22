@@ -1,6 +1,6 @@
 # Fantasy Gamebook Engine
 
-A solo-play **livro-jogo** (Fighting Fantasy–style gamebook) engine where an AI acts as the
+A solo-play **gamebook** (Fighting Fantasy–style) engine where an AI acts as the
 game master and narrator. The whole design turns on one hard rule:
 
 > **The AI never invents numbers or rolls dice in prose.** All randomness, state, and combat
@@ -29,48 +29,48 @@ That discipline is what makes three things swappable without touching the rest:
 3. **Harness** — swap who narrates (terminal → web) while reusing the same MCP tool contract.
 
 ```
-07 harness ───────► 05 mcp ◄──────── 08 comandos
+07 harness ───────► 05 mcp ◄──────── 08 commands
                       │
         ┌─────────────┼─────────────┐
         ▼             ▼             ▼
-   01 regras     04 combate     03 storage (interface)
+   01 rules      04 combat     03 storage (interface)
         │             │             ▲
         └──────►──────┘             │ implements
                   │                 │
                   ▼                 │
-            02 dominio ◄────────────┘   (shared data contracts)
+            02 domain ◄─────────────┘   (shared data contracts)
 
-06 modulo-aventura ──(lore consumed by)──► 07 harness
+06 adventure-module ──(lore consumed by)──► 07 harness
 ```
 
-| #  | Module            | Responsibility                                                                 | Pluggable?              |
-|----|-------------------|--------------------------------------------------------------------------------|-------------------------|
-| 01 | `regras`          | Pure rules engine — dice, attributes, luck test, one combat round. No I/O, RNG injected. | — (stable)        |
-| 02 | `dominio`         | Shared data contracts + invariant validation. Depends on nothing.              | — (stable)              |
-| 03 | `storage`         | Persistence behind the `StorageBackend` interface.                             | ✅ JSON ↔ Postgres      |
-| 04 | `combate`         | Combat lifecycle (start → rounds → flee → end).                                 | —                       |
-| 05 | `mcp`             | MCP server exposing tools to the harness. No game rules of its own.            | — (stable contract)     |
-| 06 | `modulo-aventura` | Pluggable static lore (zones, bestiary, victory). Debut: **Ignarok**.          | ✅ Ignarok ↔ others     |
-| 07 | `harness`         | The narrator/master that talks to the player and calls the MCP.                | ✅ Claude Code ↔ agent  |
-| 08 | `comandos`        | System commands (`/stats`, `/mochila`, `/mapa`, `/salvar`).                     | ✅ add new ones         |
+| #  | Module             | Responsibility                                                                 | Pluggable?              |
+|----|--------------------|--------------------------------------------------------------------------------|-------------------------|
+| 01 | `rules`            | Pure rules engine — dice, attributes, luck test, one combat round. No I/O, RNG injected. | — (stable)   |
+| 02 | `domain`           | Shared data contracts + invariant validation. Depends on nothing.              | — (stable)              |
+| 03 | `storage`          | Persistence behind the `StorageBackend` interface.                             | ✅ JSON ↔ Postgres      |
+| 04 | `combat`           | Combat lifecycle (start → rounds → flee → end).                                | —                       |
+| 05 | `mcp`              | MCP server exposing tools to the harness. No game rules of its own.            | — (stable contract)     |
+| 06 | `adventure-module` | Pluggable static lore (zones, bestiary, victory). Debut: **Ignarok**.          | ✅ Ignarok ↔ others     |
+| 07 | `harness`          | The narrator/master that talks to the player and calls the MCP.                | ✅ Claude Code ↔ agent  |
+| 08 | `commands`         | System commands (`/hero`, `/backpack`, `/map`, `/save`).                       | ✅ add new ones         |
 
 ## Project layout
 
 ```
 src/gamebook/
-  dominio/      # data contracts: CharacterSheet, World, Event, Combat, ArchiveRecord
-  regras/       # pure rules engine (interfaces + implementation), injectable RNG
-  storage/      # StorageBackend interface + JSONStorage + in-memory impl
-  combate/      # combat lifecycle (interfaces + implementation)
-  mcp/          # FastMCP server over stdio — orchestrates the modules
+  domain/    # data contracts: CharacterSheet, World, Event, Combat, ArchiveRecord
+  rules/     # pure rules engine (interfaces + implementation), injectable RNG
+  storage/   # StorageBackend interface + JSONStorage + in-memory impl
+  combat/    # combat lifecycle (interfaces + implementation)
+  mcp/       # FastMCP server over stdio — orchestrates the modules
 docs/
-  00-indice.md … 08-comandos.md   # Portuguese specs (requirements)
-  CONTRACTS.md                    # authoritative English code contract
-  adrs/                           # architecture decision records
-  learning-lessons/               # captured gotchas
+  00-index.md … 08-commands.md   # specs (requirements)
+  CONTRACTS.md                   # authoritative English code contract
+  adrs/                          # architecture decision records
+  learning-lessons/              # captured gotchas
 .claude/
-  skills/       # game-master, combat-sub-agent, ignarok (the Phase-1 harness)
-  commands/     # /stats, /mochila, /mapa, /salvar
+  skills/    # game-master, combat-sub-agent, ignarok (the Phase-1 harness)
+  commands/  # /hero, /backpack, /map, /save
 tests/
   engine/  server/  qa/
 ```
@@ -118,12 +118,12 @@ The authoritative contract is `docs/CONTRACTS.md` §6. Grouped by purpose:
 
 - **Attributes:** `skill` = 1d6+6, `stamina` = 2d6+12, `luck` = 1d6+6 — each tracks `initial`/`current`.
 - **Luck test:** success if roll ≤ current luck; luck always decrements by exactly 1 afterward.
-- **Combat round:** each side's attack strength (FA) = `skill` + 2d6; higher FA hits for base
+- **Combat round:** each side's attack strength = `skill` + 2d6; higher AS hits for base
   damage 2, a tie deals 0.
 - **Luck on a hit:** won+lucky → 4, won+unlucky → 1, lost+lucky → 1, lost+unlucky → 3.
 - **Death / flee:** hero at 0 stamina → `alive: false`; fleeing costs 2 stamina and only if allowed.
 
-`regras` and `combate` are tested in full isolation with a seeded RNG and in-memory storage —
+`rules` and `combat` are tested in full isolation with a seeded RNG and in-memory storage —
 deterministic, no disk, no AI.
 
 ## Playing a session (Phase-1 harness)
@@ -138,13 +138,12 @@ facts). Every number and state change routes through MCP tools.
 
 - **Skills** (`.claude/skills/`): `game-master` (narrator), `combat-sub-agent` (runs one
   fight), `ignarok` (the debut adventure — swap this file to swap adventures).
-- **Commands** (`.claude/commands/`): `/stats`, `/mochila`, `/mapa`, `/salvar` — read-outs and
+- **Commands** (`.claude/commands/`): `/hero`, `/backpack`, `/map`, `/save` — read-outs and
   checkpoints that reflect real MCP state and don't advance the story.
 
 ## Documentation
 
-- **`docs/00-indice.md`** — start here; maps every module. The PT specs (`00…08`) are the
-  *requirements*.
+- **`docs/00-index.md`** — start here; maps every module.
 - **`docs/CONTRACTS.md`** — the authoritative English code contract (cross-module interfaces,
   domain schema §2, MCP tool contract §6). When code and a spec disagree, CONTRACTS.md governs.
 - **`docs/adrs/`** — architecture decision records (ADR-001 … ADR-010).
@@ -154,6 +153,6 @@ facts). Every number and state change routes through MCP tools.
 ## Roadmap
 
 - **Phase 1 (current):** Claude Code as harness, `JSONStorage`, adventure as `SKILL.md`.
-- **Phase 2:** a PydanticAI/FastAPI harness with structured `Cena` output for a web frontend,
+- **Phase 2:** a PydanticAI/FastAPI harness with structured `Scene` output for a web frontend,
   plus `PostgresStorage` — reusing the *same* MCP tool contract and adventure module unchanged.
   That reuse is the entire point of the architecture.

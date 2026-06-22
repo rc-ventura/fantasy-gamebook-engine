@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from gamebook.dominio.models import (
+from gamebook.domain.models import (
     ArchiveRecord,
     CharacterSheet,
     Combat,

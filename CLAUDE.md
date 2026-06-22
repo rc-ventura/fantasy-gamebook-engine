@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status: Phase-1 MVP implemented
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `dominio`, `regras`, `storage`, `combate`, `mcp`), an MCP server exposing 18 tools, and **158 passing tests** (96% coverage) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **158 passing tests** (96% coverage) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
 
-**Two sources of truth, two languages.** The Portuguese specs in `docs/00-indice.md … docs/08-comandos.md` are the *requirements* (read `00-indice.md` first — it maps every module). `docs/CONTRACTS.md` is their **authoritative English code contract**: every cross-module interface, the domain-model schema (§2), and the MCP tool contract (§6). When changing code, CONTRACTS.md governs — if you must deviate, update it deliberately, don't drift.
+**Single source of truth.** All specs in `docs/00-index.md … docs/08-commands.md` are the *requirements* (read `00-index.md` first — it maps every module). `docs/CONTRACTS.md` is their **authoritative English code contract**: every cross-module interface, the domain-model schema (§2), and the MCP tool contract (§6). When changing code, CONTRACTS.md governs — if you must deviate, update it deliberately, don't drift.
 
-Each spec follows the template: **Responsabilidade · Interface exposta · Dependências · Plugabilidade · Critérios de pronto** ("Critérios de pronto" = acceptance criteria = definition of done).
+Each spec follows the template: **Responsibility · Exposed interface · Dependencies · Pluggability · Definition of done**.
 
 Note: the project directory name has a **trailing space** (`fantasy-gamebook-engine `). Quote paths in shell commands.
 
@@ -18,11 +18,11 @@ Everything goes through `uv` (deps already installed — don't `uv add` without 
 - `uv run pytest -q` — full suite. Scope it: `uv run pytest tests/engine -q` (pure rules), `tests/server` (storage + MCP), `tests/qa` (plugability/isolation/e2e).
 - `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` — the golden-rule plugability audit (catches any module reaching past an interface).
 - `uv run python -m gamebook.mcp.server` — start the MCP server over stdio (registered for Claude Code in `.mcp.json`; exits cleanly on EOF).
-- `regras`/`combate` tests use a seeded RNG and in-memory storage: deterministic, no disk, no AI.
+- `rules`/`combat` tests use a seeded RNG and in-memory storage: deterministic, no disk, no AI.
 
 ## What this is
 
-An engine for a solo-play **livro-jogo** (Fighting Fantasy–style gamebook) where an AI acts as the game master/narrator. The hard rule that shapes the whole design: **the AI never invents numbers or rolls dice in prose** — all randomness, state, and combat math go through an MCP server. The AI only narrates and offers choices.
+An engine for a solo-play **gamebook** (Fighting Fantasy–style) where an AI acts as the game master/narrator. The hard rule that shapes the whole design: **the AI never invents numbers or rolls dice in prose** — all randomness, state, and combat math go through an MCP server. The AI only narrates and offers choices.
 
 ## Architecture: modules depend only on interfaces
 
@@ -30,39 +30,39 @@ The system decomposes into 8 modules (00 is the index). The **golden rule of the
 
 | # | Module | Responsibility |
 |---|--------|----------------|
-| 01 | `regras` | Pure rules engine — dice, attribute generation, luck test, one combat round. No I/O, no state. RNG is injected. |
-| 02 | `dominio` | Shared data contracts (`CharacterSheet`, `World`, `Event`, `Combat`, `ArchiveRecord`) + invariant validation. Base of the pyramid; depends on nothing. |
+| 01 | `rules` | Pure rules engine — dice, attribute generation, luck test, one combat round. No I/O, no state. RNG is injected. |
+| 02 | `domain` | Shared data contracts (`CharacterSheet`, `World`, `Event`, `Combat`, `ArchiveRecord`) + invariant validation. Base of the pyramid; depends on nothing. |
 | 03 | `storage` | Persistence behind the `StorageBackend` interface. **Swap point #1.** |
-| 04 | `combate` | Combat lifecycle (start → resolve rounds → flee → end). Stateless re: UI. Depends on `regras`, `storage`, `dominio` interfaces. |
-| 05 | `mcp` | MCP server exposing tools to the harness. Orchestrates `regras`/`combate`/`storage`; contains no game rules of its own. **Stable tool contract.** |
-| 06 | `modulo-aventura` | Pluggable static lore (zones, bestiary, victory condition). **Swap point #2.** Debut module: `Ignarok`. |
+| 04 | `combat` | Combat lifecycle (start → resolve rounds → flee → end). Stateless re: UI. Depends on `rules`, `storage`, `domain` interfaces. |
+| 05 | `mcp` | MCP server exposing tools to the harness. Orchestrates `rules`/`combat`/`storage`; contains no game rules of its own. **Stable tool contract.** |
+| 06 | `adventure-module` | Pluggable static lore (zones, bestiary, victory condition). **Swap point #2.** Debut module: `Ignarok`. |
 | 07 | `harness` | The narrator/master that talks to the player and calls the MCP. **Swap point #3.** |
-| 08 | `comandos` | System commands (`/stats`, `/mochila`, `/mapa`, `/salvar`) that read/write state via MCP and print, without altering the story. |
+| 08 | `commands` | System commands (`/hero`, `/backpack`, `/map`, `/save`) that read/write state via MCP and print, without altering the story. |
 
-Dependency direction: `harness` (07) and `comandos` (08) → `mcp` (05) → {`regras` (01), `combate` (04), `storage` interface (03)} → `dominio` (02). `modulo-aventura` (06) is consumed by the harness as lore, not by the engine.
+Dependency direction: `harness` (07) and `commands` (08) → `mcp` (05) → {`rules` (01), `combat` (04), `storage` interface (03)} → `domain` (02). `adventure-module` (06) is consumed by the harness as lore, not by the engine.
 
 ### The three swap boundaries (the point of the whole architecture)
 1. **`StorageBackend`** (03) — Phase 1 `JSONStorage` (one file per entity in `estado/`, atomic write = temp file + rename) ↔ Phase 2 `PostgresStorage`. The concrete impl is **injected at MCP server startup**; no other module changes.
-2. **`ModuloAventura`** (06) — swap the adventure without touching the engine. Phase 1 = a `SKILL.md`; Phase 2 = a data record.
-3. **Harness** (07) — Phase 1 = Claude Code (MCP + skills) ↔ Phase 2 = PydanticAI/FastAPI agent with structured `Cena` output for a web frontend. Same MCP, same adventure module.
+2. **`AdventureModule`** (06) — swap the adventure without touching the engine. Phase 1 = a `SKILL.md`; Phase 2 = a data record.
+3. **Harness** (07) — Phase 1 = Claude Code (MCP + skills) ↔ Phase 2 = PydanticAI/FastAPI agent with structured `Scene` output for a web frontend. Same MCP, same adventure module.
 
-When adding or changing code, preserve these boundaries: e.g. `mcp` and `combate` must depend on the `StorageBackend` *interface*, never on `JSONStorage`. Prove it by making the in-memory storage impl work for tests.
+When adding or changing code, preserve these boundaries: e.g. `mcp` and `combat` must depend on the `StorageBackend` *interface*, never on `JSONStorage`. Prove it by making the in-memory storage impl work for tests.
 
 ## Conventions
 
-- **Language**: the **specs** (`docs/00..08`) are Portuguese, but **all code is English** — package names stay Portuguese (`dominio`, `regras`, `combate`, `storage`, `mcp`) while types, fields, and MCP tools are English (`CharacterSheet`, `World`, `roll_dice`, `test_luck`, `skill`/`stamina`/`luck`). Use the PT→EN mapping in `docs/CONTRACTS.md` §0; keep new identifiers consistent with it.
-- **Determinism**: `regras` is pure and the RNG is injectable so tests can use a fixed seed for reproducible results. Test `regras` and `combate` in full isolation (in-memory storage, seeded RNG) — no disk, no AI.
-- **State changes only via MCP**: the harness routes every numeric/state mutation through MCP tools (`roll_dice`, `test_luck`, `update_character_sheet`, `register_event`, combat tools …). `/stats` etc. must reflect real MCP state, never a narrated value.
-- **Invariants** live in `dominio` (e.g. `0 <= current <= initial` for an `Attribute`); serialization must round-trip (object → JSON → identical object).
+- **Language**: everything is English — package names (`domain`, `rules`, `combat`, `storage`, `mcp`), types, fields, and MCP tools (`CharacterSheet`, `World`, `roll_dice`, `test_luck`, `skill`/`stamina`/`luck`). Use the identifier mapping in `docs/CONTRACTS.md` §0; keep new identifiers consistent with it.
+- **Determinism**: `rules` is pure and the RNG is injectable so tests can use a fixed seed for reproducible results. Test `rules` and `combat` in full isolation (in-memory storage, seeded RNG) — no disk, no AI.
+- **State changes only via MCP**: the harness routes every numeric/state mutation through MCP tools (`roll_dice`, `test_luck`, `update_character_sheet`, `register_event`, combat tools …). `/hero` etc. must reflect real MCP state, never a narrated value.
+- **Invariants** live in `domain` (e.g. `0 <= current <= initial` for an `Attribute`); serialization must round-trip (object → JSON → identical object).
 - **Atomic, consistent storage**: every `StorageBackend` impl must not corrupt state if the process dies mid-write.
 
-## Game rules (from `01-regras.md`, for reference when implementing)
+## Game rules (from `01-rules.md`, for reference when implementing)
 
-- Attributes: `habilidade` = 1d6+6, `energia` = 2d6+12, `sorte` = 1d6+6 (each tracks `inicial`/`atual`).
-- Luck test (`testar_sorte`): success if roll ≤ current luck; luck always decrements by exactly 1 afterward.
-- Combat round: each side's attack strength (FA) = `habilidade` + 2d6; higher FA hits for base damage 2, tie = 0 damage.
+- Attributes: `skill` = 1d6+6, `stamina` = 2d6+12, `luck` = 1d6+6 (each tracks `initial`/`current`).
+- Luck test (`test_luck`): success if roll ≤ current luck; luck always decrements by exactly 1 afterward.
+- Combat round: each side's attack strength = `skill` + 2d6; higher AS hits for base damage 2, tie = 0 damage.
 - Luck modifier on a hit: won+lucky → 4, won+unlucky → 1, lost+lucky → 1, lost+unlucky → 3.
-- Combat: hero reaching 0 energy → `vivo: false`; flee (`escapar`) costs 2 damage and only if `fuga_permitida`.
+- Combat: hero reaching 0 stamina → `alive: false`; flee costs 2 damage and only if `flee_allowed`.
 
 ## Phases
 
@@ -94,9 +94,9 @@ dice or invents numbers in prose.**
   Mountain, bestiary that plugs into `start_combat`, victory flag `malachar_defeated`, and
   special rules for traps/bribes/healing). Swap this file to swap adventures.
 
-**Commands (`.claude/commands/`):** `/stats`, `/mochila`, `/mapa`, `/salvar` — system
+**Commands (`.claude/commands/`):** `/hero`, `/backpack`, `/map`, `/save` — system
 read-outs/checkpoints that reflect **real MCP state** (never narrated values) and do not
-advance the story (except `/mochila` using an item, an explicit state change via
+advance the story (except `/backpack` using an item, an explicit state change via
 `update_character_sheet`).
 
 The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.

@@ -1,57 +1,56 @@
-# 03 — Módulo `storage` (persistência plugável) ⭐
+# 03 — Module `storage` (pluggable persistence) ⭐
 
-## Responsabilidade
-Persistir e recuperar todo o estado que sobrevive entre sessões, **atrás de uma interface
-abstrata**. É a fronteira plugável nº 1: trocar JSON por Postgres não pode afetar nenhum
-outro módulo.
+## Responsibility
+Persist and retrieve all state that survives between sessions, **behind an abstract
+interface**. This is swap boundary #1: swapping JSON for Postgres must not affect any
+other module.
 
-## Interface exposta (contrato) — `StorageBackend`
+## Exposed interface (contract) — `StorageBackend`
 
 ```
 interface StorageBackend:
-    # Personagem
-    carregar_personagem() -> Ficha | None
-    salvar_personagem(ficha: Ficha) -> None
+    # Character
+    load_character() -> CharacterSheet | None
+    save_character(sheet: CharacterSheet) -> None
 
-    # Mundo
-    carregar_mundo() -> Mundo
-    salvar_mundo(mundo: Mundo) -> None
+    # World
+    load_world() -> World
+    save_world(world: World) -> None
 
-    # Eventos / cronologia (append-only)
-    anexar_evento(evento: Evento) -> None
-    carregar_eventos() -> Evento[]
+    # Events / timeline (append-only)
+    append_event(event: Event) -> None
+    load_events() -> Event[]
 
-    # Resumo narrativo
-    carregar_resumo() -> str
-    salvar_resumo(texto: str) -> None
+    # Narrative summary
+    load_summary() -> str
+    save_summary(text: str) -> None
 
-    # Combate em andamento
-    carregar_combate(combate_id: str) -> Combate | None
-    salvar_combate(combate: Combate) -> None
-    remover_combate(combate_id: str) -> None
+    # Active combat
+    load_combat(combat_id: str) -> Combat | None
+    save_combat(combat: Combat) -> None
+    remove_combat(combat_id: str) -> None
 
-    # Fins de jogo
-    arquivar(registro: RegistroArquivo, destino: "cemiterio"|"hall_da_fama") -> None
+    # End-of-game
+    archive(record: ArchiveRecord, destination: "graveyard" | "hall_of_fame") -> None
 
-    # Slots de save (opcional)
-    salvar_slot(nome: str) -> None
-    carregar_slot(nome: str) -> None
+    # Save slots (optional)
+    save_slot(name: str) -> None
+    load_slot(name: str) -> None
 ```
 
-Garantia exigida das implementações: **escrita atômica** (não corromper estado se
-o processo morrer no meio) e leitura consistente.
+Required guarantee from all implementations: **atomic writes** (no state corruption if the
+process dies mid-write) and consistent reads.
 
-## Dependências
-- Módulo 02 (`dominio`) para os tipos.
+## Dependencies
+- Module 02 (`domain`) for types.
 
-## Plugabilidade ⭐
-- **Fase 1 — `JSONStorage`**: um arquivo por entidade em `estado/` (`personagem.json`,
-  `mundo.json`, `eventos.json`, `resumo.md`, `combate.json`). Escrita atômica via
-  arquivo temporário + rename.
-- **Fase 2 — `PostgresStorage`**: mesma interface, tabelas no banco. Nenhum outro módulo muda.
-- Implementações adicionais possíveis: SQLite, Redis, memória (pra testes).
+## Pluggability ⭐
+- **Phase 1 — `JSONStorage`**: one file per entity in `estado/` (`character.json`,
+  `world.json`, `events.json`, `summary.md`, `combat.json`). Atomic write via temp file + rename.
+- **Phase 2 — `PostgresStorage`**: same interface, tables in the database. No other module changes.
+- Additional implementations possible: SQLite, Redis, in-memory (for tests).
 
-## Critérios de pronto
-- Os módulos `mcp` e `combate` dependem **só da interface**, nunca de `JSONStorage`.
-- Trocar a implementação concreta num único ponto (injeção de dependência) muda todo o backend.
-- Teste com implementação em memória prova que o resto funciona sem disco.
+## Definition of done
+- `mcp` and `combat` modules depend **only on the interface**, never on `JSONStorage`.
+- Swapping the concrete implementation at a single point (dependency injection) changes the entire backend.
+- Tests with the in-memory implementation prove the rest works without disk.

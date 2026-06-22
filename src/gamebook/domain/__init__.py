@@ -1,6 +1,6 @@
 """Domain contracts: the shared, persistent data models (base of the pyramid)."""
 
-from gamebook.dominio.models import (
+from gamebook.domain.models import (
     ArchiveRecord,
     Attribute,
     CharacterSheet,

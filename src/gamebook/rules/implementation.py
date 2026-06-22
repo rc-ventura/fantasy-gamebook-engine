@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from gamebook.dominio.models import Attribute
-from gamebook.regras.interfaces import (
+from gamebook.domain.models import Attribute
+from gamebook.rules.interfaces import (
     DiceResult,
     GeneratedAttributes,
     LuckTestResult,

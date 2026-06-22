@@ -25,8 +25,8 @@ from typing import Any, Literal
 
 import pytest
 
-from gamebook.combate.implementation import CombatService
-from gamebook.dominio.models import (
+from gamebook.combat.implementation import CombatService
+from gamebook.domain.models import (
     ArchiveRecord,
     Attribute,
     CharacterSheet,

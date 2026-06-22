@@ -38,7 +38,7 @@ if build_server is None:  # module exists but the composition root isn't wired y
         allow_module_level=True,
     )
 
-from gamebook.combate.implementation import CombatService  # noqa: E402
+from gamebook.combat.implementation import CombatService  # noqa: E402
 from gamebook.storage.in_memory import InMemoryStorage  # noqa: E402
 
 SEED = 20260621

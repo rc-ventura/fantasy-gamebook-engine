@@ -39,7 +39,7 @@ Use this verbatim-in-spirit as the first scene after a character exists. Narrate
 > stops pulsing for good. The trailhead is a wound in the mountain's flank, choked with
 > fallen rock. Behind you, the valley. Ahead, the dark.
 
-Opening choices should always include: examine the trailhead, check your gear (`/stats`),
+Opening choices should always include: examine the trailhead, check your gear (`/hero`),
 and begin the climb. The clock is implicit — the ritual *will* complete if the player
 dawdles forever, but never punish exploration mechanically; use it as narrative pressure.
 

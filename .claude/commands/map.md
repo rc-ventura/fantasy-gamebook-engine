@@ -2,7 +2,7 @@
 description: Show the map — current location and visited locations from real MCP world state.
 ---
 
-# /mapa  (map)
+# /map
 
 Print where the hero is and where they've been, from **real world state**. Read-out only —
 it must reflect the MCP World exactly, never a narrated guess. Changes nothing.

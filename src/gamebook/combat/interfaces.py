@@ -1,7 +1,7 @@
 """Combat lifecycle contracts: result value objects + the ``CombatEngine`` protocol.
 
 This module is part of the combat *interface* surface. It depends only on
-``dominio`` value objects (``Combat``, ``Enemy``) and defines the result types the
+``domain`` value objects (``Combat``, ``Enemy``) and defines the result types the
 engine returns to a harness. It must never import a concrete storage backend.
 """
 
@@ -11,7 +11,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from gamebook.dominio.models import Combat, Enemy
+from gamebook.domain.models import Combat, Enemy
 
 
 class LuckUse(BaseModel):

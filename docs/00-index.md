@@ -1,48 +1,48 @@
-# 00 — Índice e Mapa de Módulos
+# 00 — Index and Module Map
 
-Decomposição modular do sistema de livro-jogo com IA. Cada módulo tem spec própria,
-expõe um **contrato (interface)** e depende **só de interfaces** de outros módulos —
-nunca de implementações concretas. É isso que torna tudo plugável.
+Modular decomposition of the AI-driven gamebook system. Each module has its own spec,
+exposes a **contract (interface)**, and depends **only on interfaces** of other modules —
+never on concrete implementations. That is what makes everything pluggable.
 
-## Módulos
+## Modules
 
-| # | Módulo | Responsabilidade | Plugável? |
-|---|--------|------------------|-----------|
-| 01 | `regras` | Motor de regras puro (dado, sorte, combate) | — (estável) |
-| 02 | `dominio` | Contratos de dados (Ficha, Mundo, Evento, Combate) | — (estável) |
-| 03 | `storage` | Persistência atrás de interface abstrata | ✅ JSON ↔ Postgres |
-| 04 | `combate` | Ciclo de vida do combate (estado + rodadas) | — |
-| 05 | `mcp` | Servidor MCP: expõe ferramentas ao harness | — (contrato estável) |
-| 06 | `modulo-aventura` | Conteúdo/lore plugável (zonas, NPCs, vitória) | ✅ Ignarok ↔ outros |
-| 07 | `harness` | O mestre/narrador que consome o MCP | ✅ Claude Code ↔ PydanticAI |
-| 08 | `comandos` | Comandos de sistema (/stats, /mochila, ...) | ✅ adicionar novos |
+| # | Module | Responsibility | Pluggable? |
+|---|--------|----------------|-----------|
+| 01 | `rules` | Pure rules engine (dice, luck, combat math) | — (stable) |
+| 02 | `domain` | Data contracts (CharacterSheet, World, Event, Combat) | — (stable) |
+| 03 | `storage` | Persistence behind an abstract interface | ✅ JSON ↔ Postgres |
+| 04 | `combat` | Combat lifecycle (state + rounds) | — |
+| 05 | `mcp` | MCP server: exposes tools to the harness | — (stable contract) |
+| 06 | `adventure-module` | Pluggable static lore (zones, NPCs, victory) | ✅ Ignarok ↔ others |
+| 07 | `harness` | The narrator/master that consumes the MCP | ✅ Claude Code ↔ PydanticAI |
+| 08 | `commands` | System commands (/hero, /backpack, …) | ✅ add new ones |
 
-## Grafo de dependências (só aponta pra interfaces)
+## Dependency graph (arrows point only at interfaces)
 
 ```
-07 harness ───────► 05 mcp ◄──────── 08 comandos
+07 harness ───────► 05 mcp ◄──────── 08 commands
                       │
         ┌─────────────┼─────────────┐
         ▼             ▼             ▼
-   01 regras     04 combate     03 storage (interface)
+   01 rules      04 combat     03 storage (interface)
         │             │             ▲
-        └──────►──────┘             │ implementa
+        └──────►──────┘             │ implements
                   │                 │
                   ▼                 │
-            02 dominio ◄────────────┘  (contratos de dados compartilhados)
+            02 domain ◄─────────────┘  (shared data contracts)
 
-06 modulo-aventura ──(lore consumido pelo)──► 07 harness
+06 adventure-module ──(lore consumed by)──► 07 harness
 ```
 
-Regra de ouro da modularidade: setas só apontam pra **interfaces**. `mcp` conhece a
-*interface* `StorageBackend`, não a implementação JSON. `harness` conhece o *contrato de
-ferramentas* do MCP, não o código por trás.
+Golden rule of modularity: arrows point only at **interfaces**. `mcp` knows the
+`StorageBackend` *interface*, not the JSON implementation. `harness` knows the MCP
+*tool contract*, not the code behind it.
 
-## As 3 fronteiras plugáveis que importam
-1. **`StorageBackend`** (módulo 03) — troca persistência sem tocar no resto.
-2. **`ModuloAventura`** (módulo 06) — troca a aventura sem tocar no motor.
-3. **Harness** (módulo 07) — troca quem narra (terminal → web) reusando o MCP.
+## The 3 swap boundaries that matter
+1. **`StorageBackend`** (module 03) — swap persistence without touching anything else.
+2. **`AdventureModule`** (module 06) — swap the adventure without touching the engine.
+3. **Harness** (module 07) — swap the narrator (terminal → web) reusing the same MCP.
 
-## Template de cada spec
-Responsabilidade · Interface exposta (contrato) · Dependências · Plugabilidade ·
-Critérios de pronto.
+## Template for each spec
+Responsibility · Exposed interface (contract) · Dependencies · Pluggability ·
+Definition of done.

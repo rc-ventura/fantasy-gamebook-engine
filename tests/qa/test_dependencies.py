@@ -8,10 +8,10 @@ golden rule and the three swap boundaries.
 The rules encoded here come directly from ``docs/CONTRACTS.md`` Section 1
 ("Module layering" + the binding **Audit rule** paragraph):
 
-* ``dominio`` -- base of the pyramid; imports no other ``gamebook`` module.
-* ``regras``  -- imports only ``dominio`` (the pure core).
-* ``storage`` -- imports only ``dominio``.
-* ``combate`` -- may import ``regras`` and ``dominio`` and, under
+* ``domain`` -- base of the pyramid; imports no other ``gamebook`` module.
+* ``rules``  -- imports only ``domain`` (the pure core).
+* ``storage`` -- imports only ``domain``.
+* ``combat`` -- may import ``rules`` and ``domain`` and, under
   ``TYPE_CHECKING`` only, ``storage.interfaces``; it must NEVER import a storage
   *concrete* (``storage.json_storage`` / ``storage.in_memory``) nor ``mcp``.
 * ``mcp`` (non-root) -- the facade; only ``server.py``'s ``main()`` (the
@@ -36,9 +36,9 @@ STORAGE_CONCRETES = (
 # Allow-list rules for the lower, strictly-layered packages: every gamebook
 # import a file in <pkg> makes must match one of these prefixes.
 ALLOWED_PREFIXES: dict[str, tuple[str, ...]] = {
-    "dominio": ("gamebook", "gamebook.dominio"),
-    "regras": ("gamebook", "gamebook.dominio", "gamebook.regras"),
-    "storage": ("gamebook", "gamebook.dominio", "gamebook.storage"),
+    "domain": ("gamebook", "gamebook.domain"),
+    "rules": ("gamebook", "gamebook.domain", "gamebook.rules"),
+    "storage": ("gamebook", "gamebook.domain", "gamebook.storage"),
 }
 
 
@@ -47,10 +47,10 @@ def _files(pkg: str):
     return [(f, _audit.module_name_for(f)) for f in files]
 
 
-# --------------------------------------------------------------------------- dominio/regras/storage
-@pytest.mark.parametrize("pkg", ["dominio", "regras", "storage"])
+# --------------------------------------------------------------------------- domain/rules/storage
+@pytest.mark.parametrize("pkg", ["domain", "rules", "storage"])
 def test_lower_layers_only_import_allowed_prefixes(pkg: str) -> None:
-    """`dominio`/`regras`/`storage` may only import the layers below them."""
+    """`domain`/`rules`/`storage` may only import the layers below them."""
     allowed = ALLOWED_PREFIXES[pkg]
     files = _files(pkg)
     assert files, f"no source files found for package {pkg!r}"
@@ -67,28 +67,27 @@ def test_lower_layers_only_import_allowed_prefixes(pkg: str) -> None:
     )
 
 
-def test_dominio_is_the_base_of_the_pyramid() -> None:
-    """`dominio` depends on nothing else in `gamebook` (only its own submodules)."""
+def test_domain_is_the_base_of_the_pyramid() -> None:
+    """`domain` depends on nothing else in `gamebook` (only its own submodules)."""
     leaks: list[str] = []
-    for path, modname in _files("dominio"):
+    for path, modname in _files("domain"):
         for imp in sorted(_audit.gamebook_imports(path)):
-            # Anything that is not the package root or an internal dominio module.
-            if not _audit.imports_target(imp, "gamebook.dominio") and imp != "gamebook":
+            if not _audit.imports_target(imp, "gamebook.domain") and imp != "gamebook":
                 leaks.append(f"{modname} imports {imp!r}")
-    assert not leaks, "dominio must depend on no other gamebook module:\n  " + "\n  ".join(leaks)
+    assert not leaks, "domain must depend on no other gamebook module:\n  " + "\n  ".join(leaks)
 
 
-# --------------------------------------------------------------------------- combate
-def test_combate_never_imports_a_storage_concrete_or_mcp() -> None:
-    """`combate` must depend on storage only via its interface (boundary #1).
+# --------------------------------------------------------------------------- combat
+def test_combat_never_imports_a_storage_concrete_or_mcp() -> None:
+    """`combat` must depend on storage only via its interface (boundary #1).
 
-    It may import `regras` (stable core) and `dominio`, and reference
+    It may import `rules` (stable core) and `domain`, and reference
     `storage.interfaces` under `TYPE_CHECKING`; it must NEVER import a concrete
     storage backend nor the `mcp` facade above it.
     """
     forbidden = STORAGE_CONCRETES + ("gamebook.mcp",)
-    files = _files("combate")
-    assert files, "no source files found for package 'combate'"
+    files = _files("combat")
+    assert files, "no source files found for package 'combat'"
 
     violations: list[str] = []
     for path, modname in files:
@@ -99,28 +98,27 @@ def test_combate_never_imports_a_storage_concrete_or_mcp() -> None:
                 violations.append(f"{modname} imports {imp!r} (forbidden: {hit})")
 
     assert not violations, (
-        "combate violated swap boundary #1 by importing a concrete impl/facade:\n  "
+        "combat violated swap boundary #1 by importing a concrete impl/facade:\n  "
         + "\n  ".join(violations)
     )
 
 
-def test_combate_uses_storage_interface_only_under_type_checking() -> None:
+def test_combat_uses_storage_interface_only_under_type_checking() -> None:
     """Positive proof the boundary is satisfied the *intended* way.
 
-    `combate` references `StorageBackend` for typing; the ast audit sees that
+    `combat` references `StorageBackend` for typing; the ast audit sees that
     typing import, and it must be `storage.interfaces` (never a concrete). This
     asserts the interface seam exists, complementing the negative test above.
     """
     referenced_storage: set[str] = set()
-    for path, _modname in _files("combate"):
+    for path, _modname in _files("combat"):
         for imp in _audit.gamebook_imports(path):
             if _audit.imports_target(imp, "gamebook.storage"):
                 referenced_storage.add(imp)
 
-    # Every storage reference combate makes must go through the interface module.
     for imp in referenced_storage:
         assert _audit.imports_target(imp, "gamebook.storage.interfaces"), (
-            f"combate references storage via {imp!r}, expected gamebook.storage.interfaces"
+            f"combat references storage via {imp!r}, expected gamebook.storage.interfaces"
         )
 
 

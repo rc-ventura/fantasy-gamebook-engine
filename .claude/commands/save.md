@@ -3,7 +3,7 @@ description: Save the game — create a checkpoint of current progress via MCP a
 argument-hint: [slot name, optional]
 ---
 
-# /salvar  (save)
+# /save
 
 Checkpoint the current progress through MCP and confirm. This does not change the story —
 it persists a save slot.

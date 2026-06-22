@@ -17,7 +17,7 @@ import json
 import random
 from typing import Any
 
-from gamebook.combate.implementation import CombatService
+from gamebook.combat.implementation import CombatService
 from gamebook.storage.in_memory import InMemoryStorage
 
 

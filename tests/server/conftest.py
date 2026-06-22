@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gamebook.dominio.models import (
+from gamebook.domain.models import (
     ArchiveRecord,
     Attribute,
     CharacterSheet,

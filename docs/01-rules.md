@@ -1,48 +1,48 @@
-# 01 — Módulo `regras` (motor puro)
+# 01 — Module `rules` (pure engine)
 
-## Responsabilidade
-Resolver toda a matemática do jogo de forma **determinística e pura**: rolagem de dados,
-geração de atributos, teste de sorte e a resolução de uma rodada de combate. Sem I/O,
-sem estado, sem conhecer IA nem storage. É a peça que vai **intacta** pra Fase 2.
+## Responsibility
+Resolve all game math in a **deterministic, pure** way: dice rolling, attribute generation,
+luck tests, and combat round resolution. No I/O, no state, no knowledge of AI or storage.
+This is the piece that travels **intact** to Phase 2.
 
-## Interface exposta (contrato)
-Funções puras; o gerador aleatório é **injetável** (pra testes determinísticos).
+## Exposed interface (contract)
+Pure functions; the random source is **injectable** (for deterministic tests).
 
 ```
-rolar_dado(notacao: str, rng) -> { rolagens: int[], total: int }
-    # notacao: "NdM", "NdM+K", "NdM-K"  (ex.: "2d6+6")
+roll_dice(notation: str, rng) -> { rolls: int[], total: int }
+    # notation: "NdM", "NdM+K", "NdM-K"  (e.g. "2d6+6")
 
-gerar_atributos(rng) -> {
-    habilidade: { inicial, atual },   # 1d6+6
-    energia:    { inicial, atual },   # 2d6+12
-    sorte:      { inicial, atual },   # 1d6+6
+generate_attributes(rng) -> {
+    skill:   { initial, current },   # 1d6+6
+    stamina: { initial, current },   # 2d6+12
+    luck:    { initial, current },   # 1d6+6
 }
 
-testar_sorte(sorte_atual: int, rng) -> {
-    rolagem: int, sucesso: bool, sorte_depois: int   # sorte_depois = sorte_atual - 1
+test_luck(current_luck: int, rng) -> {
+    roll: int, success: bool, luck_after: int   # luck_after = current_luck - 1
 }
 
-resolver_rodada(habilidade_heroi: int, habilidade_inimigo: int, rng) -> {
-    fa_heroi: int, fa_inimigo: int,
-    quem_acertou: "heroi" | "inimigo" | "empate",
-    dano_base: int   # 2 no perdedor; 0 em empate
+resolve_round(hero_skill: int, enemy_skill: int, rng) -> {
+    hero_attack:  int, enemy_attack: int,
+    hit_by: "hero" | "enemy" | "tie",
+    base_damage: int   # 2 to the loser; 0 on a tie
 }
 
-aplicar_modificador_sorte(quem_acertou, dano_base, sucesso_sorte: bool) -> dano_final: int
-    # venceu+sucesso -> 4 ; venceu+falha -> 1
-    # perdeu+sucesso -> 1 ; perdeu+falha -> 3
+apply_luck_modifier(hit_by, base_damage, luck_success: bool) -> final_damage: int
+    # won+lucky -> 4 ; won+unlucky -> 1
+    # lost+lucky -> 1 ; lost+unlucky -> 3
 ```
 
-## Dependências
-- Apenas tipos do módulo 02 (`dominio`), e idealmente nem isso — pode retornar dicts simples.
-- **Nenhuma** dependência de storage, MCP ou IA.
+## Dependencies
+- Only types from module 02 (`domain`) — ideally not even that (can return plain dicts).
+- **No** dependency on storage, MCP, or AI.
 
-## Plugabilidade
-Não é plugável (é o núcleo estável). Mas o **rng injetável** permite trocar a fonte de
-aleatoriedade (ex.: seed fixa em testes, RNG criptográfico em produção).
+## Pluggability
+Not pluggable (it is the stable core). But the **injectable rng** allows swapping the
+randomness source (e.g. fixed seed in tests, cryptographic RNG in production).
 
-## Critérios de pronto
-- Testável 100% isoladamente, sem IA e sem disco.
-- Com seed fixa, resultados reproduzíveis.
-- Testes cobrem: parsing de notação inválida, faixas dos atributos, decremento da sorte
-  sempre em 1, empate sem dano, e os 4 casos do modificador de sorte.
+## Definition of done
+- 100% testable in isolation, without AI and without disk.
+- With a fixed seed, results are reproducible.
+- Tests cover: invalid notation parsing, attribute ranges, luck always decrements by 1,
+  tie produces no damage, and all 4 luck modifier cases.

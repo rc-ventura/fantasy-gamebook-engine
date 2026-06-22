@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from gamebook.dominio.models import ArchiveRecord, World
+from gamebook.domain.models import ArchiveRecord, World
 from gamebook.storage.interfaces import StorageBackend
 
 

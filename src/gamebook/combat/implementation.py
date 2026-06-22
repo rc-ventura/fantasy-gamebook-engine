@@ -1,12 +1,12 @@
 """Combat lifecycle implementation: ``CombatService``.
 
-Orchestrates a fight using the pure ``regras`` math and a ``StorageBackend`` to
+Orchestrates a fight using the pure ``rules`` math and a ``StorageBackend`` to
 persist the ``Combat`` and ``CharacterSheet`` between calls (so an in-progress
 fight survives a restart). It contains **no game rules of its own** — all math
-lives in ``regras``.
+lives in ``rules``.
 
-Dependency hygiene (golden rule): this module imports ``regras`` (the stable
-core) and ``dominio`` at runtime, but references ``StorageBackend`` only under
+Dependency hygiene (golden rule): this module imports ``rules`` (the stable
+core) and ``domain`` at runtime, but references ``StorageBackend`` only under
 ``TYPE_CHECKING``. It therefore has *no* runtime dependency on the storage layer
 and never imports a concrete backend (``json_storage`` / ``in_memory``); the
 backend is injected at construction by the composition root.
@@ -17,17 +17,17 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from gamebook.combate.interfaces import (
+from gamebook.combat.interfaces import (
     FinalResult,
     FleeResult,
     LuckUse,
     RoundOutcome,
 )
-from gamebook.dominio.models import Attribute, Combat, Enemy
-from gamebook.regras import implementation as rules
+from gamebook.domain.models import Attribute, Combat, Enemy
+from gamebook.rules import implementation as rules
 
 if TYPE_CHECKING:
-    from gamebook.regras.interfaces import RandomSource
+    from gamebook.rules.interfaces import RandomSource
     from gamebook.storage.interfaces import StorageBackend
 
 # Stamina lost by the hero when fleeing (fixed by the rules).

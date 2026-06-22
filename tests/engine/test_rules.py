@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from gamebook.regras.implementation import (
+from gamebook.rules.implementation import (
     apply_luck_modifier,
     generate_attributes,
     resolve_round,
@@ -14,7 +14,7 @@ from gamebook.regras.implementation import (
 )
 # Aliased on import: a name starting with ``test_`` would otherwise be collected
 # by pytest as a test function (and fail looking for a ``current_luck`` fixture).
-from gamebook.regras.implementation import test_luck as run_luck_test
+from gamebook.rules.implementation import test_luck as run_luck_test
 
 
 class ConstRandom:
