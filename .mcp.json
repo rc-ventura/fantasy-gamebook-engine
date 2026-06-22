@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gamebook": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "gamebook.mcp.server"]
+    }
+  }
+}

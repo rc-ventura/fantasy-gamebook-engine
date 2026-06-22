@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+estado/
+*.egg-info/
+
+# coverage data
+.coverage
+.coverage.*
+htmlcov/
+
+# local Claude Code settings (personal, not shared)
+.claude/settings.local.json
