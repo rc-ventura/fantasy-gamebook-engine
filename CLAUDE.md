@@ -139,16 +139,33 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
 
 <!-- SPECKIT START -->
-**Active feature**: `001-web-platform-migration` (Phase 2 — web migration).
-Read the current plan and its design artifacts for technologies, structure, and contracts:
-- Plan: `specs/001-web-platform-migration/plan.md`
+**Active feature**: `002-persistence-foundation` (first slice of the decomposed
+`001-web-platform-migration` epic). The epic was decomposed into a dependency-ordered chain of
+independently-shippable features; see the Decomposition section in
+`specs/001-web-platform-migration/spec.md`:
+- `002-persistence-foundation` ← active (PostgresStorage behind `StorageBackend`, swap boundary #1)
+- `003-web-backend-mvp` (FastAPI + MCP host + PydanticAI narrator + `Scene` + documented API
+  playable via script; depends on `002`)
+- `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
+  production hardening + OpenTelemetry; depends on `002`, `003`)
+- `005-professional-spa` (React/Vite SPA consuming `003`'s documented API; depends on `003`,
+  sign-in UI also `004`; can develop in parallel with `004` against `003`'s frozen OpenAPI)
+
+Dependency chain: `002` → `003` → `004` // `005`.
+
+**Active feature artifacts** (`specs/002-persistence-foundation/`):
+- Spec: `specs/002-persistence-foundation/spec.md`
+- Plan: `specs/002-persistence-foundation/plan.md`
+- Tasks: `specs/002-persistence-foundation/tasks.md`
+
+**Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`
 - Data model: `specs/001-web-platform-migration/data-model.md`
 - Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`)
 - Quickstart (validation): `specs/001-web-platform-migration/quickstart.md`
 
-Stack added in this feature: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`),
-a new agent-based narrator on `claude-opus-4-8` emitting a Pydantic-validated `Scene`, a separate
-OIDC auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool contract and the engine
+Stack across the epic: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`), a new
+agent-based narrator on `claude-opus-4-8` emitting a Pydantic-validated `Scene`, a separate OIDC
+auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool contract and the engine
 (`src/gamebook/`) stay behavior-unchanged. Constitution: `.specify/memory/constitution.md` (v1.0.0).
 <!-- SPECKIT END -->

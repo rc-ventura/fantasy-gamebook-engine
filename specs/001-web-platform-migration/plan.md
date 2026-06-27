@@ -4,6 +4,14 @@
 
 **Input**: Feature specification from `specs/001-web-platform-migration/spec.md`
 
+> **Epic umbrella — decomposed.** This plan is the epic-level design. Implementation has been
+> decomposed into a dependency-ordered chain of independently-shippable features (`002` → `003` →
+> `004` // `005`); see the Decomposition section in [spec.md](./spec.md). The shared design artifacts
+> (research, data model, contracts, quickstart) below are the authoritative reference for every
+> slice; the slices reference them by relative path rather than duplicating. The original
+> `tasks.md` (T001–T045) is preserved as the epic-level task map; the slices re-distribute those
+> tasks.
+
 ## Summary
 
 Take the existing, green solo-play gamebook engine (rules / domain / storage / combat / mcp) and

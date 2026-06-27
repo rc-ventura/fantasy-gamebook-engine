@@ -4,6 +4,21 @@ description: "Task list for Web Platform Migration (Phase 2)"
 
 # Tasks: Web Platform Migration
 
+> **Epic-level task map — decomposed.** This file is the original monolithic task list (T001–T045),
+> preserved as the epic-level task map. Implementation has been decomposed into a dependency-ordered
+> chain of independently-shippable features; see the Decomposition section in
+> [spec.md](./spec.md). The tasks below are re-distributed across the slices as follows:
+> - `002-persistence-foundation`: T001, T006–T008, T013, T014 (PostgresStorage + contract suite +
+>   audit + CONTRACTS)
+> - `003-web-backend-mvp`: T002, T003, T004, T005, T009, T010, T015–T021, T022 (API + MCP host +
+>   narrator + Scene + dev auth stub + API-playable MVP)
+> - `004-accounts-hardening-obs`: T011, T012, T025–T029, T031–T035, T036, T037, T039–T041
+>   (real OIDC + accounts + session lease + resume + privacy + hardening + observability)
+> - `005-professional-spa`: T023, T024, T025-UI, T030-UI, T038-UI, T042, T043 (React/Vite SPA +
+>   panels + sign-in UI + resume/session UX + polish)
+>
+> Each slice's own `tasks.md` is the authoritative, refined task list for that feature.
+
 **Input**: Design documents from `specs/001-web-platform-migration/`
 
 **Prerequisites**: plan.md, spec.md (5 user stories), research.md, data-model.md, contracts/, quickstart.md

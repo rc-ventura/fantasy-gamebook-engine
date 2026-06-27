@@ -4,12 +4,40 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Decomposed (epic umbrella)
 
 **Input**: User description: "Following the project roadmap, the terminal experience already works
 perfectly. Now it is time to migrate to a web system: authentication as a separate service, add
 persistence, a separate professional UI, a new harness (deep agents), validate schemas with
 Pydantic, build a production-ready system, build observability, and expose the application as an API."
+
+## Decomposition
+
+This spec is the **epic umbrella**: it is too large for a single spec-kit feature (5 user stories,
+25 FRs, 45 tasks, 6 distinct technical concerns) and has been decomposed into a dependency-ordered
+chain of independently-shippable features. The shared design artifacts below (research, data model,
+contracts, quickstart) are the authoritative reference for every slice; the slices reference them by
+relative path rather than duplicating, to avoid drift. Implementation happens in the slices, not here.
+
+| Feature | Scope (epic USs / FRs covered) | Independently testable via | Depends on |
+|---|---|---|---|
+| `002-persistence-foundation` | PostgresStorage behind `StorageBackend` — swap boundary #1 (epic FR-011/012/013/018, US3-integrity) | storage contract suite through the consumer (ADR-009); Phase-1 MCP path with `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` | — |
+| `003-web-backend-mvp` | FastAPI + MCP host + PydanticAI narrator + `Scene` + dev auth stub + documented, authenticated API playable via script (epic FR-001/002/003/004/005/006/014/015/016/017/018/019/020/021, US1 + US4) | full play loop via the documented OpenAPI with the `FakeNarrator` (no browser, no LLM) | `002` |
+| `004-accounts-hardening-obs` | Real OIDC + accounts + per-account isolation + session lease + save/resume across devices + privacy export/erasure + atomic-write hardening under concurrency + graceful degradation + ended-run guarding + OpenTelemetry observability (epic FR-007/008/009/010/011/012/022/023/024/025, US2 + US3 + US5) | Independent Tests of US2/US3/US5 through the documented API (no browser) | `002`, `003` |
+| `005-professional-spa` | React/Vite SPA consuming `003`'s documented API: scene/choices/character sheet/inventory/map/combat panels, typed OpenAPI client, loading/empty/error states, sign-in UI (gated on `004`), resume-across-devices + single-active-session UX (epic FR-020/021, US1-UI + US2-UI) | browser play loop against `003`'s frozen OpenAPI (mock then live); renders only engine state | `003` (sign-in UI also `004`) |
+
+**Dependency chain**: `002` → `003` → `004` // `005`. `005` can develop against `003`'s frozen
+OpenAPI using a mock, **in parallel with `004`**. The browser MVP of the epic is the combination of
+`003` (documented API) + `005` (SPA). The original monolithic `tasks.md` (T001–T045) is preserved
+below as the epic-level task map; the slices re-distribute those tasks across `002`–`005`.
+
+**Shared design artifacts (authoritative for every slice)**:
+- [research.md](./research.md) — Phase-0 technology decisions
+- [data-model.md](./data-model.md) — entities + Postgres mapping + `Scene`
+- [contracts/http-api.md](./contracts/http-api.md) — HTTP API contract draft
+- [contracts/scene.md](./contracts/scene.md) — `Scene` schema draft
+- [quickstart.md](./quickstart.md) — runnable validation guide
+- [checklists/requirements.md](./checklists/requirements.md) — spec quality checklist
 
 ## Overview
 
