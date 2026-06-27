@@ -8,6 +8,11 @@
 > **Cycle-2 amendment (2026-06-21, ADR-010 ratified):** §6 tool count 17 → **18** — added
 > `update_world`; added `start_combat` enemy validation; added `FleeResult.hero_alive` and an
 > unambiguous flee-death `winner` in §5.
+>
+> **Slice-003 amendment (2026-06-27):** Added §9 (HTTP API), §10 (Scene), §11 (Postgres
+> mapping) — folded from `specs/001-web-platform-migration/contracts/`.  Added
+> `fastapi`, `pydantic-ai[anthropic]` (resolved: 2.0.0), `anthropic`, `uvicorn` to
+> §0a (installed in pyproject.toml: 003-T001).  MCPToolset pattern: ADR-014.
 
 ## 0. Global rules (every teammate)
 
@@ -37,8 +42,9 @@
 | `sqlalchemy[asyncio]` | `>=2.0.0` | Async ORM/Core for PostgresStorage (T007) — **installed in pyproject.toml: 002-T001** |
 | `asyncpg` | `>=0.30.0` | PostgreSQL async driver (T007) — **installed in pyproject.toml: 002-T001** |
 | `alembic` | `>=1.14.0` | Schema migrations (T005–T006) — **installed in pyproject.toml: 002-T001** |
-| `pydantic-ai` | `>=0.0.15` | Agent-based narrator harness emitting `Scene` (T017, ADR-011) |
-| `anthropic` | `>=0.40.0` | Anthropic SDK; default model `claude-opus-4-8` (T017) |
+| `uvicorn` | `>=0.32.0` | ASGI server for `gamebook_web` (003-T001) |
+| `pydantic-ai[anthropic]` | `>=0.0.15` (resolved: **2.0.0**) | Agent-based narrator harness emitting `Scene` (ADR-011, ADR-014) — MCPToolset.direct_call_tool for routes; toolsets=[] for agent runs |
+| `anthropic` | `>=0.40.0` | Anthropic SDK; default model `claude-opus-4-8` (ADR-011) |
 | `opentelemetry-sdk` | `>=1.30.0` | Tracing/metrics/logs implementation (T039) |
 | `opentelemetry-api` | `>=1.30.0` | OTel API surface (T039) |
 | `opentelemetry-exporter-otlp` | `>=1.30.0` | OTLP exporter to operator-chosen backend (T039) |

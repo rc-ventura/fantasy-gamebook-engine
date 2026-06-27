@@ -1,6 +1,9 @@
-"""Shared fixtures for storage and MCP-server tests."""
+"""Shared fixtures for storage, MCP-server, and web API tests."""
 
 from __future__ import annotations
+
+import random
+from typing import Any
 
 import pytest
 
@@ -106,3 +109,76 @@ def sample_archive() -> ArchiveRecord:
         cause=None,
         final_inventory=["crown"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Web API test fixtures
+# ---------------------------------------------------------------------------
+
+SEED = 42
+
+
+@pytest.fixture
+def engine_storage() -> InMemoryStorage:
+    """Fresh in-memory storage for each web API test."""
+    return InMemoryStorage()
+
+
+@pytest.fixture
+def engine_server(engine_storage: InMemoryStorage) -> Any:
+    """In-process FastMCP server backed by ``InMemoryStorage``.
+
+    Tests import ``gamebook.mcp.server`` (engine internals are allowed in
+    tests — ``tests/`` is not ``gamebook_web/``).  This server is injected
+    into the FastAPI app via ``mcp_host.set_engine_toolset_factory`` so no
+    subprocess is started during API tests.
+    """
+    from gamebook.combat.implementation import CombatService
+    from gamebook.mcp.server import build_server
+
+    rng = random.Random(SEED)
+    combat = CombatService(engine_storage, rng)
+    return build_server(storage=engine_storage, combat=combat, rng=rng)
+
+
+@pytest.fixture
+def fake_narrator():
+    """Default FakeNarrator with an empty queue (uses built-in defaults)."""
+    from gamebook_web.harness.base import FakeNarrator
+    return FakeNarrator()
+
+
+@pytest.fixture
+def api_client(engine_server: Any, fake_narrator: Any):
+    """Synchronous FastAPI TestClient with:
+    - In-process engine toolset (no subprocess)
+    - FakeNarrator (no LLM)
+    - Fresh CampaignRegistry per test
+
+    Routes work identically to production — only the backing implementations differ.
+    The ``mcp_host`` factory is patched before the lifespan starts so the lifespan
+    does not attempt to spawn a subprocess.
+    """
+    from pydantic_ai.mcp import MCPToolset
+    from starlette.testclient import TestClient
+
+    import gamebook_web.mcp_host as mcp_host_mod
+    from gamebook_web.api.app import app
+    from gamebook_web.sessions.campaign import CampaignRegistry
+
+    # Install in-process toolset factory BEFORE entering the lifespan
+    mcp_host_mod.set_engine_toolset_factory(lambda: MCPToolset(engine_server))
+
+    # Install a fresh registry and the FakeNarrator on app.state so the
+    # lifespan does not try to create a real narrator or registry.
+    app.state.campaign_registry = CampaignRegistry()
+    app.state.narrator = fake_narrator
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+
+    # Reset after the test
+    mcp_host_mod.set_engine_toolset_factory(None)
+    app.state.campaign_registry = None  # type: ignore[assignment]
+    app.state.narrator = None  # type: ignore[assignment]
+    app.state.engine_toolset = None  # type: ignore[assignment]

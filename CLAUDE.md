@@ -128,6 +128,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 | [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
 | [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
+| [ADR-014](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents | Accepted | 2026-06-27 |
 
 ## Learning Lessons
 
@@ -140,14 +141,15 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [FastMCP tool return-serialization & invocation gotchas](./docs/learning-lessons/fastmcp_tool_return_serialization_gotchas.md) — 2026-06-21
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
 - [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
+- [pydantic-ai 2.0 MCPToolset: `direct_call_tool` vs `toolsets=[]` in agents](./docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md) — 2026-06-27
 
 <!-- SPECKIT START -->
-**Active feature**: `002-persistence-foundation` (first slice of the decomposed
+**Active feature**: `003-web-backend-mvp` (second slice of the decomposed
 `001-web-platform-migration` epic). The epic was decomposed into a dependency-ordered chain of
 independently-shippable features; see the Decomposition section in
 `specs/001-web-platform-migration/spec.md`:
-- `002-persistence-foundation` ← active (PostgresStorage behind `StorageBackend`, swap boundary #1)
-- `003-web-backend-mvp` (FastAPI + MCP host + PydanticAI narrator + `Scene` + documented API
+- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1)
+- `003-web-backend-mvp` ← **active** (FastAPI + MCP host + PydanticAI narrator + `Scene` + documented API
   playable via script; depends on `002`)
 - `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
   production hardening + OpenTelemetry; depends on `002`, `003`)
