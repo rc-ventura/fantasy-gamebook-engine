@@ -34,9 +34,9 @@
 | Package | Version constraint | Purpose |
 |---|---|---|
 | `fastapi[standard]` | `>=0.115.0` | HTTP API server + OpenAPI generation (T009, T020–T021) |
-| `sqlalchemy[asyncio]` | `>=2.0.0` | Async ORM/Core for PostgresStorage (T007) |
-| `asyncpg` | `>=0.30.0` | PostgreSQL async driver (T007) |
-| `alembic` | `>=1.14.0` | Schema migrations (T005–T006) |
+| `sqlalchemy[asyncio]` | `>=2.0.0` | Async ORM/Core for PostgresStorage (T007) — **installed in pyproject.toml: 002-T001** |
+| `asyncpg` | `>=0.30.0` | PostgreSQL async driver (T007) — **installed in pyproject.toml: 002-T001** |
+| `alembic` | `>=1.14.0` | Schema migrations (T005–T006) — **installed in pyproject.toml: 002-T001** |
 | `pydantic-ai` | `>=0.0.15` | Agent-based narrator harness emitting `Scene` (T017, ADR-011) |
 | `anthropic` | `>=0.40.0` | Anthropic SDK; default model `claude-opus-4-8` (T017) |
 | `opentelemetry-sdk` | `>=1.30.0` | Tracing/metrics/logs implementation (T039) |
