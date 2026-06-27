@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'tests/e2e'] },
+  { ignores: ['dist', 'node_modules', 'tests/e2e', '*.config.ts', '*.config.js'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
     files: ['**/*.{ts,tsx}'],
@@ -37,6 +37,13 @@ export default tseslint.config(
 
       // Catch unhandled promise rejections
       '@typescript-eslint/no-floating-promises': 'error',
+
+      // Allow intentionally-unused identifiers prefixed with _
+      // (standard TypeScript convention for unused params in interface implementations)
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
     },
   },
 )
