@@ -30,8 +30,8 @@ Migrations: `alembic/`. Tests: `tests/{server,qa}/`.
 
 **Purpose**: Storage dependencies and migration framework.
 
-- [ ] T001 Add storage dependencies via `uv` (`sqlalchemy`, `asyncpg`, `alembic`) in `pyproject.toml`, and record them in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update). Web deps (`fastapi`, `pydantic-ai`, `opentelemetry-*`) are NOT added here — they belong to `003`/`004`.
-- [ ] T002 Initialize Alembic in `alembic/` wired to `DATABASE_URL`
+- [x] T001 Add storage dependencies via `uv` (`sqlalchemy`, `asyncpg`, `alembic`) in `pyproject.toml`, and record them in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update). Web deps (`fastapi`, `pydantic-ai`, `opentelemetry-*`) are NOT added here — they belong to `003`/`004`.
+- [x] T002 Initialize Alembic in `alembic/` wired to `DATABASE_URL`
 
 ---
 
@@ -41,8 +41,8 @@ Migrations: `alembic/`. Tests: `tests/{server,qa}/`.
 
 **⚠️ CRITICAL**: No user-story verification begins until this phase is complete.
 
-- [ ] T003 Alembic migration: minimal `campaign (id PK, status, created_at)` + engine tables scoped to `campaign_id` (`character_sheet`, `world`, `event`, `combat`, `archive_record`) in `alembic/versions/` (data-model.md §B engine rows; `account`/`session_lease` deferred to `004`)
-- [ ] T004 Implement `PostgresStorage(StorageBackend)` in `src/gamebook/storage/postgres.py` — scoped to a `campaign_id` supplied at construction, one transaction per state change (atomic, all-or-nothing), round-trips the domain (Principles II & V; swap boundary #1)
+- [x] T003 Alembic migration: minimal `campaign (id PK, status, created_at)` + engine tables scoped to `campaign_id` (`character_sheet`, `world`, `event`, `combat`, `archive_record`) in `alembic/versions/` (data-model.md §B engine rows; `account`/`session_lease` deferred to `004`)
+- [x] T004 Implement `PostgresStorage(StorageBackend)` in `src/gamebook/storage/postgres.py` — scoped to a `campaign_id` supplied at construction, one transaction per state change (atomic, all-or-nothing), round-trips the domain (Principles II & V; swap boundary #1)
 
 **Checkpoint**: a durable, behavior-identical backend exists behind the interface.
 
@@ -57,9 +57,9 @@ engine change, identical to `JSONStorage` and the in-memory backend.
 (ADR-009); run the Phase-1 MCP path with `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID`, play several turns,
 restart, and confirm the campaign resumes at the exact recorded state.
 
-- [ ] T005 [P] [US1] Extend the storage contract suite to run against `PostgresStorage` **through the consumer** (mcp/combat) in `tests/server/` (ADR-009), asserting identical outcomes to `JSONStorage` and the in-memory backend
-- [ ] T006 [US1] Wire the Phase-2 MCP server path: `PostgresStorage` constructed with `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` (per `CLAUDE.md` Phase-2 path), JSON path still default
-- [ ] T007 [P] [US1] Test: restart-resume — play turns, kill the process, reopen the same campaign, confirm state intact (FR-003, SC-001)
+- [x] T005 [P] [US1] Extend the storage contract suite to run against `PostgresStorage` **through the consumer** (mcp/combat) in `tests/server/` (ADR-009), asserting identical outcomes to `JSONStorage` and the in-memory backend
+- [x] T006 [US1] Wire the Phase-2 MCP server path: `PostgresStorage` constructed with `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` (per `CLAUDE.md` Phase-2 path), JSON path still default
+- [x] T007 [P] [US1] Test: restart-resume — play turns, kill the process, reopen the same campaign, confirm state intact (FR-003, SC-001)
 
 **Checkpoint**: US1 provable — the engine is durable and behavior-identical on Postgres.
 
@@ -72,8 +72,8 @@ restart, and confirm the campaign resumes at the exact recorded state.
 **Independent Test**: Induce a failure mid-transaction during a state change; confirm the save is not
 partially applied and the campaign resumes at the last consistent state.
 
-- [ ] T008 [P] [US2] Test: induced mid-write failure → no partial/corrupted save; campaign resumes at last consistent state, in `tests/server/test_atomic_writes.py` (FR-004, SC-002)
-- [ ] T009 [P] [US2] Test: domain object round-trip (object → DB → object) with invariants intact across all entity types, in `tests/server/test_storage_roundtrip.py` (FR-005, SC-003)
+- [x] T008 [P] [US2] Test: induced mid-write failure → no partial/corrupted save; campaign resumes at last consistent state, in `tests/server/test_atomic_writes.py` (FR-004, SC-002)
+- [x] T009 [P] [US2] Test: domain object round-trip (object → DB → object) with invariants intact across all entity types, in `tests/server/test_storage_roundtrip.py` (FR-005, SC-003)
 
 **Checkpoint**: US2 — unconditional integrity under failure.
 
@@ -85,7 +85,7 @@ partially applied and the campaign resumes at the last consistent state.
 
 **Independent Test**: Run the plugability audit; confirm no module imports a concrete storage impl.
 
-- [ ] T010 [P] [US3] Confirm/extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) covers `src/gamebook/storage/postgres.py` — `mcp`/`combat` depend on `StorageBackend`, not on `PostgresStorage`/`JSONStorage` (Principle IV, merge gate; SC-004)
+- [x] T010 [P] [US3] Confirm/extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) covers `src/gamebook/storage/postgres.py` — `mcp`/`combat` depend on `StorageBackend`, not on `PostgresStorage`/`JSONStorage` (Principle IV, merge gate; SC-004)
 
 **Checkpoint**: US3 — architecture preserved.
 
@@ -93,8 +93,8 @@ partially applied and the campaign resumes at the last consistent state.
 
 ## Phase 6: Polish & Contracts
 
-- [ ] T011 [P] Fold the Postgres mapping § (table/column layout, transaction semantics, campaign scoping) into `docs/CONTRACTS.md` (Principle III; plan ACTION item; FR-008)
-- [ ] T012 [P] Update `README`/`CLAUDE.md` Phase-2 storage commands if needed and run the quickstart storage validation (`uv run pytest tests/server -q` incl. Postgres suite; engine + audit green)
+- [x] T011 [P] Fold the Postgres mapping § (table/column layout, transaction semantics, campaign scoping) into `docs/CONTRACTS.md` (Principle III; plan ACTION item; FR-008)
+- [x] T012 [P] Update `README`/`CLAUDE.md` Phase-2 storage commands if needed and run the quickstart storage validation (`uv run pytest tests/server -q` incl. Postgres suite; engine + audit green)
 - [ ] T013 Run the full suite + plugability audit gate green, then the SDD review pipeline (`/sdd-qa` + `/sdd-security` → `/sdd-tech`) before merge (constitution Development Workflow)
 
 ---
