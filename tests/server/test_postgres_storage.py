@@ -414,3 +414,27 @@ def test_postgres_parity_with_in_memory(
         pg_storage, sample_character, sample_world, sample_events, sample_combat
     )
     assert memory_results == pg_results
+
+
+# ---------------------------------------------------------------------------
+# Slot restore — clearing state the snapshot didn't have (regression)
+# ---------------------------------------------------------------------------
+
+
+def test_load_slot_resets_world_when_snapshot_had_no_world(pg_storage, sample_world) -> None:
+    """Restoring a slot saved before any world existed must reset world to default.
+
+    Regression: ``_restore_snapshot`` upserted ``world`` but never deleted the
+    row when the snapshot's world was ``None``, leaving stale world state after
+    ``load_slot`` — breaking parity with InMemory/JSON (ADR-009, swap boundary #1,
+    "restore to the exact recorded point").
+    """
+    pg_storage.save_slot("early")  # snapshot taken before any world is saved
+    pg_storage.save_world(sample_world)
+    assert pg_storage.load_world().current_location == "grey_gate"
+
+    pg_storage.load_slot("early")
+    restored = pg_storage.load_world()
+    assert restored.current_location == ""
+    assert restored.turn == 0
+    assert restored.visited_locations == []

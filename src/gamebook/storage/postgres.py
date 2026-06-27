@@ -591,6 +591,11 @@ class PostgresStorage:
                             "data": w_json,
                         },
                     )
+                else:
+                    await session.execute(
+                        text("DELETE FROM world WHERE campaign_id = :cid"),
+                        {"cid": self._campaign_id},
+                    )
 
                 # events — delete and re-insert in order
                 await session.execute(
