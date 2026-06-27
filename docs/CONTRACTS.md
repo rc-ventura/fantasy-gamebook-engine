@@ -20,14 +20,34 @@
    implementations. `interfaces.py` ≠ `implementation.py`. The ONE exception is the
    **composition root** (`mcp/server.py` `main()`), which is the single place allowed to
    construct concrete impls and inject them.
-4. **Do NOT run `uv add`.** Deps are already installed (`pydantic`, `mcp`, `pytest`). If
-   you need a new dependency, message the lead.
+4. **Dependencies are managed via `uv add`.** Do not add a dependency without recording
+   it in this file. Phase-1 deps: `pydantic`, `mcp`. Phase-2 deps listed in §0a below.
 5. **Determinism:** `rules` is pure; RNG is injected. Tests use a seeded RNG.
 6. **Atomic storage:** never corrupt state on a mid-write crash (temp file + `os.replace`).
 7. **JSON round-trip:** object → JSON → identical object, for every domain model.
 8. **The AI never rolls dice in prose** — all randomness/state goes through MCP tools.
 9. Use `/adr` for design decisions and `/learning-lesson` for non-obvious discoveries,
    *as you go*. These skills append an index to root `CLAUDE.md`; the lead reconciles it.
+
+### 0a. Phase-2 Dependencies (added 2026-06-26, feature 001-web-platform-migration)
+
+| Package | Version constraint | Purpose |
+|---|---|---|
+| `fastapi[standard]` | `>=0.115.0` | HTTP API server + OpenAPI generation (T009, T020–T021) |
+| `sqlalchemy[asyncio]` | `>=2.0.0` | Async ORM/Core for PostgresStorage (T007) |
+| `asyncpg` | `>=0.30.0` | PostgreSQL async driver (T007) |
+| `alembic` | `>=1.14.0` | Schema migrations (T005–T006) |
+| `pydantic-ai` | `>=0.0.15` | Agent-based narrator harness emitting `Scene` (T017, ADR-011) |
+| `anthropic` | `>=0.40.0` | Anthropic SDK; default model `claude-opus-4-8` (T017) |
+| `opentelemetry-sdk` | `>=1.30.0` | Tracing/metrics/logs implementation (T039) |
+| `opentelemetry-api` | `>=1.30.0` | OTel API surface (T039) |
+| `opentelemetry-exporter-otlp` | `>=1.30.0` | OTLP exporter to operator-chosen backend (T039) |
+| `opentelemetry-instrumentation-fastapi` | `>=0.50b0` | Auto-instrumentation for FastAPI (T039) |
+| `opentelemetry-instrumentation-sqlalchemy` | `>=0.50b0` | Auto-instrumentation for SQLAlchemy (T039) |
+
+Dev-only:
+| `pytest-asyncio` | `>=0.24.0` | Async test support for FastAPI/SQLAlchemy tests |
+| `httpx` | `>=0.27.0` | HTTP client for FastAPI test client (`AsyncClient`) |
 
 ### Identifier mapping (PT spec → EN code)
 `Ficha`→`CharacterSheet` · `Mundo`→`World` · `Evento`→`Event` · `Combate`→`Combat` ·
@@ -312,6 +332,11 @@ stdio. `python -m gamebook.mcp.server` is the entry point. `.mcp.json` at repo r
 registers: `command: "uv"`, `args: ["run","python","-m","gamebook.mcp.server"]`.
 Tools contain NO game rules — they orchestrate `regras`/`combate`/`storage` only.
 
+**Phase-2 `main()` extension (feature 001, 2026-06-26):** If both `DATABASE_URL` and
+`GAMEBOOK_CAMPAIGN_ID` env vars are set, `main()` uses `PostgresStorage(url, campaign_id)`
+instead of `JSONStorage`.  `build_server` is unchanged; the concrete import of `PostgresStorage`
+is local to `main()` (composition root only).
+
 ---
 
 ## 7. `ModuloAventura` contract (content-designer, module 06)
@@ -339,5 +364,168 @@ rule, and slash commands `/hero /backpack /map /save` — all reference the **ex
 tool names in §6**. `/hero` always prints real MCP state (`read_character_sheet`), never
 a narrated value. Files: `.claude/skills/{game-master,combat-sub-agent,ignarok}/SKILL.md`,
 `.claude/commands/{hero,backpack,map,save}.md`.
+
+---
+
+## 9. Phase-2 HTTP API contract (feature 001-web-platform-migration, 2026-06-26)
+
+> Folded from `specs/001-web-platform-migration/contracts/http-api.md` per Principle III.
+
+The HTTP API (FastAPI, `src/gamebook_web/api/`) exposes the engine as a documented,
+authenticated REST/JSON API.  **No privileged hidden path** — the UI and external
+clients use the same surface (FR-017).  Every route requires `Authorization: Bearer <JWT>`
+validated against the OIDC IdP (FR-010); all operations are scoped to the authenticated
+account (FR-009).
+
+### Conventions
+- **Auth**: `Authorization: Bearer <JWT>` — signature/aud/exp validated via JWKS (§9a).
+- **Format**: JSON in/out; OpenAPI auto-generated at `/docs` (FR-016).
+- **Scoping**: `{campaign_id}` must belong to the caller's account → `404`/`403`.
+- **Write gating**: state-changing routes require holding the campaign session lease (FR-025);
+  otherwise → `409 not_session_holder`.
+- **Numbers**: every numeric/state change is produced by the engine via MCP — never the client.
+
+### Identity & Account
+| Method & path | Purpose |
+|---|---|
+| `GET /me` | Current account summary (created from JWT `sub` on first call) |
+| `GET /me/export` | Export this account's game data (GDPR export) |
+| `DELETE /me` | Delete account + all owned game data (GDPR erasure; cascade) |
+
+### Campaigns
+| Method & path | Purpose |
+|---|---|
+| `GET /campaigns` | List the caller's campaigns |
+| `POST /campaigns` | Start a new campaign |
+| `GET /campaigns/{id}` | Full campaign state (character sheet + world + events + summary) |
+| `DELETE /campaigns/{id}` | Delete one campaign |
+
+### Session Lease (FR-025)
+| Method & path | Purpose |
+|---|---|
+| `POST /campaigns/{id}/session` | Acquire/refresh the play-session lease |
+| `POST /campaigns/{id}/session/takeover` | Force-take the lease (demotes prior holder) |
+| `DELETE /campaigns/{id}/session` | Release the lease |
+
+### Character
+| Method & path | Purpose |
+|---|---|
+| `POST /campaigns/{id}/character` | Create the hero (attributes rolled by engine via MCP) |
+| `GET /campaigns/{id}/character` | Read the character sheet (real engine state) |
+
+### Play Loop
+| Method & path | Purpose |
+|---|---|
+| `POST /campaigns/{id}/turn` | Take a turn (returns a validated `Scene`; all effects via MCP) |
+| `GET /campaigns/{id}/scene` | Re-fetch the current scene (resume/refresh) |
+
+### Combat
+| Method & path | Purpose |
+|---|---|
+| `POST /campaigns/{id}/combat/round` | Resolve a combat round (optional `test_luck`) |
+| `POST /campaigns/{id}/combat/flee` | Attempt to flee |
+
+### Save/Resume
+| Method & path | Purpose |
+|---|---|
+| `POST /campaigns/{id}/save` | Checkpoint progress (durable, atomic) |
+| `GET /campaigns/{id}` | Resume from the exact recorded point (FR-003) |
+
+### Error Envelope (consistent shape across all endpoints)
+```json
+{ "error": { "code": "<code>", "message": "<human-readable>" } }
 ```
+| HTTP | `code` | Meaning |
+|---|---|---|
+| 401 | `unauthenticated` | Missing/invalid token |
+| 403/404 | `forbidden`/`not_found` | Campaign not owned by caller |
+| 409 | `not_session_holder` | Lacks write lease |
+| 409 | `run_ended` | Acting on a finished campaign |
+| 422 | `invalid_scene` | Narrator output failed schema validation (never persisted) |
+| 503 | `auth_unavailable` | IdP down; signed-in players continue read-only until expiry |
+
+### 9a. Auth implementation details
+- `JWTValidator` (`src/gamebook_web/auth/jwt_validator.py`) validates against the OIDC JWKS endpoint.
+- JWKS keys are cached in memory (5-minute TTL) for graceful degradation (FR-024).
+- `RequireAuth = Depends(get_current_account_sub)` is the FastAPI dependency used by all protected routes.
+- Environment variables: `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`.
+
+---
+
+## 10. Phase-2 `Scene` contract (narrator structured output, 2026-06-26)
+
+> Folded from `specs/001-web-platform-migration/contracts/scene.md` per Principle III.
+
+`Scene` is the validated unit produced by the PydanticAI narrator for one turn (ADR-011,
+swap boundary #3).  **Safety invariant**: a `Scene` carries no narrator-fabricated numbers;
+`effects[]` reference engine operations, and every numeric outcome comes from an MCP tool result
+(Principle I).  Invalid `Scene` objects are rejected with `422 invalid_scene` and never persisted.
+
+```python
+class Scene(BaseModel):
+    narrative: str                   # 2–4 paragraphs, 2nd person, adventure-module tone
+    choices:   list[Choice]          # numbered options offered to the player
+    effects:   list[Effect]          # engine operations to apply this turn (no literal stat values)
+
+class Choice(BaseModel):
+    id:    str    # stable id ("1", "2", …)
+    label: str    # what the player sees
+
+# Effect — discriminated union; each type maps to one MCP tool (§6)
+class Effect(BaseModel):
+    type: Literal[
+        "roll_dice", "test_luck", "update_character", "register_event",
+        "update_world", "start_combat", "resolve_combat_round", "flee_combat", "end_combat"
+    ]
+    params: dict[str, Any] = {}     # operation parameters — NO resulting values
 ```
+
+**Validation rules (Pydantic v2):**
+- `narrative` non-empty; `choices` may be empty only on terminal scenes (death/victory).
+- `effects[].type` must be one of the known engine operations (closed enum).
+- No `Effect` may carry a literal resulting stat/dice value — only operation parameters.
+- A `PydanticAI output_validator` raises `ModelRetry` when a `Scene` contains a literal number.
+
+**Lifecycle:** `POST /campaigns/{id}/turn` → narrator emits `Scene` → validator rejects literals →
+`effects[]` executed through MCP → validated `Scene` (with engine-resolved outcomes merged)
+returned to UI.
+
+**Terminal scenes:** death/victory → `choices` empty, campaign → `ended`, `ArchiveRecord` written.
+Acting on an already-`ended` campaign → `409 run_ended`.
+
+**File:** `src/gamebook_web/harness/scene.py` (Pydantic v2 `BaseModel`).
+
+---
+
+## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26)
+
+> Folded from `specs/001-web-platform-migration/data-model.md` §B per Principle III.
+
+All engine tables are scoped to a `campaign`; every `campaign` is owned by an `account`.
+The `StorageBackend` interface signature is **unchanged**; `PostgresStorage` implements it
+against these tables (`src/gamebook/storage/postgres.py`).  Each write runs in a single
+transaction (atomic, Principle V).
+
+```text
+account         (id PK uuid, idp_subject UNIQUE text, created_at timestamptz)
+campaign        (id PK uuid, account_id FK→account CASCADE, status text, created_at, updated_at)
+character_sheet (campaign_id PK FK→campaign CASCADE, data JSONB, alive bool)
+world           (campaign_id PK FK→campaign CASCADE, location text, visited JSONB, flags JSONB,
+                 turn int, data JSONB)           -- data column holds full World round-trip snapshot
+event           (id PK uuid, campaign_id FK CASCADE, seq int, payload JSONB, created_at)
+                  UNIQUE(campaign_id, seq)        -- append-only; seq preserves order
+combat          (campaign_id PK FK→campaign CASCADE, state JSONB nullable)  -- null = no active fight
+archive_record  (id PK uuid, campaign_id FK CASCADE, destination text, payload JSONB, archived_at)
+session_lease   (campaign_id PK FK→campaign CASCADE, session_token text, holder text, expires_at)
+save_slot       (campaign_id FK CASCADE, name text, snapshot JSONB, created_at)
+                  PRIMARY KEY(campaign_id, name)
+```
+
+**Notes:**
+- `data JSONB` on `character_sheet` / `world` stores the full Pydantic `model_dump(mode="json")`
+  for exact round-trip (Principle V). Attribute bounds stay enforced in `domain`, not the DB.
+- `event.seq` is computed as `MAX(seq)+1` within the INSERT transaction — no race condition.
+- Reads/writes are always filtered by `campaign_id` (and `account_id` at the API layer) for
+  per-account isolation (FR-009).
+- Migration: `alembic/versions/0001_initial_schema.py` — run with
+  `DATABASE_URL=... uv run alembic upgrade head`.

@@ -12,6 +12,7 @@ htmlcov/
 
 # local Claude Code settings (personal, not shared)
 .claude/settings.local.json
+.env
 
 # uv 
 uv.lock

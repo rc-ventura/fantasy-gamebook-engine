@@ -20,6 +20,14 @@ Everything goes through `uv` (deps already installed — don't `uv add` without 
 - `uv run python -m gamebook.mcp.server` — start the MCP server over stdio (registered for Claude Code in `.mcp.json`; exits cleanly on EOF).
 - `rules`/`combat` tests use a seeded RNG and in-memory storage: deterministic, no disk, no AI.
 
+### Phase-2 web service
+- `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head` — run the initial DB migration.
+- `DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload` — start the FastAPI service (hot-reload).
+- `docker compose up` — start Postgres + OIDC provider + OTLP collector locally (see `docker-compose.yml`).
+- `DATABASE_URL=postgresql+asyncpg://... uv run pytest tests/server/test_postgres_storage.py -v` — live Postgres contract tests.
+- `uv run python -m gamebook.mcp.server` — Phase-1 path (JSONStorage, no Postgres).
+- `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server` — Phase-2 path (PostgresStorage, scoped to campaign).
+
 ## What this is
 
 An engine for a solo-play **gamebook** (Fighting Fantasy–style) where an AI acts as the game master/narrator. The hard rule that shapes the whole design: **the AI never invents numbers or rolls dice in prose** — all randomness, state, and combat math go through an MCP server. The AI only narrates and offers choices.
@@ -117,6 +125,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-008](./docs/adrs/ADR-008-two-layer-plugability-audit.md) | Two-layer plugability audit (static ast + fresh-subprocess runtime isolation) | Accepted | 2026-06-21 |
 | [ADR-009](./docs/adrs/ADR-009-swap-boundary-tests-through-the-consumer.md) | Prove swap boundary #1 through the consumer, across three backends incl. an independent mock | Accepted | 2026-06-21 |
 | [ADR-010](./docs/adrs/ADR-010-world-write-path-through-mcp.md) | World-write path through MCP — add `update_world` as the 18th tool (resolves §6/§2/§4 inconsistency) | Accepted | 2026-06-21 |
+| [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 
 ## Learning Lessons
 
@@ -128,3 +137,18 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [pydantic v2 skips validation on attribute assignment by default](./docs/learning-lessons/pydantic_v2_skips_validation_on_attribute_assignment.md) — 2026-06-21
 - [FastMCP tool return-serialization & invocation gotchas](./docs/learning-lessons/fastmcp_tool_return_serialization_gotchas.md) — 2026-06-21
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
+
+<!-- SPECKIT START -->
+**Active feature**: `001-web-platform-migration` (Phase 2 — web migration).
+Read the current plan and its design artifacts for technologies, structure, and contracts:
+- Plan: `specs/001-web-platform-migration/plan.md`
+- Research (tech decisions): `specs/001-web-platform-migration/research.md`
+- Data model: `specs/001-web-platform-migration/data-model.md`
+- Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`)
+- Quickstart (validation): `specs/001-web-platform-migration/quickstart.md`
+
+Stack added in this feature: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`),
+a new agent-based narrator on `claude-opus-4-8` emitting a Pydantic-validated `Scene`, a separate
+OIDC auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool contract and the engine
+(`src/gamebook/`) stay behavior-unchanged. Constitution: `.specify/memory/constitution.md` (v1.0.0).
+<!-- SPECKIT END -->
