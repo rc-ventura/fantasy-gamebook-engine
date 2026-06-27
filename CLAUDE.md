@@ -127,6 +127,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-010](./docs/adrs/ADR-010-world-write-path-through-mcp.md) | World-write path through MCP — add `update_world` as the 18th tool (resolves §6/§2/§4 inconsistency) | Accepted | 2026-06-21 |
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 | [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
+| [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
 
 ## Learning Lessons
 
