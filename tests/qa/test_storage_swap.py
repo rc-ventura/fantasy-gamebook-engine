@@ -256,3 +256,26 @@ def test_fatal_flee_signal_identical_across_backends(kind: str, tmp_path) -> Non
 
     final = engine.end_combat(combat.combat_id)
     assert final.winner == "enemy"
+
+
+# --------------------------------------------------------------------------- slot restore clears state the snapshot lacked
+@pytest.mark.parametrize("kind", ["memory", "json", "mock"])
+def test_load_slot_resets_world_when_snapshot_had_no_world(kind: str, tmp_path) -> None:
+    """Restoring a slot saved before any world existed resets world to default.
+
+    Boundary #1 regression guard: a snapshot whose ``world`` was ``None`` must
+    clear any world written *after* the save — not leave stale state. (A
+    ``PostgresStorage._restore_snapshot`` bug skipped the world delete; the three
+    backends here already honour it, so this pins the contract every faithful
+    backend must meet.)
+    """
+    storage = _make_backend(kind, tmp_path)
+    storage.save_slot("early")  # snapshot taken before any world exists
+    storage.save_world(World(current_location="deep_cave", turn=10))
+    assert storage.load_world().current_location == "deep_cave"
+
+    storage.load_slot("early")
+    restored = storage.load_world()
+    assert restored.current_location == ""
+    assert restored.turn == 0
+    assert restored.visited_locations == []

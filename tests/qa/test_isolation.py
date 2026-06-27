@@ -21,6 +21,7 @@ import _audit
 STORAGE_CONCRETES = (
     "gamebook.storage.json_storage",
     "gamebook.storage.in_memory",
+    "gamebook.storage.postgres",  # T010: include the new Postgres backend
 )
 
 
