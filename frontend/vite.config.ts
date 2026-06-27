@@ -25,14 +25,11 @@ export default defineConfig({
     },
   },
 
-  define: {
-    // Dev auth stub token — consumed by the API client.
-    // Override in .env.local: VITE_DEV_TOKEN=<your-token>
-    // When slice 004 delivers real OIDC, only .env.local changes; no component changes.
-    'import.meta.env.VITE_DEV_TOKEN': JSON.stringify(
-      process.env['VITE_DEV_TOKEN'] ?? 'dev-stub-token',
-    ),
-  },
+  // Dev auth stub token (VITE_DEV_TOKEN) is exposed to client code via Vite's
+  // built-in env handling: set it in .env.local (gitignored) and read it through
+  // import.meta.env.VITE_DEV_TOKEN. When slice 004 delivers real OIDC, only
+  // .env.local changes; no component changes. No `define` wiring needed — a
+  // manual define would be replaced at config-eval time and bypass .env.local.
 
   build: {
     outDir: 'dist',
