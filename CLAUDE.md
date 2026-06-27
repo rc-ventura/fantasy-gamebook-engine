@@ -126,6 +126,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-009](./docs/adrs/ADR-009-swap-boundary-tests-through-the-consumer.md) | Prove swap boundary #1 through the consumer, across three backends incl. an independent mock | Accepted | 2026-06-21 |
 | [ADR-010](./docs/adrs/ADR-010-world-write-path-through-mcp.md) | World-write path through MCP — add `update_world` as the 18th tool (resolves §6/§2/§4 inconsistency) | Accepted | 2026-06-21 |
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
+| [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
 
 ## Learning Lessons
 
@@ -137,6 +138,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [pydantic v2 skips validation on attribute assignment by default](./docs/learning-lessons/pydantic_v2_skips_validation_on_attribute_assignment.md) — 2026-06-21
 - [FastMCP tool return-serialization & invocation gotchas](./docs/learning-lessons/fastmcp_tool_return_serialization_gotchas.md) — 2026-06-21
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
+- [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
 
 <!-- SPECKIT START -->
 **Active feature**: `002-persistence-foundation` (first slice of the decomposed
