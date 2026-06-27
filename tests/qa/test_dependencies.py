@@ -28,9 +28,11 @@ import _audit
 import pytest
 
 # Storage concrete implementations -- forbidden above the composition root.
+# T010: gamebook.storage.postgres is included so the audit covers the new backend.
 STORAGE_CONCRETES = (
     "gamebook.storage.json_storage",
     "gamebook.storage.in_memory",
+    "gamebook.storage.postgres",
 )
 
 # Allow-list rules for the lower, strictly-layered packages: every gamebook

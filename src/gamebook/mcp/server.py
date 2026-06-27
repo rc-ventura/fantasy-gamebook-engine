@@ -313,13 +313,35 @@ def main() -> None:
     This is the ONLY place allowed to import/construct concrete implementations.
     The imports are local so that importing this module never pulls a storage
     backend into ``sys.modules`` (keeps the façade import-isolated).
+
+    Phase-1 path (default):
+        ``DATABASE_URL`` or ``GAMEBOOK_CAMPAIGN_ID`` absent → ``JSONStorage("estado")``.
+
+    Phase-2 path:
+        Both ``DATABASE_URL`` *and* ``GAMEBOOK_CAMPAIGN_ID`` set →
+        ``PostgresStorage(url, campaign_id)``.  The campaign row is upserted
+        automatically; no prior database setup beyond ``alembic upgrade head`` is
+        needed.
     """
+    import os
     import random
 
     from gamebook.combat.implementation import CombatService
-    from gamebook.storage.json_storage import JSONStorage
 
-    storage = JSONStorage("estado")
+    database_url = os.environ.get("DATABASE_URL", "")
+    campaign_id = os.environ.get("GAMEBOOK_CAMPAIGN_ID", "")
+
+    if database_url and campaign_id:
+        # Phase-2: PostgresStorage scoped to the given campaign.
+        # Local import keeps the module's top-level footprint clean (ADR-009).
+        from gamebook.storage.postgres import PostgresStorage  # composition root only
+
+        storage = PostgresStorage(database_url, campaign_id)
+    else:
+        from gamebook.storage.json_storage import JSONStorage
+
+        storage = JSONStorage("estado")
+
     rng = random.Random()
     combat = CombatService(storage, rng)
     build_server(storage, combat, rng).run(transport="stdio")
