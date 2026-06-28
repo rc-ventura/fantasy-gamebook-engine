@@ -148,10 +148,14 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 | [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
 | [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
-| [ADR-014](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents | Accepted | 2026-06-27 |
 | [ADR-014](./docs/adrs/ADR-014-postgres-storage-sync-async-bridge.md) | PostgresStorage sync/async bridge via dedicated daemon thread | Accepted | 2026-06-27 |
 | [ADR-015](./docs/adrs/ADR-015-vite-env-import-meta-types.md) | `import.meta.env` types via `src/vite-env.d.ts` (not tsconfig types array) | Accepted | 2026-06-27 |
 | [ADR-016](./docs/adrs/ADR-016-mock-mode-client-side-fixture-layer.md) | Mock mode via a client-side fixture layer (VITE_USE_MOCK=true) | Accepted | 2026-06-27 |
+| [ADR-017](./docs/adrs/ADR-017-api-frontend-contract-canonical-shape.md) | API/frontend contract canonical shape (backend wins) | Accepted | 2026-06-28 |
+| [ADR-018](./docs/adrs/ADR-018-multi-tenant-engine-per-call-campaign-id.md) | Multi-tenant engine via per-call campaign_id | Accepted | 2026-06-28 |
+| [ADR-019](./docs/adrs/ADR-019-allowlist-for-fabricated-number-detection.md) | Allowlist for fabricated-number detection | Accepted | 2026-06-28 |
+| [ADR-020](./docs/adrs/ADR-020-resolve-duplicate-adr-numbering.md) | Resolve duplicate ADR numbering (ADR-014/015) | Accepted | 2026-06-28 |
+| [ADR-021](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents (renumbered from ADR-014 by ADR-020; file rename pending in `006`) | Accepted | 2026-06-27 |
 
 ## Learning Lessons
 
@@ -168,24 +172,31 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
 
 <!-- SPECKIT START -->
-**Active feature**: `003-web-backend-mvp` (second slice of the decomposed
-`001-web-platform-migration` epic). The epic was decomposed into a dependency-ordered chain of
-independently-shippable features; see the Decomposition section in
-`specs/001-web-platform-migration/spec.md`:
+**Active feature**: `006-cycle1-remediation` (remediation slice closing the SDD
+final review cycle-1 findings on `001-web-platform-migration`). Slices `003` and
+`005` are merged to `dev` with BLOCKED findings; this slice fixes the CRITICAL
+(cross-account engine leak, no production guard), HIGH (API/frontend contract drift),
+MEDIUM, LOW, and GOVERNANCE findings. Architectural decisions are in ADRs 017–020;
+session-lease enforcement (FR-025) is deferred to `004`. See
+`specs/006-cycle1-remediation/spec.md` and
+`reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`.
+
+The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
 - `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1)
-- `003-web-backend-mvp` ← **active** (FastAPI + MCP host + PydanticAI narrator + `Scene` + documented API
-  playable via script; depends on `002`)
+- `003-web-backend-mvp` ← done (merged to `dev`; SDD cycle-1 found contract + isolation gaps)
 - `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
-  production hardening + OpenTelemetry; depends on `002`, `003`)
-- `005-professional-spa` (React/Vite SPA consuming `003`'s documented API; depends on `003`,
-  sign-in UI also `004`; can develop in parallel with `004` against `003`'s frozen OpenAPI)
+  production hardening + OpenTelemetry; depends on `002`, `003`, `006`)
+- `005-professional-spa` ← done (merged to `dev`; mock-only until `006` aligns the contract)
+- `006-cycle1-remediation` ← **active** (closes cycle-1 findings; depends on `003`, `005`)
 
-Dependency chain: `002` → `003` → `004` // `005`.
+Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated on `006`).
 
-**Active feature artifacts** (`specs/002-persistence-foundation/`):
-- Spec: `specs/002-persistence-foundation/spec.md`
-- Plan: `specs/002-persistence-foundation/plan.md`
-- Tasks: `specs/002-persistence-foundation/tasks.md`
+**Active feature artifacts** (`specs/006-cycle1-remediation/`):
+- Spec: `specs/006-cycle1-remediation/spec.md`
+- Plan: `specs/006-cycle1-remediation/plan.md`
+- Tasks: `specs/006-cycle1-remediation/tasks.md`
+- ADRs: `docs/adrs/ADR-017` (contract canonical), `ADR-018` (multi-tenant engine),
+  `ADR-019` (allowlist), `ADR-020` (ADR renumbering)
 
 **Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`
