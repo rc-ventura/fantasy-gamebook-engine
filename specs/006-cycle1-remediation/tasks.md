@@ -1,24 +1,38 @@
 ---
-description: "Task list for Cycle-1 Remediation — closes SDD cycle-1 findings (CRITICAL+HIGH+MEDIUM+LOW+GOVERNANCE)"
+description: "Task list for Cycle-1 Remediation (001 + 002 + 003 + 004) — closes SDD cycle-1 findings from all four reviews (CRITICAL+HIGH+MEDIUM+LOW+GOVERNANCE)"
 ---
 
-# Tasks: Cycle-1 Remediation
+# Tasks: Cycle-1 Remediation (001 + 002 + 003 + 004)
 
 **Input**: Design documents from `specs/006-cycle1-remediation/` (spec.md, plan.md)
-and ADRs 017–020. Driven by the SDD final review
-`reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`.
+and ADRs 017–028. Driven by four SDD final reviews:
+- `reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`
+- `reports/sdd-final-review/002-persistence-foundation/cycle-1-20260628-1113.md`
+- `reports/sdd-final-review/003-web-backend-mvp/cycle-1-20260628-1010.md`
+- `reports/sdd-final-review/004-accounts-hardening-obs/cycle-1-20260628-1043.md`
 
-**Prerequisites**: spec.md, plan.md; ADRs 017–020; `003-web-backend-mvp` and
-`005-professional-spa` merged to `dev`.
+**Prerequisites**: spec.md, plan.md; ADRs 017–028; `002-persistence-foundation`,
+`003-web-backend-mvp`, `005-professional-spa` merged to `dev`; `feat/004-auth-obs`
+implementation absorbed; 002 and 003 remediated in-place on the 006 branch.
 
 **Tests**: Included — multi-campaign isolation (SC-002), production guards
-(SC-003/SC-004), live-backend integration (SC-001), plugability audit (SC-005), full
-suite (SC-006/SC-007).
+(SC-003/SC-004/SC-016), live-backend integration (SC-001), plugability audit (SC-005),
+full suite (SC-006/SC-007), OIDC fail-closed (SC-009), DB-backed ownership
+(SC-010), lease semantics (SC-011), OTel instrumentation (SC-012), account endpoints
+(SC-013/SC-014), security audit logging (SC-015), Postgres integration (SC-017),
+Postgres TLS (SC-018), concurrency-safe append (SC-019), storage lifecycle (SC-020),
+consistent snapshot (SC-021), identifier validation (SC-022), swap-boundary with
+Postgres (SC-023), atomic-write mid-statement failure (SC-024), combat victory path
+(SC-025), narrator integration (SC-026), combat subagent (SC-027), rate limiter
+keying (SC-028), `list_campaigns` fields (SC-029), dependency upper bounds (SC-030).
 
 **Organization**: Tasks are grouped by phase (dependency-ordered). Phase 1 blocks all
-other phases (the multi-tenant refactor touches every call site).
+other phases (the multi-tenant refactor touches every call site). Phases 7–9 (004
+remediation) can run in parallel after Phase 1, but Phase 8 depends on Phase 7 for the
+auth seam. Phase 6 (002 remediation) and Phase 10 (003 remediation) can run in parallel
+with Phases 2–5 after Phase 1.
 
-## Format: `[ID] [P?] [Phase] Description`
+## Format: `[ID] [Phase] [P?] Description`
 - **[P]**: parallelizable (different files, no incomplete dependency)
 
 ## Path Conventions
@@ -78,7 +92,7 @@ security logging).
 - [ ] T016 [P3] Add a startup guard in `src/gamebook_web/api/app.py` lifespan: if `ENV=production` and `GAMEBOOK_DEV_MODE=1`, raise `RuntimeError` with a clear message. (FR-008)
 - [ ] T017 [P3] Disable `/docs`, `/redoc`, `/openapi.json` when `ENV=production`: construct FastAPI with `docs_url=None if os.getenv("ENV")=="production" else "/docs"` (same for redoc, openapi). (FR-009)
 - [ ] T018 [P3] Add security event logging in `src/gamebook_web/auth/dev_auth.py`: `_unauthenticated` logs `logger.warning("auth failed: reason=%s", message)` before raising. (FR-010)
-- [ ] T019 [P3] Add `tests/server/test_production_guards.py`: assert the server raises at boot when `ENV=production` + `GAMEBOOK_DEV_MODE=1`; assert `/docs` returns 404 when `ENV=production`; assert auth failures are logged. (SC-003, SC-004)
+- [ ] T019 [P3] Add `tests/server/test_production_guards.py`: assert the server raises at boot when `ENV=production` + `GAMEBOOK_DEV_MODE=1`; assert `/docs` returns 404 when `ENV=production`; assert auth failures are logged; assert CORS `*` is rejected at startup when `allow_credentials=True`; assert OTLP defaults to TLS. (SC-003, SC-004, SC-016)
 
 **Checkpoint**: Server refuses insecure production config; docs hidden in production;
 auth failures logged.
@@ -113,19 +127,181 @@ ADR renumbering. Fixes LOW + GOVERNANCE findings.
 - [ ] T028 [P5] [P] Rename `docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md` → `docs/adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md`; update the ADR header number. Delete `docs/adrs/ADR-014-vite-env-import-meta-types.md` and `docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md` (the "moved" stubs). (ADR-020, FR-016)
 - [ ] T029 [P5] [P] Update `docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md` cross-link from ADR-014 to ADR-021. (ADR-020, FR-016)
 
-**Checkpoint**: LOW findings closed; ADR numbering clean.
+**Checkpoint**: LOW findings closed; ADR numbering clean (001 ADRs).
 
 ---
 
-## Phase 6: Verification
+## Phase 6: ADR-026/027 — Persistence foundation hardening (HIGH/MEDIUM, from 002 review)
 
-**Purpose**: All success criteria verified before merge.
+**Purpose**: Enforce TLS for Postgres; make `append_event` concurrency-safe; add
+`PostgresStorage.close()` lifecycle; wrap `_build_snapshot` in a transaction;
+validate identifiers; extend swap-boundary and atomic-write tests. Fixes 002 HIGH
+A02/A05 and MEDIUM A04/QA findings.
 
-- [ ] T030 [P6] Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
-- [ ] T031 [P6] Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
-- [ ] T032 [P6] Run `cd frontend && npm test` (vitest unit suite) — must be green. (SC-007)
-- [ ] T033 [P6] Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
-- [ ] T034 [P6] Verify `CLAUDE.md` ADR table lists ADRs 014–021 exactly once each with correct numbers and titles. (SC-008, FR-016)
-- [ ] T035 [P6] Run `/sdd-final-review` to dispatch cycle-2 (QA + Security + Tech Leader) and confirm the cycle-1 findings are closed.
+**⚠️ Can run in parallel with Phases 2–5** after Phase 1 is complete (different files,
+no dependency on frontend/contract work).
 
-**Checkpoint**: All success criteria met; ready for SDD cycle-2 review.
+- [ ] T072 [P6] Enforce TLS in `src/gamebook/storage/postgres.py`: create the async engine with `sslmode=require` (or `ssl=True`) by default; add a non-production override env var (e.g., `POSTGRES_SSL_MODE=disable`) for local development; refuse plaintext URLs in production. (ADR-026, FR-037, SC-018)
+- [ ] T073 [P6] Make `src/gamebook/storage/postgres.py` `append_event` concurrency-safe: lock the sequence range or use a generated sequence; remove/correct the misleading inline comment at `src/gamebook/storage/postgres.py:230-232`. Add a concurrent-append test. (ADR-027, FR-038, SC-019)
+- [ ] T074 [P6] Add `close()` to `src/gamebook/storage/postgres.py`: dispose the async engine and stop the daemon event loop; call it in live-Postgres test teardown and on MCP server graceful shutdown. (ADR-027, FR-039, SC-020)
+- [ ] T075 [P6] Wrap `src/gamebook/storage/postgres.py` `_build_snapshot` in an explicit read-only transaction (`async with session.begin()`) so `save_slot` captures a consistent snapshot. (ADR-027, FR-040, SC-021)
+- [ ] T076 [P6] Add identifier validation to `src/gamebook/storage/postgres.py` `save_slot`, `load_slot`, `load_combat`, and `remove_combat`, rejecting empty/`None`/`/`/`\`/`..` to match `JSONStorage` parity. (ADR-027, FR-041, SC-022)
+- [ ] T077 [P6] [P] Extend `tests/qa/test_storage_swap.py` to include `PostgresStorage` when `DATABASE_URL` is present; prove the consumer-level swap boundary for every backend. (ADR-009, FR-042, SC-023)
+- [ ] T078 [P6] [P] Rewrite `tests/server/test_atomic_writes.py` to simulate a failure after at least one `session.execute()` has run, proving no partial data is committed. (FR-043, SC-024)
+- [ ] T079 [P6] [P] Update `docs/CONTRACTS.md` §11 (storage contract) to document TLS-by-default, concurrency-safe sequence allocation, and deterministic storage lifecycle. (ADR-026, ADR-027, Principle III)
+
+**Checkpoint**: Postgres is TLS-hardened by default; `append_event` is concurrency-safe;
+`PostgresStorage` has deterministic cleanup; snapshots are consistent; identifier
+validation matches `JSONStorage`; swap-boundary and atomic-write tests cover Postgres.
+
+---
+
+## Phase 7: ADR-022 — Fail-closed OIDC auth (CRITICAL/HIGH, from 004 review)
+
+**Purpose**: Remove the dev stub from the production path; require `OIDC_ISSUER` +
+`exp`; strict JWKS key binding; cache key alignment. Fixes 004 CRITICAL A07 and
+HIGH A07.
+
+**⚠️ Depends on**: Phase 1 (multi-tenant engine must be in place so the auth seam
+operates on the correct campaign context). Phase 8 depends on this phase for the
+auth seam.
+
+- [ ] T030 [P7] Remove the dev stub fallback from `src/gamebook_web/api/app.py` lifespan: when `OIDC_JWKS_URI` is unset and `GAMEBOOK_DEV_MODE` is not explicitly enabled, raise `RuntimeError` (or install a dependency override returning `401` for every request). (ADR-022, FR-018)
+- [ ] T031 [P7] Move `DEV_TOKEN = "dev-token"` out of `src/gamebook_web/auth/dev_auth.py` production code — into a test-fixture-only location (e.g. `tests/server/conftest.py` or `tests/server/test_constants.py`). The `dev_auth` module only defines it when `GAMEBOOK_DEV_MODE=1` is explicitly set in a non-production environment. (ADR-022, FR-018)
+- [ ] T032 [P7] Make `OIDC_ISSUER` mandatory in `src/gamebook_web/auth/oidc_auth.py`: no empty-string default; if unset when OIDC is active, raise at startup. Set `verify_iss=True` always. (ADR-022, FR-019)
+- [ ] T033 [P7] Require `exp` claim in JWT decode in `src/gamebook_web/auth/oidc_auth.py`: tokens without `exp` → `401`. (ADR-022, FR-019)
+- [ ] T034 [P7] Reject tokens with missing `kid` in `src/gamebook_web/auth/oidc_auth.py`: no fallback to the first JWKS key. (ADR-022, FR-020)
+- [ ] T035 [P7] Change validated-token cache key in `src/gamebook_web/auth/oidc_auth.py` from full SHA-256 to `sha256(token)[:16] + str(exp)`. (ADR-022, FR-021)
+- [ ] T036 [P7] Add `tests/server/test_oidc_fail_closed.py`: boot without `OIDC_JWKS_URI` (assert refusal); JWT without `exp` (assert `401`); JWT without `kid` (assert `401`); JWT with wrong `iss` (assert `401`); inspect cache key format. (SC-009)
+
+**Checkpoint**: OIDC auth is fail-closed; dev stub is test-only; `OIDC_ISSUER`+`exp`
+mandatory; strict `kid` binding; cache key aligned.
+
+---
+
+## Phase 8: ADR-023/025 — DB-backed campaign ownership + lease fixes (HIGH/MEDIUM, from 004 review)
+
+**Purpose**: Replace `CampaignRegistry` with `AccountRepository` in play routes; fix
+`create_campaign`/`_ensure_campaign`; `DELETE /me` confirmation; `save_slot` in
+export; `takeover` validates `current_token`; lease expiry `<=`. Fixes 004 HIGH
+(campaign ownership) and MEDIUM (lease/account) findings.
+
+**⚠️ Depends on**: Phase 7 (auth seam must be fail-closed so account resolution is
+real).
+
+- [ ] T037 [P8] Replace `CampaignRegistry` usage in `src/gamebook_web/api/play.py` `create/list/get/delete` campaign routes with `AccountRepository` methods. Remove or reduce the in-memory registry to a transient-state cache only. (ADR-025, FR-022)
+- [ ] T038 [P8] Fix `src/gamebook_web/accounts.py` `create_campaign`: raise `409` on duplicate `campaign_id`; always set `account_id` on the campaign row. (ADR-025, FR-023)
+- [ ] T039 [P8] Fix `src/gamebook/storage/postgres.py` `_ensure_campaign`: insert campaign rows with the correct `account_id` (passed from the caller, not `NULL`). (ADR-025, FR-024)
+- [ ] T040 [P8] Fix `src/gamebook_web/api/account.py` `DELETE /me`: return `404` if the account does not exist (not `204`); require a `confirmation` field in the request body. Without it → `400`. (ADR-025, FR-025)
+- [ ] T041 [P8] Add `save_slot` snapshots to `src/gamebook_web/accounts.py` `export_account` payload. (ADR-025, FR-026)
+- [ ] T042 [P8] Fix `src/gamebook_web/sessions/lease.py` `takeover`: validate `current_token` against the current holder before force-acquiring. Wrong/missing → `409`. (ADR-023, FR-027)
+- [ ] T043 [P8] Fix `src/gamebook_web/sessions/lease.py` `acquire` and `validate`: change `<` to `<=` for expiry check (`expires_at <= now()` is expired). (ADR-023, FR-028)
+- [ ] T044 [P8] Add `tests/server/test_account_endpoints.py`: `DELETE /me` `404` for non-existent, `400` without confirmation, `204` with confirmation; `GET /me/export` includes `save_slot`. (SC-013, SC-014)
+
+**Checkpoint**: Campaign ownership is DB-backed; `create_campaign` rejects duplicates;
+`_ensure_campaign` sets `account_id`; `DELETE /me` requires confirmation; GDPR export
+includes `save_slot`; `takeover` validates `current_token`; lease expiry is `<=`.
+
+---
+
+## Phase 9: ADR-024 — Observability + PII discipline (HIGH/MEDIUM, from 004 review)
+
+**Purpose**: Fix OTel instrumentation; wire span helpers; emit metrics; redact
+exceptions; secure OTLP; security audit logging; CORS `*` rejection. Fixes 004 HIGH
+(OTel ineffective) and MEDIUM (PII/traceback leak, no audit logs, OTLP insecure).
+
+**⚠️ Can run in parallel with Phase 8** (different files, no dependency).
+
+- [ ] T045 [P9] Fix `src/gamebook_web/observability/setup.py`: change `FastAPIInstrumentor().instrument()` to `FastAPIInstrumentor.instrument_app(app)`. (ADR-024, FR-029)
+- [ ] T046 [P9] Wire `turn_span` in `src/gamebook_web/api/play.py` `/turn` route: wrap the handler in `turn_span(campaign_id, account_id, turn_number)`. (ADR-024, FR-030)
+- [ ] T047 [P9] Wire `narrator_span` in `src/gamebook_web/harness/agent.py` narrator call: wrap the LLM call in `narrator_span()`. (ADR-024, FR-030)
+- [ ] T048 [P9] Emit metrics at the appropriate call sites: `http_requests_total` (every HTTP request), `turn_duration_seconds` (after `/turn`), `active_campaigns` (on create/delete), `combat_rounds_total` (on combat round). (ADR-024, FR-030)
+- [ ] T049 [P9] Fix `src/gamebook_web/observability/tracing.py` `span_set_error`: record only `type(exc).__name__` — no message, no traceback. Replace `record_exception(exc)` with a manual event or attribute override. (ADR-024, FR-031)
+- [ ] T050 [P9] Fix `src/gamebook_web/api/app.py` generic exception handler: change `logger.exception(...)` to `logger.error("unhandled %s", type(exc).__name__)`. (ADR-024, FR-031)
+- [ ] T051 [P9] Remove `insecure=True` from `src/gamebook_web/observability/setup.py` OTLP exporters; use TLS by default. Only set `insecure=True` when `OTLP_INSECURE=true` is explicitly set. (ADR-024, FR-032)
+- [ ] T052 [P9] Add security audit logging in `src/gamebook_web/api/account.py` (sign-in/sign-out/failed auth/account deletion), `src/gamebook_web/api/sessions.py` (lease acquire/takeover/release), `src/gamebook_web/middleware/lease_guard.py` (lease validation failures), `src/gamebook_web/auth/oidc_auth.py` (JWKS fetch failures, token validation failures). Log at `INFO`/`WARNING` with opaque IDs. (FR-033)
+- [ ] T053 [P9] Reject `GAMEBOOK_CORS_ORIGINS=*` at startup in `src/gamebook_web/api/app.py` when `allow_credentials=True`. (FR-034)
+- [ ] T054 [P9] Add `tests/server/test_otel_instrumentation.py`: assert `turn_span`/`narrator_span` exist with correct attributes (no PII); assert `http_requests_total` incremented; assert `span_set_error` has no message/traceback; assert `instrument_app` was called. (SC-012)
+- [ ] T055 [P9] Add `tests/server/test_security_audit_logging.py`: assert log lines for sign-in/out, failed auth, lease acquire/takeover/release, account deletion. (SC-015)
+
+**Checkpoint**: OTel correctly instrumented; span helpers wired; metrics emitted;
+exceptions redacted in spans and logs; OTLP defaults to TLS; security audit logging
+covers all event types; CORS `*` rejected with credentials.
+
+---
+
+## Phase 10: ADR-028 — Combat victory path + narrator test coverage (MEDIUM/LOW, from 003 review)
+
+**Purpose**: Unify terminal-state checking into a shared helper; fix
+`request: Request = None`; key rate limiter on `account_id`; exercise
+`PydanticNarrator` and `combat_subagent` with tests; `list_campaigns` includes
+`name`/timestamps; dependency upper bounds; learning lessons. Fixes 003 new findings
+(not already covered by 001 remediation).
+
+**⚠️ Can run in parallel with Phases 2–9** (different files, no dependency on Phase 1
+beyond the multi-tenant engine being in place).
+
+- [ ] T085 [P10] [P] Unify terminal-state checking: extract `_check_terminal_state` (or a shared helper) from `src/gamebook_web/api/play.py` and call it from both `take_turn` and `combat_round` in `src/gamebook_web/api/combat.py` when `outcome.ended` is True. Handle both victory (adventure module's `victory_flag`) and death. (ADR-028, FR-044)
+- [ ] T086 [P10] [P] Remove `= None` default from `request: Request` parameter on all rate-limited routes in `src/gamebook_web/api/play.py` and `src/gamebook_web/api/combat.py`. (FR-045)
+- [ ] T087 [P10] [P] Key the rate limiter on `account_id` when authenticated in `src/gamebook_web/limiter.py`; fall back to IP only when unauthenticated. Configure trusted proxy headers (`X-Forwarded-For`). (FR-046)
+- [ ] T088 [P10] [P] Update `list_campaigns` in `src/gamebook_web/api/play.py` to include `name`, `created_at`, and `updated_at` in the response for each campaign. (FR-048)
+- [ ] T089 [P10] [P] Add upper bounds to floating `>=` ranges in `pyproject.toml` (e.g. `fastapi>=0.115.0,<1.0`). (FR-049)
+- [ ] T090 [P10] [P] Create `docs/learning-lessons/contract_drift_requires_live_integration_test.md` — API/frontend contract drift requires a live integration test, not eyeballing field names. (FR-050)
+- [ ] T091 [P10] [P] Create `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md` — booting a single shared engine subprocess scoped to an env var is a multi-tenancy anti-pattern. (FR-050)
+- [ ] T092 [P10] Add `tests/server/test_combat_victory.py`: win via `POST /combat/round` → campaign ended + archived; assert `_check_terminal_state` was called; assert further turns → `409`. (SC-025, FR-044)
+- [ ] T093 [P10] Add `tests/server/test_narrator_integration.py`: mocked LLM producing a valid `Scene` → validation → effects → response; mocked LLM producing fabricated numbers → `ModelRetry`. (SC-026, FR-047)
+- [ ] T094 [P10] Add `tests/server/test_combat_subagent.py`: delegate a combat to `combat_subagent.resolve_combat()`; verify the `CombatResult` structure and combat state update. (SC-027, FR-047)
+- [ ] T095 [P10] Add `tests/server/test_rate_limiter.py`: assert rate limiter keys on `account_id` when authenticated; falls back to IP when unauthenticated. (SC-028, FR-046)
+
+**Checkpoint**: Combat victory works via explicit route; narrator and combat subagent
+tested; rate limiter keyed on account_id; `list_campaigns` complete; dependency upper
+bounds; learning lessons recorded.
+
+---
+
+## Phase 11: Postgres integration tests (CRITICAL/HIGH, from 004 + 002 reviews)
+
+**Purpose**: Add integration tests that run against a live Postgres with
+`DATABASE_URL` covering account, lease, ownership, GDPR, campaign scoping, and the
+002 hardening paths (TLS, concurrency, lifecycle, snapshot, identifier validation).
+Fixes the 004/002 finding that these paths lack live-DB coverage.
+
+**⚠️ Depends on**: Phases 7–9 (the code under test must be fixed first) and Phase 6
+(002 storage hardening).
+
+- [ ] T056 [P11] Add `tests/server/test_postgres_accounts.py`: account upsert (`get_or_create`), account resolution from OIDC `sub`, account deletion with cascade. (SC-017, FR-035)
+- [ ] T057 [P11] Add `tests/server/test_postgres_campaign_ownership.py`: create campaign (assert `account_id` not `NULL`); duplicate ID → `409`; list campaigns (assert from Postgres, not in-memory); delete campaign (assert row removed). (SC-010, SC-017, FR-035)
+- [ ] T058 [P11] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
+- [ ] T059 [P11] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
+- [ ] T060 [P11] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
+- [ ] T080 [P11] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
+- [ ] T081 [P11] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
+- [ ] T082 [P11] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
+
+**Checkpoint**: All DB-backed paths covered by live Postgres integration tests,
+including the 002 hardening paths.
+
+---
+
+## Phase 12: ADR renumbering + Verification
+
+**Purpose**: Renumber 004 ADRs 017–019 → 022–024; create ADR-025, ADR-026, ADR-027,
+ADR-028; verify all success criteria before merge.
+
+- [ ] T061 [P12] Rename `docs/adrs/ADR-017-oidc-jwt-jwks-validation-pattern.md` → `ADR-022-oidc-jwt-jwks-validation-pattern.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T062 [P12] Rename `docs/adrs/ADR-018-session-lease-acquire-takeover-semantics.md` → `ADR-023-session-lease-acquire-takeover-semantics.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T063 [P12] Rename `docs/adrs/ADR-019-opentelemetry-auto-instrumentation.md` → `ADR-024-opentelemetry-auto-instrumentation.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T064 [P12] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
+- [ ] T083 [P12] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting the TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
+- [ ] T084 [P12] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
+- [ ] T096 [P12] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting the unification of terminal-state checking into a shared helper. (ADR-028, FR-044)
+- [ ] T065 [P12] Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
+- [ ] T066 [P12] Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
+- [ ] T067 [P12] Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
+- [ ] T068 [P12] Run `cd frontend && npm test` (vitest unit suite) — must be green. (SC-007)
+- [ ] T069 [P12] Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
+- [ ] T070 [P12] Run `DATABASE_URL=... uv run pytest tests/server/test_postgres_*.py tests/qa/test_storage_swap.py tests/server/test_atomic_writes.py -v` (live Postgres integration tests) — must be green. (SC-017, SC-023, SC-024)
+- [ ] T071 [P12] Run `/sdd-final-review` to dispatch cycle-2 (QA + Security + Tech Leader) and confirm the cycle-1 findings from all four reviews are closed.
+
+**Checkpoint**: All success criteria met; ADR numbering clean; ready for SDD cycle-2
+review.

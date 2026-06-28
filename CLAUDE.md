@@ -156,6 +156,12 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-019](./docs/adrs/ADR-019-allowlist-for-fabricated-number-detection.md) | Allowlist for fabricated-number detection | Accepted | 2026-06-28 |
 | [ADR-020](./docs/adrs/ADR-020-resolve-duplicate-adr-numbering.md) | Resolve duplicate ADR numbering (ADR-014/015) | Accepted | 2026-06-28 |
 | [ADR-021](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents (renumbered from ADR-014 by ADR-020; file rename pending in `006`) | Accepted | 2026-06-27 |
+| [ADR-022](./docs/adrs/ADR-022-oidc-jwt-jwks-validation-pattern.md) | OIDC JWT/JWKS validation + fail-closed auth (renumbered from 004's ADR-017 in `006`) | Accepted | 2026-06-28 |
+| [ADR-023](./docs/adrs/ADR-023-session-lease-acquire-takeover-semantics.md) | Session lease semantics — `takeover` validates `current_token` (renumbered from 004's ADR-018 in `006`) | Accepted | 2026-06-28 |
+| [ADR-024](./docs/adrs/ADR-024-opentelemetry-auto-instrumentation.md) | OTel auto-instrumentation + no-PII-in-spans (renumbered from 004's ADR-019 in `006`) | Accepted | 2026-06-28 |
+| [ADR-025](./docs/adrs/ADR-025-db-backed-campaign-registry.md) | DB-backed campaign registry (new in `006`) | Accepted | 2026-06-28 |
+| [ADR-026](./docs/adrs/ADR-026-postgres-tls-policy.md) | PostgreSQL TLS policy (new in `006`, closes 002 HIGH TLS finding) | Accepted | 2026-06-28 |
+| [ADR-027](./docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md) | PostgresStorage concurrency-safe seq allocation + deterministic lifecycle (new in `006`, closes 002 MEDIUM findings) | Accepted | 2026-06-28 |
 
 ## Learning Lessons
 
@@ -173,21 +179,22 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 
 <!-- SPECKIT START -->
 **Active feature**: `006-cycle1-remediation` (remediation slice closing the SDD
-final review cycle-1 findings on `001-web-platform-migration`). Slices `003` and
-`005` are merged to `dev` with BLOCKED findings; this slice fixes the CRITICAL
-(cross-account engine leak, no production guard), HIGH (API/frontend contract drift),
-MEDIUM, LOW, and GOVERNANCE findings. Architectural decisions are in ADRs 017–020;
-session-lease enforcement (FR-025) is deferred to `004`. See
-`specs/006-cycle1-remediation/spec.md` and
-`reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`.
+final review cycle-1 findings on `001-web-platform-migration`, `002-persistence-foundation`,
+and `004-accounts-hardening-obs`). Slices `003` and `005` are merged to `dev` with BLOCKED
+findings; this slice fixes the CRITICAL (cross-account engine leak, no production guard),
+HIGH (API/frontend contract drift, Postgres TLS), MEDIUM (concurrency, lifecycle,
+lease/account), LOW, and GOVERNANCE findings. Architectural decisions are in ADRs 017–027.
+See `specs/006-cycle1-remediation/spec.md` and the three SDD cycle-1 reports in
+`reports/sdd-final-review/`.
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1)
+- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1; cycle-1 TLS/concurrency/lifecycle findings remediated in `006`)
 - `003-web-backend-mvp` ← done (merged to `dev`; SDD cycle-1 found contract + isolation gaps)
 - `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
-  production hardening + OpenTelemetry; depends on `002`, `003`, `006`)
+  production hardening + OpenTelemetry; depends on `002`, `003`, `006`; cycle-1 findings
+  remediated in `006`)
 - `005-professional-spa` ← done (merged to `dev`; mock-only until `006` aligns the contract)
-- `006-cycle1-remediation` ← **active** (closes cycle-1 findings; depends on `003`, `005`)
+- `006-cycle1-remediation` ← **active** (closes cycle-1 findings from `001`, `002`, `004`; depends on `002`, `003`, `005`)
 
 Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated on `006`).
 
@@ -196,7 +203,9 @@ Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated 
 - Plan: `specs/006-cycle1-remediation/plan.md`
 - Tasks: `specs/006-cycle1-remediation/tasks.md`
 - ADRs: `docs/adrs/ADR-017` (contract canonical), `ADR-018` (multi-tenant engine),
-  `ADR-019` (allowlist), `ADR-020` (ADR renumbering)
+  `ADR-019` (allowlist), `ADR-020` (ADR renumbering), `ADR-022` (OIDC fail-closed),
+`ADR-023` (session lease), `ADR-024` (OTel), `ADR-025` (DB-backed registry),
+`ADR-026` (Postgres TLS), `ADR-027` (Postgres concurrency + lifecycle)
 
 **Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`
