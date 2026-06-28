@@ -92,7 +92,7 @@ export default function PlayPage() {
   const combat = campaign?.combat
   const isEnded = campaign?.status === 'ended'
   const inCombat = combat?.active === true
-  const isTerminal = isEnded || (scene?.choices.length === 0 && !!scene?.narrative)
+  const isTerminal = isEnded || (!inCombat && scene?.choices.length === 0 && !!scene?.narrative)
   const actionPending = actionState === 'pending'
 
   // No character yet — offer character creation.
