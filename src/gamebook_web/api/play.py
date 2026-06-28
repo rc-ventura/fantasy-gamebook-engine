@@ -250,14 +250,16 @@ async def create_character(
         character = await call_engine(toolset, "create_character", name=name)
     except Exception as exc:
         msg = str(exc)
+        logger.warning("create_character failed for campaign %s: %s", campaign_id, msg)
+        # Map known errors to a stable code; never forward raw engine messages.
         if "living character" in msg or "already exists" in msg:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={"error": {"code": "character_exists", "message": msg}},
+                detail={"error": {"code": "character_exists", "message": "A living character already exists for this campaign"}},
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"error": {"code": "engine_error", "message": msg}},
+            detail={"error": {"code": "engine_error", "message": "Character creation failed"}},
         ) from exc
     return character
 
@@ -334,10 +336,11 @@ async def take_turn(
     try:
         scene: Scene = await narrator.narrate(campaign_id, ctx)
     except Exception as exc:
-        logger.error("Narrator failed for campaign %s: %s", campaign_id, exc)
+        logger.exception("Narrator failed for campaign %s", campaign_id)
+        # Do not leak internal exception details (paths, model config) to clients.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"error": {"code": "invalid_scene", "message": f"Narrator error: {exc}"}},
+            detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},
         ) from exc
 
     # 3. Validate (Scene model already validates; this is the belt-and-suspenders check)
@@ -352,9 +355,6 @@ async def take_turn(
         scene.effects, toolset, registry, campaign_id
     )
 
-    # Check for terminal conditions after effects
-    await _check_terminal_state(campaign_id, character, world, toolset, registry)
-
     # Refresh state after effects
     try:
         character = await call_engine(toolset, "read_character_sheet")
@@ -364,6 +364,9 @@ async def take_turn(
         world = await call_engine(toolset, "read_world")
     except Exception:
         pass
+
+    # Check for terminal conditions against the refreshed post-effects state
+    await _check_terminal_state(campaign_id, character, world, toolset, registry)
 
     # Store current scene for GET /scene
     scene_dict = scene.model_dump()

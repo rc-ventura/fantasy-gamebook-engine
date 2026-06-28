@@ -76,7 +76,7 @@ _DEFAULT_OPENING_SCENE = Scene(
         ),
         Effect(
             type="update_world",
-            params={"location": "mountain_base"},
+            params={"current_location": "mountain_base"},
         ),
     ],
 )
