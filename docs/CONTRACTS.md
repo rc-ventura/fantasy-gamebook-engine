@@ -497,35 +497,63 @@ Acting on an already-`ended` campaign → `409 run_ended`.
 
 ---
 
-## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26)
+## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26; updated 2026-06-27)
 
 > Folded from `specs/001-web-platform-migration/data-model.md` §B per Principle III.
+> **Implementation delivered by slice 002-persistence-foundation.**
 
-All engine tables are scoped to a `campaign`; every `campaign` is owned by an `account`.
-The `StorageBackend` interface signature is **unchanged**; `PostgresStorage` implements it
-against these tables (`src/gamebook/storage/postgres.py`).  Each write runs in a single
-transaction (atomic, Principle V).
+All engine tables are scoped to a `campaign`.  The `StorageBackend` interface signature is
+**unchanged**; `PostgresStorage` implements it against these tables
+(`src/gamebook/storage/postgres.py`).  Each write runs in a single transaction (atomic,
+Principle V).
+
+**Deferred to slice 004:** `account`, `session_lease` (ownership / OIDC / session hold).
+The `campaign` table therefore has **no `account_id` FK** until slice 004 lands.
 
 ```text
-account         (id PK uuid, idp_subject UNIQUE text, created_at timestamptz)
-campaign        (id PK uuid, account_id FK→account CASCADE, status text, created_at, updated_at)
+-- Slice 002 (this slice) — engine tables only:
+campaign        (id PK text, status text DEFAULT 'active',
+                 created_at timestamptz, updated_at timestamptz,
+                 summary_text text DEFAULT '')
+                  -- summary_text stores the narrative summary (load_summary/save_summary)
 character_sheet (campaign_id PK FK→campaign CASCADE, data JSONB, alive bool)
-world           (campaign_id PK FK→campaign CASCADE, location text, visited JSONB, flags JSONB,
-                 turn int, data JSONB)           -- data column holds full World round-trip snapshot
-event           (id PK uuid, campaign_id FK CASCADE, seq int, payload JSONB, created_at)
-                  UNIQUE(campaign_id, seq)        -- append-only; seq preserves order
-combat          (campaign_id PK FK→campaign CASCADE, state JSONB nullable)  -- null = no active fight
-archive_record  (id PK uuid, campaign_id FK CASCADE, destination text, payload JSONB, archived_at)
-session_lease   (campaign_id PK FK→campaign CASCADE, session_token text, holder text, expires_at)
-save_slot       (campaign_id FK CASCADE, name text, snapshot JSONB, created_at)
+world           (campaign_id PK FK→campaign CASCADE, location text, visited JSONB,
+                 flags JSONB, turn int, data JSONB)
+                  -- data column holds the full World model_dump(mode="json") for round-trip
+event           (id PK text, campaign_id FK→campaign CASCADE, seq int,
+                 payload JSONB, created_at timestamptz)
+                  UNIQUE(campaign_id, seq)         -- append-only; seq preserves insertion order
+combat          (campaign_id PK FK→campaign CASCADE, state JSONB nullable)
+                  -- state = {combat_id: <Combat JSON>, ...}; NULL = no active fight
+archive_record  (id PK text, campaign_id FK→campaign CASCADE, destination text,
+                 payload JSONB, archived_at timestamptz)
+save_slot       (campaign_id FK→campaign CASCADE, name text,
+                 snapshot JSONB, created_at timestamptz)
                   PRIMARY KEY(campaign_id, name)
+
+-- Slice 004 (deferred):
+account         (id PK text, idp_subject UNIQUE text, created_at timestamptz)
+session_lease   (campaign_id PK FK→campaign CASCADE, session_token text,
+                 holder text, expires_at timestamptz)
+-- campaign gains account_id FK→account CASCADE in slice 004
 ```
 
-**Notes:**
-- `data JSONB` on `character_sheet` / `world` stores the full Pydantic `model_dump(mode="json")`
-  for exact round-trip (Principle V). Attribute bounds stay enforced in `domain`, not the DB.
+**Transaction semantics (Principle V):**
+- Every `StorageBackend` method completes in a **single SQL transaction** — no partial writes.
+- `_restore_snapshot` (used by `load_slot`) restores character, world, events, summary, and
+  combats atomically in one transaction.
+
+**Sync/async bridge (ADR-014):**
+The `StorageBackend` protocol is synchronous; asyncpg/SQLAlchemy-asyncio is async.  A private
+asyncio event loop in a daemon thread bridges the two.  Each storage method calls
+`asyncio.run_coroutine_threadsafe(coro, self._loop).result()`, blocking until the coroutine
+commits.  Works from any calling context (sync or already-running event loop).
+
+**Other notes:**
+- `data JSONB` on `character_sheet` / `world` stores `model_dump(mode="json")` for exact
+  round-trip (Principle V).  Attribute bounds stay enforced in `domain`, not the DB.
 - `event.seq` is computed as `MAX(seq)+1` within the INSERT transaction — no race condition.
-- Reads/writes are always filtered by `campaign_id` (and `account_id` at the API layer) for
-  per-account isolation (FR-009).
-- Migration: `alembic/versions/0001_initial_schema.py` — run with
-  `DATABASE_URL=... uv run alembic upgrade head`.
+- Reads/writes are filtered by `campaign_id` (and `account_id` at the API layer in slice 004).
+- Migration: `alembic/versions/0001_initial_schema.py` — apply with
+  `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head`.
+- Phase-2 MCP path: `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server`

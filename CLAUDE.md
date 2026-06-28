@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase-1 MVP implemented
+## Status: Phase-1 MVP + Slice 002 (persistence foundation) implemented
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **158 passing tests** (96% coverage) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **162+ passing tests** (with Postgres suite running against a live DB) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+
+**Slice 002 (PostgresStorage):** `src/gamebook/storage/postgres.py` implements `StorageBackend` behind Postgres (swap boundary #1). Schema in `alembic/versions/0001_initial_schema.py`. Phase-2 MCP path available when `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` are set.
 
 **Single source of truth.** All specs in `docs/00-index.md … docs/08-commands.md` are the *requirements* (read `00-index.md` first — it maps every module). `docs/CONTRACTS.md` is their **authoritative English code contract**: every cross-module interface, the domain-model schema (§2), and the MCP tool contract (§6). When changing code, CONTRACTS.md governs — if you must deviate, update it deliberately, don't drift.
 
@@ -21,12 +23,30 @@ Everything goes through `uv` (deps already installed — don't `uv add` without 
 - `rules`/`combat` tests use a seeded RNG and in-memory storage: deterministic, no disk, no AI.
 
 ### Phase-2 web service
-- `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head` — run the initial DB migration.
-- `DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload` — start the FastAPI service (hot-reload).
-- `docker compose up` — start Postgres + OIDC provider + OTLP collector locally (see `docker-compose.yml`).
-- `DATABASE_URL=postgresql+asyncpg://... uv run pytest tests/server/test_postgres_storage.py -v` — live Postgres contract tests.
+- `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head` — apply initial DB migration (`alembic/versions/0001_initial_schema.py`).
+- `DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload` — start the FastAPI service (slice 003; not yet implemented).
+- `docker compose up` — start Postgres + OIDC provider + OTLP collector locally (see `docker-compose.yml`; added in slice 003).
+- `DATABASE_URL=postgresql+asyncpg://... uv run pytest tests/server/test_postgres_storage.py tests/server/test_atomic_writes.py tests/server/test_storage_roundtrip.py -v` — live Postgres contract tests (T005/T007/T008/T009).
 - `uv run python -m gamebook.mcp.server` — Phase-1 path (JSONStorage, no Postgres).
-- `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server` — Phase-2 path (PostgresStorage, scoped to campaign).
+- `DATABASE_URL=postgresql+asyncpg://user:pass@host/db GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server` — Phase-2 MCP path (PostgresStorage, scoped to campaign; T006).
+
+**Quickstart storage validation (slice 002):**
+```bash
+# 1. Start Postgres (example: Docker)
+docker run -d --name gamebook-pg -e POSTGRES_USER=gamebook -e POSTGRES_PASSWORD=gamebook \
+  -e POSTGRES_DB=gamebook -p 5432:5432 postgres:16-alpine
+
+# 2. Apply migration
+DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost/gamebook \
+  uv run alembic upgrade head
+
+# 3. Run full suite (Postgres tests run; rest are deterministic)
+DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost/gamebook \
+  uv run pytest tests/server -q
+
+# 4. Plugability audit (must stay green)
+uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q
+```
 
 ## What this is
 
@@ -130,6 +150,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
 | [ADR-014](./docs/adrs/ADR-014-vite-env-import-meta-types.md) | `import.meta.env` types via `src/vite-env.d.ts` (not tsconfig types array) | Accepted | 2026-06-27 |
 | [ADR-015](./docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md) | Mock mode via a client-side fixture layer (VITE_USE_MOCK=true) | Accepted | 2026-06-27 |
+| [ADR-014](./docs/adrs/ADR-014-postgres-storage-sync-async-bridge.md) | PostgresStorage sync/async bridge via dedicated daemon thread | Accepted | 2026-06-27 |
 
 ## Learning Lessons
 
@@ -143,6 +164,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
 - [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
 - [JSX string attributes do NOT process JavaScript escape sequences (`\n` is literal)](./docs/learning-lessons/jsx-string-attributes-dont-process-escape-sequences.md) — 2026-06-27
+- [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
 
 <!-- SPECKIT START -->
 **Active feature**: `002-persistence-foundation` (first slice of the decomposed
