@@ -44,11 +44,11 @@ Engine (unchanged behavior): `src/gamebook/`. New backend: `src/gamebook_web/`. 
 
 **Purpose**: Project initialization for the Phase-2 stack.
 
-- [ ] T001 Add backend dependencies via `uv` (fastapi, uvicorn, sqlalchemy, asyncpg, alembic, pydantic-ai, anthropic, opentelemetry-sdk + instrumentation) in `pyproject.toml`, and record them in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update)
-- [ ] T002 [P] Scaffold the `src/gamebook_web/` package (`api/`, `harness/`, `auth/`, `sessions/`, `observability/` with `__init__.py`)
-- [ ] T003 [P] Scaffold the `frontend/` SPA project (React + Vite + TypeScript) under `frontend/`
-- [ ] T004 [P] Add dev `docker-compose.yml` at repo root (PostgreSQL, OIDC provider, OTLP collector)
-- [ ] T005 Initialize Alembic in `alembic/` wired to `DATABASE_URL`
+- [x] T001 Add backend dependencies via `uv` (fastapi, uvicorn, sqlalchemy, asyncpg, alembic, pydantic-ai, anthropic, opentelemetry-sdk + instrumentation) in `pyproject.toml`, and record them in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update) — done in `002`/`003`
+- [x] T002 [P] Scaffold the `src/gamebook_web/` package (`api/`, `harness/`, `auth/`, `sessions/`, `observability/` with `__init__.py`) — done in `003`
+- [x] T003 [P] Scaffold the `frontend/` SPA project (React + Vite + TypeScript) under `frontend/` — done in `005`
+- [x] T004 [P] Add dev `docker-compose.yml` at repo root (PostgreSQL, OIDC provider, OTLP collector) — done in `003` (Postgres only; OIDC/OTLP deferred to `004`)
+- [x] T005 Initialize Alembic in `alembic/` wired to `DATABASE_URL` — done in `002`
 
 ---
 
@@ -58,15 +58,15 @@ Engine (unchanged behavior): `src/gamebook/`. New backend: `src/gamebook_web/`. 
 
 **⚠️ CRITICAL**: No user-story work begins until this phase is complete.
 
-- [ ] T006 Define Postgres schema/migrations for engine tables + `account` + `campaign` + `session_lease` in `alembic/versions/` (data-model.md §B)
-- [ ] T007 Implement `PostgresStorage(StorageBackend)` in `src/gamebook/storage/postgres.py` — one transaction per state change (atomic), round-trips the domain (Principles II & V; swap boundary #1)
-- [ ] T008 [P] Extend the storage contract suite to run against `PostgresStorage` **through the consumer** (mcp/combat) in `tests/server/` (ADR-009), including a mid-write-failure no-corruption case
-- [ ] T009 FastAPI app skeleton with the consistent error envelope, `/health`, and OpenAPI in `src/gamebook_web/api/app.py` (contracts/http-api.md)
-- [ ] T010 MCP host wiring: launch the engine FastMCP server and expose a client session (`MCPToolset` over `StdioTransport`) in `src/gamebook_web/mcp_host.py` (ADR-011)
-- [ ] T011 OIDC auth: JWT validation (JWKS, aud/exp) + account resolution from `sub` + a per-account scoping dependency in `src/gamebook_web/auth/` (FR-007/009/010)
-- [ ] T012 Account + Campaign persistence and ownership/scoping helpers in `src/gamebook_web/` (data-model.md §C.1/C.2)
-- [ ] T013 Fold the `contracts/` drafts (HTTP API, `Scene`, Postgres mapping) into `docs/CONTRACTS.md` (Principle III; plan ACTION item)
-- [ ] T014 [P] Extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) to cover `src/gamebook_web` — no module reaches past an interface (Principle IV, merge gate)
+- [x] T006 Define Postgres schema/migrations for engine tables + `campaign` in `alembic/versions/` (data-model.md §B) — done in `002` (`account`/`session_lease` deferred to `004`)
+- [x] T007 Implement `PostgresStorage(StorageBackend)` in `src/gamebook/storage/postgres.py` — one transaction per state change (atomic), round-trips the domain (Principles II & V; swap boundary #1) — done in `002`
+- [x] T008 [P] Extend the storage contract suite to run against `PostgresStorage` **through the consumer** (mcp/combat) in `tests/server/` (ADR-009), including a mid-write-failure no-corruption case — done in `002`
+- [x] T009 FastAPI app skeleton with the consistent error envelope, `/health`, and OpenAPI in `src/gamebook_web/api/app.py` (contracts/http-api.md) — done in `003`
+- [x] T010 MCP host wiring: launch the engine FastMCP server and expose a client session (`MCPToolset` over `StdioTransport`) in `src/gamebook_web/mcp_host.py` (ADR-011) — done in `003`
+- [ ] T011 OIDC auth: JWT validation (JWKS, aud/exp) + account resolution from `sub` + a per-account scoping dependency in `src/gamebook_web/auth/` (FR-007/009/010) — deferred to `004` (dev stub in `003`)
+- [ ] T012 Account + Campaign persistence and ownership/scoping helpers in `src/gamebook_web/` (data-model.md §C.1/C.2) — deferred to `004`
+- [x] T013 Fold the `contracts/` drafts (HTTP API, `Scene`, Postgres mapping) into `docs/CONTRACTS.md` (Principle III; plan ACTION item) — done in `002`/`003`
+- [x] T014 [P] Extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) to cover `src/gamebook_web` — no module reaches past an interface (Principle IV, merge gate) — done in `002`/`003`
 
 **Checkpoint**: persistence, auth, MCP host, and the API skeleton exist; engine still green.
 
@@ -80,16 +80,16 @@ UI, with every number engine-authoritative.
 **Independent Test**: Load the app as a seeded/authenticated player, play opening → one exploration
 turn → one combat → a clean end-state, and confirm every number traces to an MCP tool result.
 
-- [ ] T015 [P] [US1] Define the `Scene` Pydantic schema (narrative, choices[], effects[] discriminated union) in `src/gamebook_web/harness/scene.py` (contracts/scene.md)
-- [ ] T016 [US1] `NarratorBackend` port (Protocol) + deterministic `FakeNarrator` in `src/gamebook_web/harness/base.py` (ADR-011; Principle IV testability)
-- [ ] T017 [US1] PydanticAI `PydanticNarrator(NarratorBackend)` Agent — `output_type=Scene`, `MCPToolset` over the engine, `deps_type` for campaign context, model string injected, and **loads the active adventure module as lore (swap boundary #2, FR-019)** — in `src/gamebook_web/harness/agent.py` (ADR-011)
-- [ ] T018 [US1] `output_validator` raising `ModelRetry` to reject any `Scene` carrying a literal number, in `src/gamebook_web/harness/agent.py` (Principle I, enforced in code)
-- [ ] T019 [US1] Combat subagent via agent delegation (asks the player whether to test luck each round) in `src/gamebook_web/harness/combat_subagent.py` (ADR-001 pattern)
-- [ ] T020 [US1] Play endpoints `POST /campaigns`, `POST /campaigns/{id}/character`, `POST /campaigns/{id}/turn`, `GET /campaigns/{id}`, `GET /campaigns/{id}/scene` in `src/gamebook_web/api/play.py` (FR-001/003/004)
-- [ ] T021 [US1] Combat endpoints `POST /campaigns/{id}/combat/round` and `/flee` in `src/gamebook_web/api/combat.py` (FR-005)
-- [ ] T022 [P] [US1] Test: a `Scene` with a literal stat value is rejected (`422 invalid_scene`) and never persisted; all shown numbers trace to MCP results, in `tests/server/test_scene_numbers.py` (SC-003, FR-014)
-- [ ] T023 [P] [US1] Frontend: scene view + numbered choices + free-text input + character sheet + combat panel, rendering only engine state, in `frontend/src/` (FR-020/021)
-- [ ] T024 [US1] Wire the typed API client from OpenAPI in `frontend/src/api/` and play opening → exploration → combat → end-state end to end
+- [x] T015 [P] [US1] Define the `Scene` Pydantic schema (narrative, choices[], effects[] discriminated union) in `src/gamebook_web/harness/scene.py` (contracts/scene.md) — done in `003`
+- [x] T016 [US1] `NarratorBackend` port (Protocol) + deterministic `FakeNarrator` in `src/gamebook_web/harness/base.py` (ADR-011; Principle IV testability) — done in `003`
+- [x] T017 [US1] PydanticAI `AnthropicNarrator(NarratorBackend)` Agent — `output_type=Scene`, `MCPToolset` over the engine, `deps_type` for campaign context, model string injected, and **loads the active adventure module as lore (swap boundary #2, FR-019)** — in `src/gamebook_web/harness/agent.py` (ADR-011) — done in `003`
+- [x] T018 [US1] `output_validator` raising `ModelRetry` to reject any `Scene` carrying a literal number, in `src/gamebook_web/harness/agent.py` (Principle I, enforced in code) — done in `003`
+- [x] T019 [US1] Combat subagent via agent delegation (asks the player whether to test luck each round) in `src/gamebook_web/harness/combat_subagent.py` (ADR-001 pattern) — done in `003`
+- [x] T020 [US1] Play endpoints `POST /campaigns`, `POST /campaigns/{id}/character`, `POST /campaigns/{id}/turn`, `GET /campaigns/{id}`, `GET /campaigns/{id}/scene` in `src/gamebook_web/api/play.py` (FR-001/003/004) — done in `003`
+- [x] T021 [US1] Combat endpoints `POST /campaigns/{id}/combat/round` and `/flee` in `src/gamebook_web/api/combat.py` (FR-005) — done in `003`
+- [x] T022 [P] [US1] Test: a `Scene` with a literal stat value is rejected (`422 invalid_scene`) and never persisted; all shown numbers trace to MCP results, in `tests/server/test_scene_numbers.py` (SC-003, FR-014) — done in `003`
+- [x] T023 [P] [US1] Frontend: scene view + numbered choices + free-text input + character sheet + combat panel, rendering only engine state, in `frontend/src/` (FR-020/021) — done in `005`
+- [x] T024 [US1] Wire the typed API client from OpenAPI in `frontend/src/api/` and play opening → exploration → combat → end-state end to end — done in `005`
 
 **Checkpoint**: US1 is fully playable and independently testable — the MVP.
 
@@ -103,7 +103,7 @@ resume across devices.
 **Independent Test**: Create an account, play several turns, sign out, sign in on another session,
 and resume the exact recorded state.
 
-- [ ] T025 [P] [US2] Sign-up / sign-in UI flow against the OIDC provider in `frontend/src/` (FR-008)
+- [x] T025 [P] [US2] Sign-up / sign-in UI flow against the OIDC provider in `frontend/src/` (FR-008) — done in `005` (dev auth stub; real OIDC gated on `004`)
 - [ ] T026 [US2] Session lease (single active session) + `POST /campaigns/{id}/session`, `/session/takeover`, `DELETE /campaigns/{id}/session` in `src/gamebook_web/sessions/` + `api/` (FR-025)
 - [ ] T027 [US2] Gate state-changing routes on lease ownership (`409 not_session_holder`) in `src/gamebook_web/api/` (FR-025)
 - [ ] T028 [US2] `POST /campaigns/{id}/save` checkpoint + resume from the exact recorded point via `GET /campaigns/{id}` in `src/gamebook_web/api/play.py` (FR-003/011)
