@@ -214,13 +214,17 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    from gamebook_web.observability.tracing import get_tracer, span_set_error
-    tracer = get_tracer()
-    current_span = tracer.start_span("unhandled_exception")
-    try:
-        span_set_error(current_span, exc)
-    finally:
-        current_span.end()
+    from opentelemetry import trace
+
+    from gamebook_web.observability.tracing import span_set_error
+
+    # Annotate the active request span (created by FastAPI auto-instrumentation)
+    # so the error correlates with the request trace, rather than creating a
+    # detached root span.  get_current_span() returns a no-op span if none is
+    # active, so this is always safe.
+    span = trace.get_current_span()
+    if span is not None and span.is_recording():
+        span_set_error(span, exc)
     logger.exception("Unhandled error on %s %s", request.method, request.url)
     return JSONResponse(
         status_code=500,
