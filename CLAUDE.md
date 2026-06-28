@@ -148,6 +148,8 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 | [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
 | [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
+| [ADR-014](./docs/adrs/ADR-014-vite-env-import-meta-types.md) | `import.meta.env` types via `src/vite-env.d.ts` (not tsconfig types array) | Accepted | 2026-06-27 |
+| [ADR-015](./docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md) | Mock mode via a client-side fixture layer (VITE_USE_MOCK=true) | Accepted | 2026-06-27 |
 | [ADR-014](./docs/adrs/ADR-014-postgres-storage-sync-async-bridge.md) | PostgresStorage sync/async bridge via dedicated daemon thread | Accepted | 2026-06-27 |
 
 ## Learning Lessons
@@ -161,6 +163,7 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [FastMCP tool return-serialization & invocation gotchas](./docs/learning-lessons/fastmcp_tool_return_serialization_gotchas.md) — 2026-06-21
 - [A `TYPE_CHECKING` import is absent from runtime `sys.modules` — isolation checks must assert absence, not presence](./docs/learning-lessons/type_checking_imports_absent_from_runtime_sys_modules.md) — 2026-06-21
 - [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
+- [JSX string attributes do NOT process JavaScript escape sequences (`\n` is literal)](./docs/learning-lessons/jsx-string-attributes-dont-process-escape-sequences.md) — 2026-06-27
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
 
 <!-- SPECKIT START -->
