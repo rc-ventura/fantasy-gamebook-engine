@@ -73,14 +73,17 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
-        self._database_url = os.getenv("DATABASE_URL")
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
         method = request.method
 
-        # Skip if no DATABASE_URL (InMemoryStorage / test mode without Postgres)
-        if not self._database_url:
+        # Read DATABASE_URL per request (not cached at construction): this
+        # middleware is registered at import time, before the lifespan loads
+        # the environment, so caching it here would permanently disable lease
+        # enforcement whenever the URL is set later at runtime (auth bypass).
+        if not os.getenv("DATABASE_URL"):
+            # Skip if no DATABASE_URL (InMemoryStorage / test mode without Postgres)
             return await call_next(request)
 
         # Skip non-mutating and exempt paths

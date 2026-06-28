@@ -21,10 +21,12 @@ JWKS key cache TTL: 5 minutes (refreshed on 404 key-id to handle key rotation).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,52 +55,72 @@ _JWKS_CACHE: dict[str, Any] | None = None
 _JWKS_CACHE_FETCHED_AT: float = 0.0
 _JWKS_CACHE_TTL = 300  # 5 minutes
 
+# Serialises access to the module-level caches.  Async request handlers can
+# interleave at ``await`` points, so the caches are guarded by an asyncio.Lock
+# to prevent torn reads/writes and concurrent mutation during GC.
+_CACHE_LOCK = asyncio.Lock()
+
 # Short-term validated-token cache for graceful degradation.
-# Key: (token-signature-hash, exp), Value: account_id
-_VALIDATED_TOKEN_CACHE: dict[tuple[str, int], str] = {}
+# Key: (token-signature-hash, exp), Value: account_id.  An OrderedDict gives
+# us O(1) LRU eviction so the cache cannot grow without bound (CWE-400).
+_VALIDATED_TOKEN_CACHE: OrderedDict[tuple[str, int], str] = OrderedDict()
 VALIDATED_TOKEN_TTL = 300  # seconds; allows tokens to ride through a short OIDC outage
+# Hard cap on cached tokens — bounds memory under a token-flood / re-auth storm.
+_VALIDATED_TOKEN_CACHE_MAX = 10_000
 
 
 def _token_cache_key(token: str, exp: int) -> tuple[str, int]:
-    sig = hashlib.sha256(token.encode()).hexdigest()[:16]
+    # Full SHA-256 digest (not truncated) for strong collision resistance.
+    sig = hashlib.sha256(token.encode()).hexdigest()
     return (sig, exp)
 
 
 def _cache_validated_token(token: str, exp: int, account_id: str) -> None:
+    """Store a validated token. Caller must hold ``_CACHE_LOCK``."""
     key = _token_cache_key(token, exp)
     _VALIDATED_TOKEN_CACHE[key] = account_id
+    _VALIDATED_TOKEN_CACHE.move_to_end(key)
     # Purge expired entries (simple GC)
     now = time.time()
-    expired = [k for k, _ in _VALIDATED_TOKEN_CACHE.items() if k[1] < now]
+    expired = [k for k in _VALIDATED_TOKEN_CACHE if k[1] < now]
     for k in expired:
         _VALIDATED_TOKEN_CACHE.pop(k, None)
+    # Enforce the size cap by evicting the least-recently-used entries.
+    while len(_VALIDATED_TOKEN_CACHE) > _VALIDATED_TOKEN_CACHE_MAX:
+        _VALIDATED_TOKEN_CACHE.popitem(last=False)
 
 
 def _lookup_validated_token(token: str, exp: int) -> str | None:
+    """Return the cached account_id, or None. Caller must hold ``_CACHE_LOCK``."""
     key = _token_cache_key(token, exp)
     if exp < time.time():
         _VALIDATED_TOKEN_CACHE.pop(key, None)
         return None
-    return _VALIDATED_TOKEN_CACHE.get(key)
+    account_id = _VALIDATED_TOKEN_CACHE.get(key)
+    if account_id is not None:
+        _VALIDATED_TOKEN_CACHE.move_to_end(key)
+    return account_id
 
 
 async def _fetch_jwks(jwks_uri: str, force_refresh: bool = False) -> dict[str, Any]:
     """Fetch and cache the JWKS from the OIDC provider.
 
-    Raises ``httpx.RequestError`` if the provider is unreachable.
+    Raises ``httpx.RequestError`` if the provider is unreachable.  Access to
+    the module-level JWKS cache is serialised via ``_CACHE_LOCK``.
     """
     global _JWKS_CACHE, _JWKS_CACHE_FETCHED_AT
 
-    now = time.time()
-    if not force_refresh and _JWKS_CACHE is not None and (now - _JWKS_CACHE_FETCHED_AT) < _JWKS_CACHE_TTL:
-        return _JWKS_CACHE
+    async with _CACHE_LOCK:
+        now = time.time()
+        if not force_refresh and _JWKS_CACHE is not None and (now - _JWKS_CACHE_FETCHED_AT) < _JWKS_CACHE_TTL:
+            return _JWKS_CACHE
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.get(jwks_uri)
-        response.raise_for_status()
-        _JWKS_CACHE = response.json()
-        _JWKS_CACHE_FETCHED_AT = time.time()
-        return _JWKS_CACHE
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(jwks_uri)
+            response.raise_for_status()
+            _JWKS_CACHE = response.json()
+            _JWKS_CACHE_FETCHED_AT = time.time()
+            return _JWKS_CACHE
 
 
 async def _get_signing_key(jwks_uri: str, kid: str | None) -> Any:
@@ -184,7 +206,8 @@ async def get_current_account(
         _unauthenticated(f"Malformed token: {exc}")
 
     # Check validated-token cache (graceful degradation)
-    cached_account_id = _lookup_validated_token(token, exp)
+    async with _CACHE_LOCK:
+        cached_account_id = _lookup_validated_token(token, exp)
     if cached_account_id:
         return Account(account_id=cached_account_id)
 
@@ -237,7 +260,8 @@ async def get_current_account(
         )
 
     # Cache for graceful degradation
-    _cache_validated_token(token, exp, account.account_id)
+    async with _CACHE_LOCK:
+        _cache_validated_token(token, exp, account.account_id)
 
     return account
 
