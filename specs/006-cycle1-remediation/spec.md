@@ -1,4 +1,4 @@
-# Feature Specification: Cycle-1 Remediation (001 + 002 + 003 + 004)
+# Feature Specification: Cycle-1 Remediation (001 + 002 + 003 + 004 + 005)
 
 **Feature Branch**: `006-cycle1-remediation`
 
@@ -7,7 +7,7 @@
 **Status**: Draft
 
 **Epic**: `001-web-platform-migration` — remediation slice addressing the SDD final
-review cycle-1 findings from **four** blocked slices:
+review cycle-1 findings from **five** blocked/conditional slices:
 
 1. `001-web-platform-migration` (report:
    `reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`) —
@@ -21,6 +21,9 @@ review cycle-1 findings from **four** blocked slices:
 4. `004-accounts-hardening-obs` (report:
    `reports/sdd-final-review/004-accounts-hardening-obs/cycle-1-20260628-1043.md`) —
    3 CRITICAL, 5 HIGH, 8 MEDIUM, 3 LOW.
+5. `005-professional-spa` (report:
+   `reports/sdd-final-review/005-professional-spa/cycle-1-20260628-1223.md`) —
+   PASS WITH CONDITIONS: 4 HIGH (2 sec + 2 QA), 4 MEDIUM, 11 LOW/deferred.
 
 Depends on `002-persistence-foundation`, `003-web-backend-mvp`, `005-professional-spa`
 (merged to `dev`), and `feat/004-auth-obs` (the auth/accounts/lease/observability
@@ -28,19 +31,21 @@ implementation that was reviewed and returned BLOCKED). The 004 implementation w
 absorbed into this slice — its ADRs are renumbered 022–024 and its findings are
 remediated here.
 
-**Input**: The four SDD final reviews returned **BLOCKED**. The architectural decisions
-are recorded as ADRs 017–028 (017–020 created for the 001 remediation, 022–024
-renumbered from the 004 branch, 025 new, 026–027 new for the 002 remediation, 028 new
-for the 003 remediation). This spec covers the **implementation work** that follows
-from those decisions plus the non-architectural fixes. The 004 slice is **extinct as
-a separate branch** — all its remediation lives here. The 002 and 003 slices are
-already merged to `dev`; their remediation is implemented in-place on the 006 branch.
+**Input**: The five SDD final reviews returned **BLOCKED** (001–004) or **PASS WITH
+CONDITIONS** (005). The architectural decisions are recorded as ADRs 017–028 (017–020
+created for the 001 remediation, 022–024 renumbered from the 004 branch, 025 new,
+026–027 new for the 002 remediation, 028 new for the 003 remediation). The 005 findings
+are implementation bugs and configuration issues — no new ADR is needed. This spec
+covers the **implementation work** that follows from those decisions plus the
+non-architectural fixes. The 004 slice is **extinct as a separate branch** — all its
+remediation lives here. The 002, 003, and 005 slices are already merged to `dev`; their
+remediation is implemented in-place on the 006 branch.
 
 ## Overview
 
-Close the cycle-1 findings from all four reviews so the web backend + SPA are
-**live-mode functional, multi-tenant safe, production-hardened, and
-persistence-safe**. The scope spans six areas:
+Close the cycle-1 findings from all five reviews so the web backend + SPA are
+**live-mode functional, multi-tenant safe, production-hardened, persistence-safe, and
+SPA-hardened**. The scope spans seven areas:
 
 1. **Multi-tenant engine + contract alignment (from 001/003 reviews)**: the engine is
    scoped per `campaign_id` (ADR-018); the frontend types conform to the backend
@@ -65,6 +70,11 @@ persistence-safe**. The scope spans six areas:
    adventure-module config, `create_campaign` keeps the `name`, missing endpoints
    gated, vite pinned, dev-token aligned, CORS narrowed, allowlist for fabricated
    numbers (ADR-019), ADR renumbering (ADR-020), dependency upper bounds.
+7. **SPA production hardening (from 005 review)**: source maps disabled in production;
+   Content-Security-Policy headers; ErrorBoundary component; CombatPanel participants
+   validation; 401/403 redirect to `/auth`; token expiration checking; useEffect
+   stale-closure fix; free-text input validation; error message sanitization; security
+   headers; vitest upgrade.
 
 The scope is deliberately bounded: **no new features**, only fixes, refactor, and
 the hardening of the 002 and 004 implementations. Production guards, Postgres
@@ -259,6 +269,54 @@ present). The following are **new findings** not already captured by the 001 rev
   subprocess scoped to an env var is a multi-tenancy anti-pattern — per-call
   `campaign_id` is mandatory from the start.
 
+### QA findings (005 review — selected)
+
+The 005 review returned **PASS WITH CONDITIONS** — the SPA is functionally working but
+lacks production hardening and comprehensive test coverage. The following are the
+blocking and significant findings:
+
+- **HIGH**: Missing ErrorBoundary — no global error boundary to catch React render
+  errors. `frontend/src/App.tsx:1-51`.
+- **HIGH**: CombatPanel assumes `participants` array has at least 2 elements without
+  validation. `frontend/src/components/CombatPanel.tsx:79-80`.
+- **MEDIUM**: `useEffect` dependency on `load` in `useGame`/`useCampaign` could cause
+  stale closures if `load` changes. `frontend/src/hooks/useGame.ts:98-107`,
+  `frontend/src/hooks/useCampaign.ts:45-47`.
+- **MEDIUM**: Session lease release on unmount is best-effort only — errors silently
+  ignored. `frontend/src/hooks/useGame.ts:102-106`.
+- **MEDIUM**: No input validation on free-text field — could accept empty/malformed
+  input. `frontend/src/components/ChoicesPanel.tsx:82-88`.
+- **LOW**: TypeScript types manually defined instead of generated from OpenAPI contract.
+  *(Already tracked as Out of Scope — future hardening slice.)*
+
+### Security findings (005 review — selected)
+
+- **HIGH A05**: Source maps enabled in production builds (`sourcemap: true`) — exposes
+  source code to attackers. `frontend/vite.config.ts:36`.
+- **HIGH A05**: No Content-Security-Policy headers configured — allows inline scripts,
+  eval, external resource loading. `frontend/index.html:1-24`.
+- **MEDIUM A01**: No handling of 401/403 auth errors — app shows generic error instead
+  of redirecting to login. `frontend/src/hooks/useGame.ts:79-95`.
+- **MEDIUM A07**: No token expiration handling — session lease `expires_at` not checked
+  or auto-refreshed. `frontend/src/hooks/useGame.ts:65-76`.
+- **MEDIUM A02**: Auth tokens stored in sessionStorage (XSS-exposed) — dev auth stub;
+  acceptable until slice 004 OIDC. *(Addressed by 004 OIDC migration; sessionStorage
+  replacement deferred to future slice.)*
+- **LOW A09**: Error messages displayed to users without sanitization — could leak
+  sensitive backend details. `frontend/src/hooks/useGame.ts:92-94, 133-135, 153-155`.
+- **Dependency**: `vitest@^2.0.5` (CRITICAL, CVSS 9.8, GHSA-5xrq-8626-4rwp) — devDependency
+  only, not shipped to production. `vite@^5.4.1` (HIGH, GHSA-fx2h-pf6j-xcff) — already
+  addressed by FR-011 (pin to `>=5.4.12`).
+
+### Governance findings (005 review)
+
+- The 005 Tech Leader noted that the 006 spec (at the time of review) did **not**
+  explicitly track the 005-specific items (source maps, CSP, ErrorBoundary, CombatPanel
+  validation, 401/403 handling, token expiration). This update folds those items into
+  the 006 spec.
+- No new ADR needed — all 005 findings are implementation bugs and configuration
+  issues, not architectural decisions.
+
 | ADR | Decision | Finding addressed |
 |---|---|---|
 | [ADR-017](../../docs/adrs/ADR-017-api-frontend-contract-canonical-shape.md) | Backend Pydantic models are canonical; frontend TS types conform | 001 HIGH Bugs #1–4, #6 |
@@ -273,12 +331,13 @@ present). The following are **new findings** not already captured by the 001 rev
 | [ADR-027](../../docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md) | Concurrency-safe event `seq` allocation; `PostgresStorage` deterministic lifecycle | 002 MEDIUM A04, MEDIUM QA |
 | [ADR-028](../../docs/adrs/ADR-028-combat-terminal-state-unification.md) | Unify terminal-state checking into a shared helper called from both `take_turn` and `combat_round` | 003 MEDIUM (combat victory path gap) |
 
-The cycle-1 findings from all four reviews require twelve architectural decisions,
+The cycle-1 findings from all five reviews require twelve architectural decisions,
 recorded as ADRs 017–028. ADRs 017–020 address the 001 review; ADRs 022–024 are
 renumbered from the `feat/004-auth-obs` branch (where they were 017–019) and amended
 with the remediation; ADR-025 is new; ADRs 026–027 are new for the 002 review; ADR-028
-is new for the 003 review. They are the blueprint for the implementation work in this
-spec.
+is new for the 003 review. The 005 review requires no new ADRs — its findings are
+implementation bugs and configuration issues. They are the blueprint for the
+implementation work in this spec.
 
 ### ADR-017 — Backend-canonical API/frontend contract shape
 
@@ -579,6 +638,32 @@ implemented.
 42. **Two new learning lessons recorded.** (1) API/frontend contract drift requires a
     live integration test, not eyeballing field names; (2) booting a single shared
     engine subprocess scoped to an env var is a multi-tenancy anti-pattern.
+43. **Source maps disabled in production.** `frontend/vite.config.ts` sets
+    `sourcemap: false` (or conditionally enables only in dev mode) so production builds
+    do not expose source code.
+44. **CSP headers present.** `frontend/index.html` includes a Content-Security-Policy
+    meta tag (or the backend sets the header) restricting `script-src` to `'self'`,
+    `style-src` to `'self' 'unsafe-inline'`, and `connect-src` to `'self'`.
+45. **ErrorBoundary wraps the App root.** A React ErrorBoundary component catches
+    render errors and displays a fallback UI instead of a blank screen.
+46. **CombatPanel validates participants.** Before accessing `participants[0]` and
+    `participants[1]`, the component checks `participants.length >= 2` and renders a
+    fallback if not.
+47. **401/403 redirects to `/auth`.** `useGame` intercepts auth errors and redirects
+    to the auth page instead of showing a generic error message.
+48. **Token expiration is checked.** The SPA parses `expires_at` from the session lease
+    and redirects to `/auth` if the token has expired.
+49. **useEffect dependencies are correct.** `useGame` and `useCampaign` remove `load`
+    from the `useEffect` dependency array to prevent stale closures.
+50. **Free-text input is validated.** `ChoicesPanel` rejects empty submissions and
+    enforces a max length.
+51. **Error messages are sanitized.** Error messages displayed to users do not include
+    backend implementation details, stack traces, or PII.
+52. **Security headers are configured.** The backend (or a reverse proxy) sets
+    `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and
+    `Referrer-Policy: strict-origin-when-cross-origin`.
+53. **vitest is upgraded.** `frontend/package.json` pins `vitest >= 3.2.6` to address
+    GHSA-5xrq-8626-4rwp (CRITICAL, dev-only).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -856,6 +941,37 @@ that delegates a combat to `combat_subagent` and verifies the `CombatResult`.
 3. **Given** a combat delegation, **When** `combat_subagent.resolve_combat()` runs,
    **Then** the `CombatResult` structure is correct and the combat state is updated.
 
+### User Story 11 - SPA is production-hardened (Priority: P2)
+
+The SPA is safe to deploy to production: source maps are disabled, CSP headers are
+present, an ErrorBoundary catches render errors, combat data is validated before
+rendering, auth errors redirect to login, and token expiration is checked. Currently
+the SPA has 4 HIGH and 4 MEDIUM findings from the 005 review that block production
+deployment.
+
+**Why this priority**: The 005 review returned PASS WITH CONDITIONS — the blocking
+items (source maps, CSP, ErrorBoundary, CombatPanel validation, 401/403 handling,
+token expiration) must be fixed before the SPA is production-ready.
+
+**Independent Test**: Build the SPA in production mode and verify no source maps are
+generated. Load the app and verify CSP headers are present. Trigger a render error and
+verify the ErrorBoundary catches it. Send a 401 and verify redirect to `/auth`.
+
+**Acceptance Scenarios**:
+
+1. **Given** a production build, **When** the bundle is inspected, **Then** no source
+   maps are present.
+2. **Given** the SPA is loaded, **When** the page headers are inspected, **Then** a
+   Content-Security-Policy header is present.
+3. **Given** a React render error, **When** the error is thrown, **Then** the
+   ErrorBoundary displays a fallback UI (not a blank screen).
+4. **Given** a combat with missing participants, **When** CombatPanel renders, **Then**
+   a fallback is shown (not a crash).
+5. **Given** a 401 response from the backend, **When** `useGame` handles it, **Then**
+   the user is redirected to `/auth`.
+6. **Given** an expired session lease, **When** the SPA checks `expires_at`, **Then**
+   the user is redirected to `/auth`.
+
 ## Functional Requirements
 
 ### FR-001 (ADR-018) Multi-tenant engine via per-call campaign_id
@@ -1103,6 +1219,58 @@ contract drift requires a live integration test, not eyeballing field names.
 `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md` — booting a
 single shared engine subprocess scoped to an env var is a multi-tenancy anti-pattern.
 
+### FR-051 (HIGH, from 005) Disable source maps in production
+`frontend/vite.config.ts` sets `sourcemap: false` or conditionally enables only in dev
+mode (`sourcemap: import.meta.env.DEV`). Production builds must not generate source
+maps.
+
+### FR-052 (HIGH, from 005) Add Content-Security-Policy headers
+`frontend/index.html` includes a CSP meta tag, or the backend sets the
+`Content-Security-Policy` header. Recommended policy:
+`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'`.
+
+### FR-053 (HIGH, from 005) Add ErrorBoundary component
+`frontend/src/components/ErrorBoundary.tsx` wraps the App root in `App.tsx`. It catches
+React render errors and displays a fallback UI with a "reload" button.
+
+### FR-054 (HIGH, from 005) CombatPanel participants validation
+`frontend/src/components/CombatPanel.tsx` checks `participants.length >= 2` before
+accessing indices 0 and 1. If the array is too short, a fallback message is rendered
+instead of crashing.
+
+### FR-055 (MEDIUM, from 005) 401/403 redirect to `/auth`
+`frontend/src/hooks/useGame.ts` intercepts `err.code === 'unauthenticated'` or
+`err.code === 'forbidden'` and redirects to `/auth` instead of showing a generic error.
+
+### FR-056 (MEDIUM, from 005) Token expiration checking
+`frontend/src/hooks/useGame.ts` (or `useAuth.ts`) parses `expires_at` from the session
+lease and redirects to `/auth` if the token has expired. A timer or interval checks
+periodically.
+
+### FR-057 (MEDIUM, from 005) Fix useEffect stale closure
+`frontend/src/hooks/useGame.ts` and `frontend/src/hooks/useCampaign.ts` remove `load`
+from the `useEffect` dependency array (or wrap `load` in `useCallback` with stable
+dependencies) to prevent stale closures.
+
+### FR-058 (MEDIUM, from 005) Free-text input validation
+`frontend/src/components/ChoicesPanel.tsx` rejects empty submissions (after trim) and
+enforces a max length (e.g. 1000 chars). The submit button is disabled when input is
+empty.
+
+### FR-059 (LOW, from 005) Error message sanitization
+Error messages displayed to users in `frontend/src/hooks/useGame.ts` do not include
+backend implementation details, stack traces, or PII. A generic "Something went wrong"
+message is shown, with the detailed error logged to console only in dev mode.
+
+### FR-060 (LOW, from 005) Security headers
+The backend (or a reverse proxy) sets `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`
+on all responses.
+
+### FR-061 (LOW, from 005) Upgrade vitest to `>=3.2.6`
+`frontend/package.json` pins `vitest >= 3.2.6` to address GHSA-5xrq-8626-4rwp
+(CRITICAL, CVSS 9.8, dev-only). `npm install` refreshes the lockfile.
+
 ## Success Criteria
 
 - **SC-001** (from 001 cycle-1) The SPA plays a full loop against the live backend
@@ -1169,6 +1337,18 @@ single shared engine subprocess scoped to an env var is a multi-tenancy anti-pat
   `updated_at`. Verified by `test_api_play_loop.py` (extended).
 - **SC-030** (from 003 cycle-1) Python dependency ranges have upper bounds in
   `pyproject.toml`. Verified by inspection.
+- **SC-031** (from 005 cycle-1) Source maps are disabled in production builds. Verified
+  by `npm run build` and inspecting the output for `.map` files.
+- **SC-032** (from 005 cycle-1) Content-Security-Policy header is present. Verified by
+  inspecting `index.html` or response headers.
+- **SC-033** (from 005 cycle-1) ErrorBoundary catches render errors. Verified by a test
+  that throws in a child component and asserts the fallback UI.
+- **SC-034** (from 005 cycle-1) CombatPanel validates `participants.length >= 2`.
+  Verified by a test that renders CombatPanel with an empty/short participants array.
+- **SC-035** (from 005 cycle-1) 401/403 redirects to `/auth`. Verified by a test that
+  mocks a 401 response and asserts the redirect.
+- **SC-036** (from 005 cycle-1) Token expiration is checked. Verified by a test that
+  mocks an expired `expires_at` and asserts the redirect to `/auth`.
 
 ## Out of Scope
 
@@ -1182,6 +1362,18 @@ single shared engine subprocess scoped to an env var is a multi-tenancy anti-pat
   requires a confirmation token or password re-entry (FR-025).
 - Bounded LRU cache with idle eviction for the `storage_factory` → future hardening
   concern (noted in ADR-018).
+- SPA unit tests for Inventory, MapPanel, EmptyState, LoadingState, ErrorState,
+  SessionConflict → deferred to a test-focused follow-up (005 QA deferred, non-blocking).
+- E2E resume-across-devices (SC-002 from 005) → requires live backend or sophisticated
+  mock state machine; defer until 003/004 integration testing.
+- E2E single-active-session takeover (FR-013 from 005) → same rationale.
+- Accessibility pass (T025 from 005) → important but not blocking for functional MVP.
+- Performance measurements (SC-001 <3min onboarding, SC-002 <30s resume from 005) →
+  requires production-like environment; defer to observability cycle.
+- sessionStorage → httpOnly cookie-based auth → deferred to future hardening slice
+  (acceptable until 004 OIDC ships).
+- Network failure scenario tests → important but not blocking for MVP.
+- Race condition tests in hooks → advanced testing; defer.
 
 ## Clarifications
 
@@ -1246,3 +1438,23 @@ single shared engine subprocess scoped to an env var is a multi-tenancy anti-pat
   (e.g. `<1.0`) prevent unexpected breaking changes from major releases while still
   allowing minor/patch updates. Strict pins would require manual updates for every
   patch release.
+
+### Session 2026-06-28 (005 absorption)
+
+- Q: The 005 review returned PASS WITH CONDITIONS, not BLOCKED — should its findings be
+  in 006? → A: Yes. The Tech Leader's report explicitly states the 005-specific items
+  (source maps, CSP, ErrorBoundary, CombatPanel validation, 401/403, token expiration)
+  "must be addressed in the 005 PR before merge or explicitly folded into 006." Folding
+  them into 006 is the chosen path.
+- Q: Does the 005 review need new ADRs? → A: No. All 005 findings are implementation
+  bugs and configuration issues, not architectural decisions. No new ADR is created.
+- Q: Should the SPA unit tests for Inventory/MapPanel/etc. be blocking? → A: No. The
+  005 Tech Leader deferred them to cycle 2 as non-blocking. They are tracked in Out of
+  Scope.
+- Q: Should vitest be upgraded given it's a devDependency? → A: Yes. The CRITICAL CVE
+  (GHSA-5xrq-8626-4rwp, CVSS 9.8) is dev-only but still a supply-chain risk. The fix
+  is a simple version pin.
+- Q: Should sessionStorage be replaced with httpOnly cookies? → A: Not in this slice.
+  The 005 Security report notes sessionStorage is "acceptable until slice 004 OIDC."
+  The 004 OIDC migration is in this slice, but the cookie-based auth swap is deferred
+  to a future hardening slice.

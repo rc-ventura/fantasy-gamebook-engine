@@ -1,15 +1,16 @@
 ---
-description: "Task list for Cycle-1 Remediation (001 + 002 + 003 + 004) — closes SDD cycle-1 findings from all four reviews (CRITICAL+HIGH+MEDIUM+LOW+GOVERNANCE)"
+description: "Task list for Cycle-1 Remediation (001 + 002 + 003 + 004 + 005) — closes SDD cycle-1 findings from all five reviews (CRITICAL+HIGH+MEDIUM+LOW+GOVERNANCE)"
 ---
 
-# Tasks: Cycle-1 Remediation (001 + 002 + 003 + 004)
+# Tasks: Cycle-1 Remediation (001 + 002 + 003 + 004 + 005)
 
 **Input**: Design documents from `specs/006-cycle1-remediation/` (spec.md, plan.md)
-and ADRs 017–028. Driven by four SDD final reviews:
+and ADRs 017–028. Driven by five SDD final reviews:
 - `reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`
 - `reports/sdd-final-review/002-persistence-foundation/cycle-1-20260628-1113.md`
 - `reports/sdd-final-review/003-web-backend-mvp/cycle-1-20260628-1010.md`
 - `reports/sdd-final-review/004-accounts-hardening-obs/cycle-1-20260628-1043.md`
+- `reports/sdd-final-review/005-professional-spa/cycle-1-20260628-1223.md`
 
 **Prerequisites**: spec.md, plan.md; ADRs 017–028; `002-persistence-foundation`,
 `003-web-backend-mvp`, `005-professional-spa` merged to `dev`; `feat/004-auth-obs`
@@ -24,13 +25,15 @@ Postgres TLS (SC-018), concurrency-safe append (SC-019), storage lifecycle (SC-0
 consistent snapshot (SC-021), identifier validation (SC-022), swap-boundary with
 Postgres (SC-023), atomic-write mid-statement failure (SC-024), combat victory path
 (SC-025), narrator integration (SC-026), combat subagent (SC-027), rate limiter
-keying (SC-028), `list_campaigns` fields (SC-029), dependency upper bounds (SC-030).
+keying (SC-028), `list_campaigns` fields (SC-029), dependency upper bounds (SC-030),
+source maps disabled (SC-031), CSP headers (SC-032), ErrorBoundary (SC-033),
+CombatPanel validation (SC-034), 401/403 redirect (SC-035), token expiration (SC-036).
 
 **Organization**: Tasks are grouped by phase (dependency-ordered). Phase 1 blocks all
 other phases (the multi-tenant refactor touches every call site). Phases 7–9 (004
 remediation) can run in parallel after Phase 1, but Phase 8 depends on Phase 7 for the
-auth seam. Phase 6 (002 remediation) and Phase 10 (003 remediation) can run in parallel
-with Phases 2–5 after Phase 1.
+auth seam. Phase 6 (002 remediation), Phase 10 (003 remediation), and Phase 11 (005
+SPA hardening) can run in parallel with Phases 2–5 after Phase 1.
 
 ## Format: `[ID] [Phase] [P?] Description`
 - **[P]**: parallelizable (different files, no incomplete dependency)
@@ -259,7 +262,40 @@ bounds; learning lessons recorded.
 
 ---
 
-## Phase 11: Postgres integration tests (CRITICAL/HIGH, from 004 + 002 reviews)
+## Phase 11: SPA production hardening (HIGH/MEDIUM/LOW, from 005 review)
+
+**Purpose**: Disable source maps in production; add CSP headers; add ErrorBoundary;
+validate CombatPanel participants; 401/403 redirect to `/auth`; token expiration
+checking; fix useEffect stale closure; free-text input validation; error message
+sanitization; security headers; vitest upgrade. Fixes 005 blocking findings.
+
+**⚠️ Can run in parallel with Phases 2–10** (frontend files, no dependency on backend
+phases beyond the contract alignment in Phase 2).
+
+- [ ] T097 [P11] [P] Disable source maps in production: change `sourcemap: true` to `sourcemap: false` (or `sourcemap: import.meta.env.DEV`) in `frontend/vite.config.ts`. (FR-051, SC-031)
+- [ ] T098 [P11] [P] Add Content-Security-Policy meta tag to `frontend/index.html`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'`. (FR-052, SC-032)
+- [ ] T099 [P11] [P] Create `frontend/src/components/ErrorBoundary.tsx` (class component catching render errors, fallback UI with "reload" button); wrap App root in `App.tsx`. (FR-053, SC-033)
+- [ ] T100 [P11] [P] Add `participants.length >= 2` validation in `frontend/src/components/CombatPanel.tsx` before accessing indices 0 and 1; render fallback if short. (FR-054, SC-034)
+- [ ] T101 [P11] [P] Add 401/403 handling in `frontend/src/hooks/useGame.ts`: intercept `err.code === 'unauthenticated'` or `err.code === 'forbidden'` and redirect to `/auth`. (FR-055, SC-035)
+- [ ] T102 [P11] [P] Add token expiration checking in `frontend/src/hooks/useGame.ts` (or `useAuth.ts`): parse `expires_at` from session lease and redirect to `/auth` if expired. (FR-056, SC-036)
+- [ ] T103 [P11] [P] Fix useEffect stale closure in `frontend/src/hooks/useGame.ts` and `frontend/src/hooks/useCampaign.ts`: remove `load` from dependency array or wrap in `useCallback`. (FR-057)
+- [ ] T104 [P11] [P] Add free-text input validation in `frontend/src/components/ChoicesPanel.tsx`: reject empty submissions (after trim), enforce max length (1000 chars), disable submit button when empty. (FR-058)
+- [ ] T105 [P11] [P] Sanitize error messages in `frontend/src/hooks/useGame.ts`: show generic "Something went wrong" to users; log details to console only in dev mode. (FR-059)
+- [ ] T106 [P11] [P] Add security headers to the backend response or reverse proxy: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. (FR-060)
+- [ ] T107 [P11] [P] Pin `vitest >= 3.2.6` in `frontend/package.json` to address GHSA-5xrq-8626-4rwp; run `npm install` to refresh lockfile. (FR-061)
+- [ ] T108 [P11] Add `frontend/src/components/__tests__/test_error_boundary.test.tsx`: throw in child component → assert fallback UI renders. (SC-033)
+- [ ] T109 [P11] Add `frontend/src/components/__tests__/test_combat_panel_validation.test.tsx`: render CombatPanel with empty/short participants → assert fallback. (SC-034)
+- [ ] T110 [P11] Add `frontend/src/hooks/__tests__/test_auth_redirect.test.tsx`: mock 401 response → assert redirect to `/auth`; mock expired `expires_at` → assert redirect. (SC-035, SC-036)
+- [ ] T111 [P11] Add `frontend/src/components/__tests__/test_choices_validation.test.tsx`: empty input → submit button disabled; max length enforced. (FR-058)
+
+**Checkpoint**: SPA is production-hardened — source maps disabled, CSP present,
+ErrorBoundary wraps App, CombatPanel validates, 401/403 redirects, token expiration
+checked, useEffect fixed, free-text validated, errors sanitized, security headers set,
+vitest upgraded.
+
+---
+
+## Phase 12: Postgres integration tests (CRITICAL/HIGH, from 004 + 002 reviews)
 
 **Purpose**: Add integration tests that run against a live Postgres with
 `DATABASE_URL` covering account, lease, ownership, GDPR, campaign scoping, and the
@@ -269,39 +305,39 @@ Fixes the 004/002 finding that these paths lack live-DB coverage.
 **⚠️ Depends on**: Phases 7–9 (the code under test must be fixed first) and Phase 6
 (002 storage hardening).
 
-- [ ] T056 [P11] Add `tests/server/test_postgres_accounts.py`: account upsert (`get_or_create`), account resolution from OIDC `sub`, account deletion with cascade. (SC-017, FR-035)
-- [ ] T057 [P11] Add `tests/server/test_postgres_campaign_ownership.py`: create campaign (assert `account_id` not `NULL`); duplicate ID → `409`; list campaigns (assert from Postgres, not in-memory); delete campaign (assert row removed). (SC-010, SC-017, FR-035)
-- [ ] T058 [P11] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
-- [ ] T059 [P11] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
-- [ ] T060 [P11] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
-- [ ] T080 [P11] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
-- [ ] T081 [P11] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
-- [ ] T082 [P11] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
+- [ ] T056 [P12] Add `tests/server/test_postgres_accounts.py`: account upsert (`get_or_create`), account resolution from OIDC `sub`, account deletion with cascade. (SC-017, FR-035)
+- [ ] T057 [P12] Add `tests/server/test_postgres_campaign_ownership.py`: create campaign (assert `account_id` not `NULL`); duplicate ID → `409`; list campaigns (assert from Postgres, not in-memory); delete campaign (assert row removed). (SC-010, SC-017, FR-035)
+- [ ] T058 [P12] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
+- [ ] T059 [P12] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
+- [ ] T060 [P12] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
+- [ ] T080 [P12] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
+- [ ] T081 [P12] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
+- [ ] T082 [P12] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
 
 **Checkpoint**: All DB-backed paths covered by live Postgres integration tests,
 including the 002 hardening paths.
 
 ---
 
-## Phase 12: ADR renumbering + Verification
+## Phase 13: ADR renumbering + Verification
 
 **Purpose**: Renumber 004 ADRs 017–019 → 022–024; create ADR-025, ADR-026, ADR-027,
 ADR-028; verify all success criteria before merge.
 
-- [ ] T061 [P12] Rename `docs/adrs/ADR-017-oidc-jwt-jwks-validation-pattern.md` → `ADR-022-oidc-jwt-jwks-validation-pattern.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T062 [P12] Rename `docs/adrs/ADR-018-session-lease-acquire-takeover-semantics.md` → `ADR-023-session-lease-acquire-takeover-semantics.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T063 [P12] Rename `docs/adrs/ADR-019-opentelemetry-auto-instrumentation.md` → `ADR-024-opentelemetry-auto-instrumentation.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T064 [P12] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
-- [ ] T083 [P12] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting the TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
-- [ ] T084 [P12] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
-- [ ] T096 [P12] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting the unification of terminal-state checking into a shared helper. (ADR-028, FR-044)
-- [ ] T065 [P12] Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
-- [ ] T066 [P12] Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
-- [ ] T067 [P12] Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
-- [ ] T068 [P12] Run `cd frontend && npm test` (vitest unit suite) — must be green. (SC-007)
-- [ ] T069 [P12] Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
-- [ ] T070 [P12] Run `DATABASE_URL=... uv run pytest tests/server/test_postgres_*.py tests/qa/test_storage_swap.py tests/server/test_atomic_writes.py -v` (live Postgres integration tests) — must be green. (SC-017, SC-023, SC-024)
-- [ ] T071 [P12] Run `/sdd-final-review` to dispatch cycle-2 (QA + Security + Tech Leader) and confirm the cycle-1 findings from all four reviews are closed.
+- [ ] T061 [P13] Rename `docs/adrs/ADR-017-oidc-jwt-jwks-validation-pattern.md` → `ADR-022-oidc-jwt-jwks-validation-pattern.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T062 [P13] Rename `docs/adrs/ADR-018-session-lease-acquire-takeover-semantics.md` → `ADR-023-session-lease-acquire-takeover-semantics.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T063 [P13] Rename `docs/adrs/ADR-019-opentelemetry-auto-instrumentation.md` → `ADR-024-opentelemetry-auto-instrumentation.md`; update the ADR header number. (FR-036, ADR-020)
+- [ ] T064 [P13] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
+- [ ] T083 [P13] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting the TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
+- [ ] T084 [P13] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
+- [ ] T096 [P13] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting the unification of terminal-state checking into a shared helper. (ADR-028, FR-044)
+- [ ] T065 [P13] Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
+- [ ] T066 [P13] Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
+- [ ] T067 [P13] Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
+- [ ] T068 [P13] Run `cd frontend && npm test` (vitest unit suite, including new 005 tests) — must be green. (SC-007)
+- [ ] T069 [P13] Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
+- [ ] T070 [P13] Run `DATABASE_URL=... uv run pytest tests/server/test_postgres_*.py tests/qa/test_storage_swap.py tests/server/test_atomic_writes.py -v` (live Postgres integration tests) — must be green. (SC-017, SC-023, SC-024)
+- [ ] T071 [P13] Run `/sdd-final-review` to dispatch cycle-2 (QA + Security + Tech Leader) and confirm the cycle-1 findings from all five reviews are closed.
 
 **Checkpoint**: All success criteria met; ADR numbering clean; ready for SDD cycle-2
 review.

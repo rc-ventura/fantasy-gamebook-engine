@@ -1,23 +1,25 @@
-# Implementation Plan: Cycle-1 Remediation (001 + 002 + 003 + 004)
+# Implementation Plan: Cycle-1 Remediation (001 + 002 + 003 + 004 + 005)
 
 **Branch**: `006-cycle1-remediation` | **Date**: 2026-06-28 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/006-cycle1-remediation/spec.md` and four
+**Input**: Feature specification from `specs/006-cycle1-remediation/spec.md` and five
 SDD final reviews:
 - `reports/sdd-final-review/001-web-platform-migration/cycle-1-20260628-0752.md`
 - `reports/sdd-final-review/002-persistence-foundation/cycle-1-20260628-1113.md`
 - `reports/sdd-final-review/003-web-backend-mvp/cycle-1-20260628-1010.md`
 - `reports/sdd-final-review/004-accounts-hardening-obs/cycle-1-20260628-1043.md`
+- `reports/sdd-final-review/005-professional-spa/cycle-1-20260628-1223.md`
 
 Architectural decisions are recorded in ADRs 017–028 (017–020 for the 001 remediation,
 022–024 renumbered from the 004 branch, 025 new, 026–027 new for the 002 remediation,
-028 new for the 003 remediation).
+028 new for the 003 remediation). The 005 review requires no new ADRs — its findings
+are implementation bugs and configuration issues.
 
 ## Summary
 
-Close the cycle-1 SDD findings from **all four** reviews so the web backend + SPA are
-live-mode functional, multi-tenant safe, production-hardened, and persistence-safe.
-The work has eight tracks:
+Close the cycle-1 SDD findings from **all five** reviews so the web backend + SPA are
+live-mode functional, multi-tenant safe, production-hardened, persistence-safe, and
+SPA-hardened. The work has nine tracks:
 
 1. **Multi-tenant engine (ADR-018, CRITICAL)**: every MCP tool gains a `campaign_id`
    parameter; `build_server` takes a `storage_factory` instead of a single storage
@@ -51,9 +53,15 @@ The work has eight tracks:
    `combat_round`; fix `request: Request = None` default; key rate limiter on
    `account_id`; exercise `PydanticNarrator` and `combat_subagent` with tests;
    `list_campaigns` includes `name`/timestamps; record two new learning lessons.
+9. **SPA production hardening (HIGH/MEDIUM/LOW, from 005)**: disable source maps in
+   production; add CSP headers; add ErrorBoundary; validate CombatPanel participants;
+   401/403 redirect to `/auth`; token expiration checking; fix useEffect stale closure;
+   free-text input validation; error message sanitization; security headers; vitest
+   upgrade.
 
-The 004 slice is extinct as a separate branch — all its remediation lives here. The 002
-and 003 slices are already merged to `dev`; their remediation is implemented in-place.
+The 004 slice is extinct as a separate branch — all its remediation lives here. The 002,
+003, and 005 slices are already merged to `dev`; their remediation is implemented
+in-place.
 
 ## Technical Context
 
@@ -328,6 +336,44 @@ effects → response; fabricated numbers → `ModelRetry`), `test_combat_subagen
 **Learning lessons**: `docs/learning-lessons/contract_drift_requires_live_integration_test.md`
 and `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md`.
 
+### Track 9: SPA production hardening (from 005 review)
+
+**`frontend/vite.config.ts`**: set `sourcemap: false` (or `sourcemap: import.meta.env.DEV`)
+so production builds do not expose source code.
+
+**`frontend/index.html`**: add a Content-Security-Policy meta tag restricting
+`script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self'`.
+
+**`frontend/src/components/ErrorBoundary.tsx`** (new): a React ErrorBoundary class
+component that catches render errors and displays a fallback UI with a "reload" button.
+Wraps the App root in `App.tsx`.
+
+**`frontend/src/components/CombatPanel.tsx`**: validate `participants.length >= 2`
+before accessing indices 0 and 1; render a fallback message if the array is too short.
+
+**`frontend/src/hooks/useGame.ts`**: intercept `err.code === 'unauthenticated'` or
+`err.code === 'forbidden'` and redirect to `/auth`. Parse `expires_at` from the session
+lease and redirect to `/auth` if expired. Remove `load` from `useEffect` dependency
+array (or wrap in `useCallback`). Sanitize error messages displayed to users (generic
+message, details to console only in dev).
+
+**`frontend/src/hooks/useCampaign.ts`**: same `useEffect` dependency fix.
+
+**`frontend/src/components/ChoicesPanel.tsx`**: reject empty submissions (after trim)
+and enforce a max length (e.g. 1000 chars). Disable the submit button when input is
+empty.
+
+**Backend or reverse proxy**: set `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+
+**`frontend/package.json`**: pin `vitest >= 3.2.6` (GHSA-5xrq-8626-4rwp, CRITICAL
+dev-only).
+
+**Tests**: `test_error_boundary.test.tsx` (throw in child → fallback UI),
+`test_combat_panel_validation.test.tsx` (short participants → fallback),
+`test_auth_redirect.test.tsx` (401 → redirect to `/auth`; expired token → redirect),
+`test_choices_validation.test.tsx` (empty input → disabled button).
+
 ## Complexity Tracking
 
 | Complexity | Description | Simpler rejected alternative |
@@ -348,6 +394,9 @@ and `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md`.
 | Combat terminal-state unification | Shared `_check_terminal_state` helper called from both `take_turn` and `combat_round` | Inline victory branch in `combat_round` (rejected: duplicates logic, future drift) |
 | Rate limiter keying on account_id | Key on `account_id` when authenticated; fall back to IP when unauthenticated | Keep IP-only keying (rejected: MEDIUM A05 — NAT/proxy issues) |
 | Narrator integration test | Mocked LLM produces `Scene` → validation → effects → response | Real LLM test (rejected: non-deterministic, out of scope) |
+| SPA source maps | `sourcemap: false` in production; dev-only conditional | Keep `sourcemap: true` always (rejected: HIGH A05 — exposes source code) |
+| CSP headers | Meta tag in `index.html` or backend header | No CSP (rejected: HIGH A05 — allows inline scripts/eval) |
+| ErrorBoundary | Class component wraps App root | No error boundary (rejected: HIGH QA — blank screen on render error) |
 
 ## Action Items
 
@@ -355,7 +404,7 @@ and `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md`.
 - [ ] HTTP API contract draft reconciled with ADR-017 canonical shapes
 - [ ] ADRs 017–028 linked from `CLAUDE.md` ADR table; ADR-021 (renamed pydantic-ai) listed; 004 ADRs renumbered 022–024; ADR-025 created; ADR-026, ADR-027, ADR-028 created
 - [ ] `docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md` cross-link updated to ADR-021
-- [ ] SDD cycle-1 reports (001 + 002 + 003 + 004) referenced from the remediation spec
+- [ ] SDD cycle-1 reports (001 + 002 + 003 + 004 + 005) referenced from the remediation spec
 - [ ] ADR-022 (OIDC fail-closed) created/renumbered from 004's ADR-017
 - [ ] ADR-023 (session lease) created/renumbered from 004's ADR-018
 - [ ] ADR-024 (OTel) created/renumbered from 004's ADR-019
@@ -364,6 +413,7 @@ and `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md`.
 - [ ] ADR-027 (PostgresStorage concurrency + lifecycle) created
 - [ ] ADR-028 (combat terminal-state unification) created
 - [ ] Two new learning lessons created (contract drift + single-shared-engine antipattern)
+- [ ] 005 SPA hardening items tracked as FR-051–FR-061 and SC-031–SC-036
 
 ## Pre-Implementation High-Level Task Breakdown
 
@@ -379,5 +429,6 @@ See [tasks.md](./tasks.md) for the ordered, dependency-grouped task list. Phases
 8. **Phase 8 — DB-backed campaign ownership + lease fixes (ADR-023/025, HIGH/MEDIUM)**: replace `CampaignRegistry`, fix `create_campaign`/`_ensure_campaign`, `DELETE /me` confirmation, `save_slot` in export, `takeover` validates `current_token`, lease expiry `<=`.
 9. **Phase 9 — Observability + PII discipline (ADR-024, HIGH/MEDIUM)**: `instrument_app(app)`, wire span helpers, emit metrics, redact exceptions, secure OTLP, security audit logging.
 10. **Phase 10 — Combat victory path + narrator tests (ADR-028, MEDIUM/LOW, from 003)**: unify terminal-state checking, fix `request: Request = None`, rate limiter keying, narrator/combat subagent tests, `list_campaigns` fields, dependency upper bounds, learning lessons.
-11. **Phase 11 — Postgres integration tests (CRITICAL/HIGH)**: account, lease, ownership, GDPR, campaign scoping, storage hardening against live DB.
-12. **Phase 12 — Verification**: full suite + plugability audit + live Playwright + multi-campaign isolation + all new tests.
+11. **Phase 11 — SPA production hardening (HIGH/MEDIUM/LOW, from 005)**: source maps disabled, CSP headers, ErrorBoundary, CombatPanel validation, 401/403 redirect, token expiration, useEffect fix, free-text validation, error sanitization, security headers, vitest upgrade.
+12. **Phase 12 — Postgres integration tests (CRITICAL/HIGH)**: account, lease, ownership, GDPR, campaign scoping, storage hardening against live DB.
+13. **Phase 13 — Verification**: full suite + plugability audit + live Playwright + multi-campaign isolation + all new tests.
