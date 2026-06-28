@@ -1,4 +1,4 @@
-# Coding Agent Context Extension
+#/b Coding Agent Context Extension
 
 This bundled extension manages the **coding agent context/instruction file** (e.g. `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, `GEMINI.md`, …) for the active integration.
 

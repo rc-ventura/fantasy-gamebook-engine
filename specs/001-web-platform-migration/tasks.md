@@ -82,7 +82,7 @@ turn → one combat → a clean end-state, and confirm every number traces to an
 
 - [ ] T015 [P] [US1] Define the `Scene` Pydantic schema (narrative, choices[], effects[] discriminated union) in `src/gamebook_web/harness/scene.py` (contracts/scene.md)
 - [ ] T016 [US1] `NarratorBackend` port (Protocol) + deterministic `FakeNarrator` in `src/gamebook_web/harness/base.py` (ADR-011; Principle IV testability)
-- [ ] T017 [US1] PydanticAI `AnthropicNarrator(NarratorBackend)` Agent — `output_type=Scene`, `MCPToolset` over the engine, `deps_type` for campaign context, model string injected, and **loads the active adventure module as lore (swap boundary #2, FR-019)** — in `src/gamebook_web/harness/agent.py` (ADR-011)
+- [ ] T017 [US1] PydanticAI `PydanticNarrator(NarratorBackend)` Agent — `output_type=Scene`, `MCPToolset` over the engine, `deps_type` for campaign context, model string injected, and **loads the active adventure module as lore (swap boundary #2, FR-019)** — in `src/gamebook_web/harness/agent.py` (ADR-011)
 - [ ] T018 [US1] `output_validator` raising `ModelRetry` to reject any `Scene` carrying a literal number, in `src/gamebook_web/harness/agent.py` (Principle I, enforced in code)
 - [ ] T019 [US1] Combat subagent via agent delegation (asks the player whether to test luck each round) in `src/gamebook_web/harness/combat_subagent.py` (ADR-001 pattern)
 - [ ] T020 [US1] Play endpoints `POST /campaigns`, `POST /campaigns/{id}/character`, `POST /campaigns/{id}/turn`, `GET /campaigns/{id}`, `GET /campaigns/{id}/scene` in `src/gamebook_web/api/play.py` (FR-001/003/004)
