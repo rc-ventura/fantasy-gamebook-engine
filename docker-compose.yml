@@ -1,0 +1,32 @@
+---
+# docker-compose.yml — local dev services for the gamebook web backend.
+#
+# Phase-2 MVP: PostgreSQL only.
+# OIDC provider (Keycloak/Dex) and OTLP collector are added in slice 004.
+#
+# Usage:
+#   docker compose up -d
+#   DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost:5432/gamebook \
+#     uv run alembic upgrade head
+#   DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gamebook
+      POSTGRES_PASSWORD: gamebook
+      POSTGRES_DB: gamebook
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gamebook"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
