@@ -78,8 +78,9 @@ export function useGame(campaignId: string): GameState {
       } catch (err) {
         if (err instanceof ApiError && err.code === 'not_session_holder') {
           setSessionConflict(true)
-          setLoadState('ready')
-          // Still load the state (read-only view)
+          // Still load the state (read-only view); loadState is set to 'ready'
+          // below once getCampaign resolves, so the UI never renders 'ready'
+          // with a null campaign (which would flash the character-creation screen).
         } else {
           throw err
         }
