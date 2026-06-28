@@ -1,0 +1,250 @@
+"""Real OIDC authentication — JWT/JWKS validation (slice 004).
+
+Replaces ``dev_auth.py`` at the auth seam.  Routes continue to depend on
+``get_current_account``; only the implementation changes.
+
+Environment variables
+---------------------
+OIDC_JWKS_URI   — JWKS endpoint (e.g. http://dex:5556/dex/keys)
+OIDC_AUDIENCE   — expected ``aud`` claim (e.g. "gamebook")
+OIDC_ISSUER     — expected ``iss`` claim (e.g. "http://dex:5556/dex")
+GAMEBOOK_DEV_MODE — if "1", fall back to dev stub (testing convenience)
+
+Graceful degradation (T017)
+---------------------------
+If the JWKS endpoint is unreachable, new sign-ins receive ``503 auth_unavailable``.
+Tokens already validated within the last ``VALIDATED_TOKEN_TTL`` seconds continue
+to be accepted from an in-memory cache keyed on (signature-hash, exp).
+
+JWKS key cache TTL: 5 minutes (refreshed on 404 key-id to handle key rotation).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import os
+import time
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+from fastapi import Header, HTTPException, status
+from jose import JWTError, jwk, jwt
+from jose.exceptions import ExpiredSignatureError
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Account type — same interface as dev_auth.Account
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Account:
+    """Authenticated player account resolved from the OIDC token subject."""
+    account_id: str
+
+
+# ---------------------------------------------------------------------------
+# JWKS cache
+# ---------------------------------------------------------------------------
+
+_JWKS_CACHE: dict[str, Any] | None = None
+_JWKS_CACHE_FETCHED_AT: float = 0.0
+_JWKS_CACHE_TTL = 300  # 5 minutes
+
+# Short-term validated-token cache for graceful degradation.
+# Key: (token-signature-hash, exp), Value: account_id
+_VALIDATED_TOKEN_CACHE: dict[tuple[str, int], str] = {}
+VALIDATED_TOKEN_TTL = 300  # seconds; allows tokens to ride through a short OIDC outage
+
+
+def _token_cache_key(token: str, exp: int) -> tuple[str, int]:
+    sig = hashlib.sha256(token.encode()).hexdigest()[:16]
+    return (sig, exp)
+
+
+def _cache_validated_token(token: str, exp: int, account_id: str) -> None:
+    key = _token_cache_key(token, exp)
+    _VALIDATED_TOKEN_CACHE[key] = account_id
+    # Purge expired entries (simple GC)
+    now = time.time()
+    expired = [k for k, _ in _VALIDATED_TOKEN_CACHE.items() if k[1] < now]
+    for k in expired:
+        _VALIDATED_TOKEN_CACHE.pop(k, None)
+
+
+def _lookup_validated_token(token: str, exp: int) -> str | None:
+    key = _token_cache_key(token, exp)
+    if exp < time.time():
+        _VALIDATED_TOKEN_CACHE.pop(key, None)
+        return None
+    return _VALIDATED_TOKEN_CACHE.get(key)
+
+
+async def _fetch_jwks(jwks_uri: str, force_refresh: bool = False) -> dict[str, Any]:
+    """Fetch and cache the JWKS from the OIDC provider.
+
+    Raises ``httpx.RequestError`` if the provider is unreachable.
+    """
+    global _JWKS_CACHE, _JWKS_CACHE_FETCHED_AT
+
+    now = time.time()
+    if not force_refresh and _JWKS_CACHE is not None and (now - _JWKS_CACHE_FETCHED_AT) < _JWKS_CACHE_TTL:
+        return _JWKS_CACHE
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get(jwks_uri)
+        response.raise_for_status()
+        _JWKS_CACHE = response.json()
+        _JWKS_CACHE_FETCHED_AT = time.time()
+        return _JWKS_CACHE
+
+
+async def _get_signing_key(jwks_uri: str, kid: str | None) -> Any:
+    """Return the signing key matching ``kid`` (or the first key if no kid)."""
+    jwks = await _fetch_jwks(jwks_uri)
+    keys = jwks.get("keys", [])
+    if not keys:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"code": "auth_unavailable", "message": "OIDC key set is empty"}},
+        )
+
+    if kid is not None:
+        matched = [k for k in keys if k.get("kid") == kid]
+        if not matched:
+            # Key might have been rotated — force refresh once
+            jwks = await _fetch_jwks(jwks_uri, force_refresh=True)
+            keys = jwks.get("keys", [])
+            matched = [k for k in keys if k.get("kid") == kid]
+        if matched:
+            return jwk.construct(matched[0])
+
+    # Fall back to first key
+    return jwk.construct(keys[0])
+
+
+# ---------------------------------------------------------------------------
+# Account resolution (upsert on first access — deferred to AccountRepository
+# which is imported at call time to avoid circular imports)
+# ---------------------------------------------------------------------------
+
+async def _resolve_account(sub: str) -> Account:
+    """Upsert account row and return the Account with its DB id."""
+    from gamebook_web.accounts import get_account_repository
+    repo = get_account_repository()
+    db_account = await repo.get_or_create(sub)
+    return Account(account_id=db_account["account_id"])
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependency
+# ---------------------------------------------------------------------------
+
+async def get_current_account(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> Account:
+    """OIDC auth dependency: validate bearer JWT and resolve account.
+
+    On JWKS fetch failure:
+      - Token in validated-token cache → serve from cache (graceful degradation).
+      - No cached token → 503 auth_unavailable.
+    On invalid/expired token → 401 unauthenticated.
+    """
+    # Dev-mode fallback (testing convenience — never enabled in prod)
+    dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0") in ("1", "true", "True")
+    if dev_mode:
+        from gamebook_web.auth.dev_auth import get_current_account as _dev_auth
+        return await _dev_auth(authorization)
+
+    jwks_uri = os.getenv("OIDC_JWKS_URI", "")
+    audience = os.getenv("OIDC_AUDIENCE", "gamebook")
+    issuer = os.getenv("OIDC_ISSUER", "")
+
+    if not jwks_uri:
+        _unauthenticated("OIDC_JWKS_URI not configured — set GAMEBOOK_DEV_MODE=1 for local dev")
+
+    if authorization is None:
+        _unauthenticated("Missing Authorization header")
+
+    if not authorization.startswith("Bearer "):
+        _unauthenticated("Authorization header must be 'Bearer <token>'")
+
+    token = authorization[len("Bearer "):]
+
+    # Decode header to find kid (without verification — just to select key)
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        # Also get exp from unverified claims for cache lookup
+        unverified_claims = jwt.get_unverified_claims(token)
+        exp = int(unverified_claims.get("exp", 0))
+    except JWTError as exc:
+        _unauthenticated(f"Malformed token: {exc}")
+
+    # Check validated-token cache (graceful degradation)
+    cached_account_id = _lookup_validated_token(token, exp)
+    if cached_account_id:
+        return Account(account_id=cached_account_id)
+
+    # Fetch signing key (may raise on network error)
+    try:
+        signing_key = await _get_signing_key(jwks_uri, kid)
+    except httpx.RequestError as exc:
+        logger.warning("OIDC JWKS fetch failed — provider unreachable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"code": "auth_unavailable", "message": "Authentication service temporarily unavailable"}},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("JWKS key fetch error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"code": "auth_unavailable", "message": "Authentication service temporarily unavailable"}},
+        )
+
+    # Validate JWT
+    try:
+        options = {"verify_aud": bool(audience), "verify_iss": bool(issuer)}
+        claims = jwt.decode(
+            token,
+            signing_key,
+            algorithms=["RS256", "ES256"],
+            audience=audience if audience else None,
+            issuer=issuer if issuer else None,
+            options=options,
+        )
+    except ExpiredSignatureError:
+        _unauthenticated("Token has expired")
+    except JWTError as exc:
+        _unauthenticated(f"Token validation failed: {exc}")
+
+    sub: str = claims.get("sub", "")
+    if not sub:
+        _unauthenticated("Token missing 'sub' claim")
+
+    # Resolve or create the account
+    try:
+        account = await _resolve_account(sub)
+    except Exception as exc:
+        logger.exception("Account resolution failed for sub=%s: %s", sub, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "internal_error", "message": "Account resolution failed"}},
+        )
+
+    # Cache for graceful degradation
+    _cache_validated_token(token, exp, account.account_id)
+
+    return account
+
+
+def _unauthenticated(message: str) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"error": {"code": "unauthenticated", "message": message}},
+        headers={"WWW-Authenticate": "Bearer"},
+    )

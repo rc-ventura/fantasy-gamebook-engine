@@ -264,3 +264,64 @@ def test_gamebook_web_domain_imports_only_domain() -> None:
         "gamebook_web imports gamebook modules beyond domain/ — Principle II violated:\n  "
         + "\n  ".join(violations)
     )
+
+
+# --------------------------------------------------------------------------- slice 004 additions (T008)
+#
+# Additional audit rules for the new auth/ and observability/ modules.
+# These must NOT import storage concretes or engine internals (same rule as
+# the rest of gamebook_web, but explicitly verified here).
+
+AUTH_AND_OBS_FORBIDDEN: tuple[str, ...] = (
+    "gamebook.storage.json_storage",
+    "gamebook.storage.in_memory",
+    "gamebook.storage.postgres",
+    "gamebook.combat",
+    "gamebook.rules",
+    "gamebook.mcp",
+)
+
+
+def _auth_obs_files():
+    """Source files in gamebook_web/auth/ and gamebook_web/observability/."""
+    from pathlib import Path
+    import gamebook_web
+
+    web_root = Path(gamebook_web.__file__).resolve().parent
+    src_root = web_root.parent
+
+    dirs = [web_root / "auth", web_root / "observability"]
+    files = []
+    for d in dirs:
+        if d.exists():
+            files.extend(
+                sorted(p for p in d.rglob("*.py") if "__pycache__" not in p.parts)
+            )
+
+    def _modname(path: Path) -> str:
+        rel = path.resolve().relative_to(src_root).with_suffix("")
+        parts = list(rel.parts)
+        if parts and parts[-1] == "__init__":
+            parts = parts[:-1]
+        return ".".join(parts)
+
+    return [(f, _modname(f)) for f in files]
+
+
+def test_auth_and_observability_never_import_storage_concretes() -> None:
+    """``gamebook_web.auth`` and ``gamebook_web.observability`` must not import
+    storage concretes or engine internals (T008, Principle II).
+    """
+    violations: list[str] = []
+    for path, modname in _auth_obs_files():
+        for imp in sorted(_audit.imported_modules(path)):
+            if not (imp == "gamebook" or imp.startswith("gamebook.")):
+                continue
+            hit = _audit.matches_any(imp, AUTH_AND_OBS_FORBIDDEN)
+            if hit is not None:
+                violations.append(f"{modname} imports {imp!r} (forbidden: {hit})")
+
+    assert not violations, (
+        "auth/observability violated Principle II by importing a concrete/internal:\n  "
+        + "\n  ".join(violations)
+    )

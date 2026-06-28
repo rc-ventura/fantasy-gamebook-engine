@@ -426,10 +426,17 @@ class PostgresStorage:
         self._run(self._save_slot(name))
 
     async def _save_slot(self, name: str) -> None:
-        snapshot = await self._build_snapshot()
-        payload = json.dumps(snapshot)
+        """Atomically capture a snapshot and write it to the save_slot table.
+
+        Both the snapshot build (reads) and the INSERT are performed inside a
+        single session so they see a consistent point-in-time view of the
+        campaign state.  A concurrent write between the read and insert phases
+        would be serialised by Postgres isolation.
+        """
         async with self._session() as session:
             async with session.begin():
+                snapshot = await self._build_snapshot_in_session(session)
+                payload = json.dumps(snapshot)
                 await session.execute(
                     text(
                         """
@@ -475,59 +482,63 @@ class PostgresStorage:
     async def _build_snapshot(self) -> dict[str, Any]:
         """Capture the full mutable campaign state as a serialisable dict."""
         async with self._session() as session:
-            # character
-            char_row = await session.execute(
-                text("SELECT data FROM character_sheet WHERE campaign_id = :cid"),
-                {"cid": self._campaign_id},
-            )
-            char_result = char_row.fetchone()
-            character = None if char_result is None else char_result[0]
-            if isinstance(character, str):
-                character = json.loads(character)
+            return await self._build_snapshot_in_session(session)
 
-            # world
-            world_row = await session.execute(
-                text("SELECT data FROM world WHERE campaign_id = :cid"),
-                {"cid": self._campaign_id},
-            )
-            world_result = world_row.fetchone()
-            world = None if world_result is None else world_result[0]
-            if isinstance(world, str):
-                world = json.loads(world)
+    async def _build_snapshot_in_session(self, session: AsyncSession) -> dict[str, Any]:
+        """Build snapshot using an existing session (for transactional save_slot)."""
+        # character
+        char_row = await session.execute(
+            text("SELECT data FROM character_sheet WHERE campaign_id = :cid"),
+            {"cid": self._campaign_id},
+        )
+        char_result = char_row.fetchone()
+        character = None if char_result is None else char_result[0]
+        if isinstance(character, str):
+            character = json.loads(character)
 
-            # events
-            ev_rows = await session.execute(
-                text(
-                    "SELECT payload FROM event WHERE campaign_id = :cid ORDER BY seq ASC"
-                ),
-                {"cid": self._campaign_id},
-            )
-            events = []
-            for (payload,) in ev_rows:
-                if isinstance(payload, str):
-                    payload = json.loads(payload)
-                events.append(payload)
+        # world
+        world_row = await session.execute(
+            text("SELECT data FROM world WHERE campaign_id = :cid"),
+            {"cid": self._campaign_id},
+        )
+        world_result = world_row.fetchone()
+        world = None if world_result is None else world_result[0]
+        if isinstance(world, str):
+            world = json.loads(world)
 
-            # summary
-            sum_row = await session.execute(
-                text("SELECT summary_text FROM campaign WHERE id = :cid"),
-                {"cid": self._campaign_id},
-            )
-            sum_result = sum_row.fetchone()
-            summary = "" if sum_result is None else (sum_result[0] or "")
+        # events
+        ev_rows = await session.execute(
+            text(
+                "SELECT payload FROM event WHERE campaign_id = :cid ORDER BY seq ASC"
+            ),
+            {"cid": self._campaign_id},
+        )
+        events = []
+        for (payload,) in ev_rows:
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            events.append(payload)
 
-            # active combats
-            combat_row = await session.execute(
-                text("SELECT state FROM combat WHERE campaign_id = :cid"),
-                {"cid": self._campaign_id},
-            )
-            combat_result = combat_row.fetchone()
-            combats: dict[str, Any] = {}
-            if combat_result is not None and combat_result[0] is not None:
-                state = combat_result[0]
-                if isinstance(state, str):
-                    state = json.loads(state)
-                combats = state
+        # summary
+        sum_row = await session.execute(
+            text("SELECT summary_text FROM campaign WHERE id = :cid"),
+            {"cid": self._campaign_id},
+        )
+        sum_result = sum_row.fetchone()
+        summary = "" if sum_result is None else (sum_result[0] or "")
+
+        # active combats
+        combat_row = await session.execute(
+            text("SELECT state FROM combat WHERE campaign_id = :cid"),
+            {"cid": self._campaign_id},
+        )
+        combat_result = combat_row.fetchone()
+        combats: dict[str, Any] = {}
+        if combat_result is not None and combat_result[0] is not None:
+            state = combat_result[0]
+            if isinstance(state, str):
+                state = json.loads(state)
+            combats = state
 
         return {
             "character": character,
@@ -538,9 +549,29 @@ class PostgresStorage:
         }
 
     async def _restore_snapshot(self, snapshot: dict[str, Any]) -> None:
-        """Restore campaign state from a snapshot dict in a single transaction."""
+        """Restore campaign state from a snapshot dict in a single transaction.
+
+        Uses ``SELECT ... FOR UPDATE SKIP LOCKED`` on the campaign row so that
+        concurrent restores to the same campaign are serialised: only one wins
+        the row-level lock; the other is skipped (returns immediately without
+        corrupting state).  This prevents a double-restore race where two
+        concurrent ``load_slot`` calls could interleave writes and corrupt the
+        campaign.
+        """
         async with self._session() as session:
             async with session.begin():
+                # Acquire row-level lock on the campaign; SKIP LOCKED means a
+                # concurrent restore will abort cleanly rather than waiting
+                # indefinitely and then writing on top of the first restore.
+                lock_row = await session.execute(
+                    text(
+                        "SELECT id FROM campaign WHERE id = :cid FOR UPDATE SKIP LOCKED"
+                    ),
+                    {"cid": self._campaign_id},
+                )
+                if lock_row.fetchone() is None:
+                    # Another restore holds the lock — skip to avoid corruption
+                    return
                 # character_sheet
                 if snapshot.get("character") is not None:
                     char_data = snapshot["character"]
