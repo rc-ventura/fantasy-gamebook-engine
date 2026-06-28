@@ -68,35 +68,29 @@ class AccountRepository:
     # ------------------------------------------------------------------
 
     async def get_or_create(self, sub: str) -> dict[str, Any]:
-        """Upsert an account by OIDC subject; return ``{"account_id": ..., "sub": ..., "created_at": ...}``."""
+        """Upsert an account by OIDC subject; return ``{"account_id": ..., "sub": ..., "created_at": ...}``.
+
+        Uses ``INSERT ... ON CONFLICT (sub) DO NOTHING`` so two concurrent
+        first-logins for the same subject do not race on the UNIQUE constraint:
+        one inserts, the other is a no-op, and both then read the same row.
+        """
         async with self._session() as session:
             async with session.begin():
-                # Check if exists
-                row = await session.execute(
-                    text("SELECT id, sub, created_at FROM account WHERE sub = :sub"),
-                    {"sub": sub},
-                )
-                existing = row.fetchone()
-                if existing is not None:
-                    return {
-                        "account_id": existing[0],
-                        "sub": existing[1],
-                        "created_at": existing[2].isoformat() if existing[2] else None,
-                    }
-
-                # Create new account
+                # Atomic upsert — the candidate id is only used if no row exists.
                 account_id = str(uuid.uuid4())
                 await session.execute(
                     text(
                         "INSERT INTO account (id, sub, created_at) "
-                        "VALUES (:id, :sub, NOW())"
+                        "VALUES (:id, :sub, NOW()) "
+                        "ON CONFLICT (sub) DO NOTHING"
                     ),
                     {"id": account_id, "sub": sub},
                 )
-                # Re-fetch to get server-set created_at
+                # Read back by sub (the stable, unique key) so we return the
+                # winning row regardless of which request created it.
                 row = await session.execute(
-                    text("SELECT id, sub, created_at FROM account WHERE id = :id"),
-                    {"id": account_id},
+                    text("SELECT id, sub, created_at FROM account WHERE sub = :sub"),
+                    {"sub": sub},
                 )
                 created = row.fetchone()
                 return {

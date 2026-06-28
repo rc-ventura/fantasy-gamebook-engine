@@ -551,27 +551,24 @@ class PostgresStorage:
     async def _restore_snapshot(self, snapshot: dict[str, Any]) -> None:
         """Restore campaign state from a snapshot dict in a single transaction.
 
-        Uses ``SELECT ... FOR UPDATE SKIP LOCKED`` on the campaign row so that
-        concurrent restores to the same campaign are serialised: only one wins
-        the row-level lock; the other is skipped (returns immediately without
-        corrupting state).  This prevents a double-restore race where two
-        concurrent ``load_slot`` calls could interleave writes and corrupt the
-        campaign.
+        Uses ``SELECT ... FOR UPDATE`` on the campaign row so that concurrent
+        restores to the same campaign are serialised: a second restore blocks
+        until the first transaction commits, then runs its own restore on top
+        of a consistent committed state.  This prevents a double-restore race
+        where two concurrent ``load_slot`` calls could interleave writes and
+        corrupt the campaign, without ever silently skipping a requested
+        restore (which would leave the caller believing the slot loaded while
+        state was unchanged).
         """
         async with self._session() as session:
             async with session.begin():
-                # Acquire row-level lock on the campaign; SKIP LOCKED means a
-                # concurrent restore will abort cleanly rather than waiting
-                # indefinitely and then writing on top of the first restore.
-                lock_row = await session.execute(
-                    text(
-                        "SELECT id FROM campaign WHERE id = :cid FOR UPDATE SKIP LOCKED"
-                    ),
+                # Acquire row-level lock on the campaign; plain FOR UPDATE
+                # blocks until any concurrent restore releases the lock, so the
+                # restore always runs rather than being silently skipped.
+                await session.execute(
+                    text("SELECT id FROM campaign WHERE id = :cid FOR UPDATE"),
                     {"cid": self._campaign_id},
                 )
-                if lock_row.fetchone() is None:
-                    # Another restore holds the lock — skip to avoid corruption
-                    return
                 # character_sheet
                 if snapshot.get("character") is not None:
                     char_data = snapshot["character"]
