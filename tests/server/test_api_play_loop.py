@@ -468,7 +468,14 @@ class TestAuthEnvelope:
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "unauthenticated"
 
-    def test_no_token_dev_mode_allowed(self, api_client):
-        """In dev mode (default), no auth token is accepted."""
+    def test_no_token_dev_mode_allowed(self, api_client, monkeypatch):
+        """With dev mode explicitly enabled, no auth token is accepted."""
+        monkeypatch.setenv("GAMEBOOK_DEV_MODE", "1")
         resp = api_client.get("/campaigns")  # no Authorization header
         assert resp.status_code == 200
+
+    def test_no_token_fails_closed_by_default(self, api_client):
+        """Fail-closed: without GAMEBOOK_DEV_MODE set, a missing token → 401."""
+        resp = api_client.get("/campaigns")  # no Authorization header
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "unauthenticated"

@@ -21,7 +21,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
+from gamebook_web.api.limiter import limiter
 from gamebook_web.mcp_host import engine_toolset_lifespan
 from gamebook_web.sessions.campaign import CampaignRegistry
 
@@ -95,6 +97,22 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+# ---------------------------------------------------------------------------
+# Rate limiting (CWE-770) — protects the expensive /turn (LLM) and combat
+# endpoints, plus auth, from abuse / DoS / credit exhaustion.
+# ---------------------------------------------------------------------------
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Return rate-limit errors in the standard error envelope (CONTRACTS.md §9)."""
+    return JSONResponse(
+        status_code=429,
+        content=_error_body("rate_limited", "Too many requests; please slow down."),
+    )
+
 
 # ---------------------------------------------------------------------------
 # CORS — restrictive by default (CWE-942)

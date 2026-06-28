@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from pydantic_ai.mcp import MCPToolset
 
+from gamebook_web.api.limiter import COMBAT_RATE, limiter
 from gamebook_web.auth.dev_auth import Account, get_current_account
 from gamebook_web.mcp_host import call_engine, get_engine_toolset
 from gamebook_web.sessions.campaign import CampaignRegistry, get_campaign_registry
@@ -89,6 +90,7 @@ async def _read_character(toolset: MCPToolset) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 @router.post("/campaigns/{campaign_id}/combat/round")
+@limiter.limit(COMBAT_RATE)
 async def combat_round(
     campaign_id: str,
     body: CombatRoundRequest | None = None,
@@ -152,6 +154,7 @@ async def combat_round(
 
 
 @router.post("/campaigns/{campaign_id}/combat/flee")
+@limiter.limit(COMBAT_RATE)
 async def flee_combat(
     campaign_id: str,
     request: Request = None,

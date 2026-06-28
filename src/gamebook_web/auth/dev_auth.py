@@ -2,7 +2,12 @@
 
 Accepts:
   - ``Authorization: Bearer dev-token`` header → dev account
-  - No token at all in dev mode (``GAMEBOOK_DEV_MODE=1``) → dev account
+  - No token at all ONLY when ``GAMEBOOK_DEV_MODE=1`` is explicitly set → dev account
+
+Fail-closed default:
+  ``GAMEBOOK_DEV_MODE`` defaults to OFF.  If it is not explicitly enabled, a
+  missing/invalid token yields ``401``.  This prevents an unauthenticated
+  open door if the app is deployed before OIDC (slice 004) lands.
 
 The seam:
   All routes use ``Depends(get_current_account)``.  Slice 004 replaces this
@@ -46,7 +51,7 @@ async def get_current_account(
     Accepts ``Bearer dev-token`` or (in dev mode) no token at all.
     Returns an :class:`Account` on success; raises ``401`` on failure.
     """
-    dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "1") not in ("0", "false", "False")
+    dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0") in ("1", "true", "True")
 
     if authorization is None:
         if dev_mode:

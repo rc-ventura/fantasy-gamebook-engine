@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from pydantic_ai.mcp import MCPToolset
 
+from gamebook_web.api.limiter import TURN_RATE, limiter
 from gamebook_web.auth.dev_auth import Account, get_current_account
 from gamebook_web.harness.base import NarratorBackend, NarratorContext, get_narrator
 from gamebook_web.harness.scene import EFFECT_TO_MCP_TOOL, Scene
@@ -289,6 +290,7 @@ async def read_character(
 # ---------------------------------------------------------------------------
 
 @router.post("/campaigns/{campaign_id}/turn")
+@limiter.limit(TURN_RATE)
 async def take_turn(
     campaign_id: str,
     body: TurnRequest | None = None,
