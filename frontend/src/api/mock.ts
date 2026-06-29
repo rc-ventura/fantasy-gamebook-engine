@@ -276,10 +276,22 @@ export const mockApi = {
     return buildCampaignState(stage)
   },
 
-  async createCharacter(_id: string): Promise<CharacterSheet> {
+  async createCharacter(_id: string, name?: string): Promise<CharacterSheet> {
     await delay(600)
     setMockStage('opening')
-    return makeMockCharacter()
+    // Simulate engine dice rolls: SKILL 1d6+6, STAMINA 2d6+12, LUCK 1d6+6
+    const d6 = () => Math.floor(Math.random() * 6) + 1
+    const skill = d6() + 6
+    const stamina = d6() + d6() + 12
+    const luck = d6() + 6
+    const char = makeMockCharacter()
+    return {
+      ...char,
+      name: name?.trim() || char.name,
+      skill: { initial: skill, current: skill },
+      stamina: { initial: stamina, current: stamina },
+      luck: { initial: luck, current: luck },
+    }
   },
 
   async getScene(_id: string): Promise<Scene> {

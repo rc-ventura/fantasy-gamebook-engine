@@ -3,6 +3,8 @@ import LandingPage from './pages/LandingPage'
 import AuthPage from './pages/AuthPage'
 import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
+import GraveyardPage from './pages/GraveyardPage'
+import CreateHeroPage from './pages/CreateHeroPage'
 import { useAuth } from './hooks/useAuth'
 
 /**
@@ -41,6 +43,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <PlayPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/create"
+        element={
+          <ProtectedRoute>
+            <CreateHeroPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/graveyard"
+        element={
+          <ProtectedRoute>
+            <GraveyardPage />
           </ProtectedRoute>
         }
       />

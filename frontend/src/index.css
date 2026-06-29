@@ -44,6 +44,13 @@
   --space-xl:  2rem;      /* 32px */
   --space-2xl: 3rem;      /* 48px */
 
+  /* ── Stat colors (match prototype) ── */
+  --skill:    #6f9bb5;
+  --stamina:  #cf6244;
+  --luck:     #c9a64a;
+  --gold:     #dba94f;
+  --danger:   #bf4a31;
+
   /* ── Border radius ── */
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -51,6 +58,28 @@
 
   /* ── Transitions ── */
   --transition: 150ms ease;
+}
+
+/* ── Candlewax theme (lighter parchment panels) ── */
+html.theme-candle {
+  --bg:           #14100c;
+  --bg2:          #1b150f;
+  --accent:       #bb8a3e;
+  --accent-hover: #cc9a4e;
+  --accent-ink:   #1b150f;
+  --ink:          #e9dcc2;
+  --muted:        #9c8a6f;
+  --faint:        #6a5a44;
+  --line:         #241d15;
+  --panel-bg:     #ece0c6;
+  --panel-border: #cbb892;
+  --panel-ink:    #2a2118;
+  --panel-muted:  #6e5f48;
+  --skill:        #4f7a8c;
+  --stamina:      #9a3b2e;
+  --luck:         #9c7a2e;
+  --gold:         #a8843a;
+  --danger:       #9a3b2e;
 }
 
 /* ── Reset ── */

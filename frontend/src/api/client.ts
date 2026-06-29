@@ -177,9 +177,9 @@ export async function releaseSession(id: string): Promise<void> {
 // ── Character ─────────────────────────────────────────────────────────────────
 
 /** POST /campaigns/{id}/character — create the hero (attributes rolled by engine). */
-export async function createCharacter(id: string): Promise<CharacterSheet> {
-  if (USE_MOCK) return mockApi.createCharacter(id)
-  return request<CharacterSheet>('POST', `/campaigns/${id}/character`, {})
+export async function createCharacter(id: string, name?: string): Promise<CharacterSheet> {
+  if (USE_MOCK) return mockApi.createCharacter(id, name)
+  return request<CharacterSheet>('POST', `/campaigns/${id}/character`, { name })
 }
 
 /** GET /campaigns/{id}/character — read the character sheet (real engine state). */
