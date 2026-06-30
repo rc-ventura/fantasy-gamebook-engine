@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase-1 MVP + Slice 002 (persistence foundation) implemented
+## Status: Slices 002–007 implemented and merged to `dev`
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **162+ passing tests** (with Postgres suite running against a live DB) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **217+ passing tests** (42 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+
+The Phase-2 web stack (`src/gamebook_web/`) is implemented: FastAPI + PydanticAI narrator (`PydanticNarrator`) that calls MCP tools directly during `agent.run()` (ADR-029), React/Vite SPA, PostgresStorage (swap boundary #1). TypeScript: `node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit` → exit 0.
 
 **Slice 002 (PostgresStorage):** `src/gamebook/storage/postgres.py` implements `StorageBackend` behind Postgres (swap boundary #1). Schema in `alembic/versions/0001_initial_schema.py`. Phase-2 MCP path available when `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` are set.
 
@@ -178,47 +180,34 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
 - [pydantic-ai 2.0 MCPToolset: `direct_call_tool` vs `toolsets=[]` in agents](./docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md) — 2026-06-27
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
+- [RTK proxy rewrites `tsc`/`npx tsc` and masks TypeScript errors — use `node_modules/.bin/tsc` directly](./docs/learning-lessons/rtk_proxy_masks_tsc_errors.md) — 2026-06-30
 
 <!-- SPECKIT START -->
-**Active feature**: `006-cycle1-remediation` (remediation slice closing the SDD
-final review cycle-1 findings on `001-web-platform-migration`, `002-persistence-foundation`,
-and `004-accounts-hardening-obs`). Slices `003` and `005` are merged to `dev` with BLOCKED
-findings; this slice fixes the CRITICAL (cross-account engine leak, no production guard),
-HIGH (API/frontend contract drift, Postgres TLS), MEDIUM (concurrency, lifecycle,
-lease/account), LOW, and GOVERNANCE findings. Architectural decisions are in ADRs 017–027.
-See `specs/006-cycle1-remediation/spec.md` and the three SDD cycle-1 reports in
-`reports/sdd-final-review/`.
+**Active feature**: `004-accounts-hardening-obs` (real OIDC auth, per-account isolation,
+session leases, GDPR export/erasure, OpenTelemetry observability). Depends on slices 002, 003,
+006, and 007 — all merged to `dev`. ADR-018 per-campaign engine isolation is the merge gate for
+`PydanticNarrator` in multi-account deployments (documented in ADR-029; tracked to this slice).
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1; cycle-1 TLS/concurrency/lifecycle findings remediated in `006`)
-- `003-web-backend-mvp` ← done (merged to `dev`; SDD cycle-1 found contract + isolation gaps)
-- `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
-  production hardening + OpenTelemetry; depends on `002`, `003`, `006`; cycle-1 findings
-  remediated in `006`)
-- `005-professional-spa` ← done (merged to `dev`; mock-only until `006` aligns the contract)
-- `006-cycle1-remediation` ← done (closes cycle-1 findings from `001`, `002`, `004`; merged to `dev`)
-- `007-narrator-tool-use-refactor` ← **active** (eliminates `effects[]` deferred-execution pattern; restores Phase 1 tool-use model; see ADR-029 and `specs/007-narrator-tool-use-refactor/spec.md`)
+- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1; TLS/concurrency/lifecycle remediated in `006`)
+- `003-web-backend-mvp` ← done (merged to `dev`)
+- `004-accounts-hardening-obs` ← **next** (real OIDC + accounts + session lease + resume +
+  privacy + production hardening + OpenTelemetry; depends on `002`, `003`, `006`, `007`)
+- `005-professional-spa` ← done (merged to `dev`; live mode gated on `006` + `007`)
+- `006-cycle1-remediation` ← done (closes cycle-1 SDD findings; merged to `dev`)
+- `007-narrator-tool-use-refactor` ← done (PR #8 → `dev`; eliminates `effects[]`; narrator calls MCP tools directly; ADR-029)
 
-Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated on `006`) → `007` (narrator architecture).
-
-**Active feature artifacts** (`specs/007-narrator-tool-use-refactor/`):
-- Spec: `specs/007-narrator-tool-use-refactor/spec.md`
-- Plan: `specs/007-narrator-tool-use-refactor/plan.md`
-- Tasks: `specs/007-narrator-tool-use-refactor/tasks.md`
-- Research: `specs/007-narrator-tool-use-refactor/research.md`
-- Data model: `specs/007-narrator-tool-use-refactor/data-model.md`
-- Contracts: `specs/007-narrator-tool-use-refactor/contracts/http-api-changes.md`
-- Quickstart: `specs/007-narrator-tool-use-refactor/quickstart.md`
-- ADR: `docs/adrs/ADR-029` (narrator tool-use, eliminate effects[])
+Dependency chain: `002` → `003` → `006` → `007` → `004` // `005` (live mode gated on `006`+`007`).
 
 **Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`
 - Data model: `specs/001-web-platform-migration/data-model.md`
-- Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`)
+- Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`) — updated 2026-06-30 for spec 007
 - Quickstart (validation): `specs/001-web-platform-migration/quickstart.md`
 
-Stack across the epic: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`), a new
-agent-based narrator on `claude-opus-4-8` emitting a Pydantic-validated `Scene`, a separate OIDC
-auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool contract and the engine
-(`src/gamebook/`) stay behavior-unchanged. Constitution: `.specify/memory/constitution.md` (v1.0.0).
+Stack across the epic: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`), a
+PydanticAI narrator (`PydanticNarrator`) on `claude-opus-4-8` calling MCP tools directly
+(ADR-029), a separate OIDC auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool
+contract and the engine (`src/gamebook/`) stay behavior-unchanged.
+Constitution: `.specify/memory/constitution.md` (v1.0.0).
 <!-- SPECKIT END -->

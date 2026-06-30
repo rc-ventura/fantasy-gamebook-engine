@@ -468,6 +468,7 @@ Invalid `Scene` objects are rejected with `422 invalid_scene` and never persiste
 class Scene(BaseModel):
     narrative: str                   # 2–4 paragraphs, 2nd person, adventure-module tone
     choices:   list[Choice]          # numbered options offered to the player (empty = terminal)
+    terminal:  bool = False          # True = death/victory; empty choices expected
 
 class Choice(BaseModel):
     id:    str    # stable id ("1", "2", …)
@@ -475,17 +476,18 @@ class Choice(BaseModel):
 ```
 
 **Validation rules (Pydantic v2):**
-- `narrative` non-empty; `choices` may be empty only on terminal scenes (death/victory).
+- `narrative` non-empty (field validator).
+- `terminal=False` and `choices=[]` → `output_validator` raises `ModelRetry` (non-terminal scene
+  must include choices — the non-tautological fix from spec 007).
+- `terminal=True` → `choices` expected empty (death/victory end-states).
 - No `effects` field — removed by spec 007 (ADR-029).
-- `output_validator` raises `ModelRetry` when `narrative` is empty or a non-terminal scene
-  has no choices.
 
 **Lifecycle (ADR-029):**
 `POST /campaigns/{id}/turn` → narrator calls MCP tools during `agent.run()` → narrator emits
 `Scene` (structural validator) → API re-reads engine state (post-turn reality) →
 checks terminal state → stores scene → returns `TurnResponse`.
 
-**Terminal scenes:** death/victory → `choices` empty, campaign → `ended`, `ArchiveRecord` written.
+**Terminal scenes:** death/victory → `terminal=True`, `choices=[]`, campaign → `ended`, `ArchiveRecord` written.
 Acting on an already-`ended` campaign → `409 run_ended`.
 
 **File:** `src/gamebook_web/harness/scene.py` (Pydantic v2 `BaseModel`).
