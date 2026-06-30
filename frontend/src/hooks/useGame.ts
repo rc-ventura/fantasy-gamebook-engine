@@ -108,6 +108,7 @@ export function useGame(campaignId: string): GameState {
       if (!prev) return prev
       return {
         ...prev,
+        status: res.status,
         current_scene: res.scene,
         ...(res.character !== undefined && { character: res.character }),
         ...(res.world !== undefined && { world: res.world }),

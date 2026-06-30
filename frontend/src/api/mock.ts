@@ -305,7 +305,7 @@ export const mockApi = {
     const campaign = buildCampaignState(nextStage)
     campaign.current_scene = scene
 
-    return { scene, character: campaign.character, world: campaign.world }
+    return { scene, status: campaign.status, character: campaign.character, world: campaign.world }
   },
 
   async acquireSession(_id: string): Promise<SessionLease> {

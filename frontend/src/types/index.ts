@@ -135,6 +135,7 @@ export interface TurnRequest {
 
 export interface TurnResponse {
   scene: Scene
+  status: CampaignStatus
   character?: CharacterSheet
   world?: WorldState
 }

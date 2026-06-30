@@ -61,6 +61,7 @@ class TurnRequest(BaseModel):
 
 class TurnResponse(BaseModel):
     scene: dict[str, Any]            # validated Scene as dict
+    status: str                      # campaign status after the turn (active | ended)
     character: dict[str, Any] | None = None
     world: dict[str, Any] | None = None
 
@@ -313,12 +314,13 @@ async def take_turn(
     # 5. Check terminal conditions against the post-turn state
     await _check_terminal_state(campaign_id, character, world, toolset, registry)
 
-    # 6. Store scene and return
+    # 6. Store scene and return (status reflects any end-state set in step 5)
     scene_dict = scene.model_dump()
     registry.set_scene(campaign_id, scene_dict)
 
     return TurnResponse(
         scene=scene_dict,
+        status=state.status,
         character=character,
         world=world,
     )
