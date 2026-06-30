@@ -109,7 +109,15 @@ export function useGame(campaignId: string): GameState {
   // ── Action helpers ────────────────────────────────────────────────────────
 
   function applyTurnResponse(res: TurnResponse): void {
-    setCampaign(res.campaign)
+    setCampaign(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        current_scene: res.scene,
+        ...(res.character !== undefined && { character: res.character }),
+        ...(res.world !== undefined && { world: res.world }),
+      }
+    })
   }
 
   function applyCombatResponse(res: CombatRoundResponse): void {

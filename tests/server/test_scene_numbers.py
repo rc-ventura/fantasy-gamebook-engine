@@ -1,15 +1,15 @@
-"""Scene invalid-number rejection — SC-002, SC-003, FR-007 (T018).
+"""Scene schema tests and API validation gate (CONTRACTS.md §10, Principle I, ADR-029).
 
-Confirms:
-1. A ``Scene`` with an empty narrative is rejected by Pydantic validation.
-2. An ``Effect`` with an unknown type is rejected by Pydantic validation.
-3. The ``output_validator`` in ``PydanticNarrator`` (if a scene reaches it
-   with fabricated numbers) raises ``ModelRetry``.
-4. A ``FakeNarrator`` returning an invalid (empty-narrative) scene triggers a
-   ``422 invalid_scene`` response and the bad scene is never stored.
-5. All numbers in accepted responses trace to engine MCP tool results.
+After the narrator tool-use refactor (spec 007), the narrator calls MCP tools
+directly during generation and narrates real results. The Scene model no longer
+carries effects[]; TurnResponse no longer carries effects_applied.
 
-US2: the narrator is structurally prevented from inventing numbers.
+Tests verify:
+1. Scene schema invariants (non-empty narrative, choices, is_terminal).
+2. TurnResponse has no effects_applied field (FR-003, SC-005).
+3. Scene has no effects field (FR-002, SC-005).
+4. Invalid narrator output → 422 (never stored, SC-004).
+5. Character stats in turn response come from engine state (SC-001).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pytest
 from pydantic import ValidationError
 
 from gamebook_web.harness.base import FakeNarrator
-from gamebook_web.harness.scene import Choice, Effect, Scene
+from gamebook_web.harness.scene import Choice, Scene
 
 
 # ---------------------------------------------------------------------------
@@ -31,35 +31,21 @@ class TestSceneSchemaValidation:
         scene = Scene(
             narrative="You stand at the crossroads.",
             choices=[Choice(id="1", label="Go north")],
-            effects=[],
         )
         assert scene.narrative
 
     def test_empty_narrative_rejected(self):
         with pytest.raises(ValidationError, match="narrative"):
-            Scene(
-                narrative="",
-                choices=[],
-                effects=[],
-            )
+            Scene(narrative="", choices=[])
 
     def test_whitespace_only_narrative_rejected(self):
         with pytest.raises(ValidationError, match="narrative"):
-            Scene(
-                narrative="   \n\t  ",
-                choices=[],
-                effects=[],
-            )
-
-    def test_unknown_effect_type_rejected(self):
-        with pytest.raises(ValidationError):
-            Effect(type="hack_the_mainframe", params={})
+            Scene(narrative="   \n\t  ", choices=[])
 
     def test_terminal_scene_allows_empty_choices(self):
         scene = Scene(
             narrative="You have fallen. The adventure is over.",
             choices=[],  # terminal — death
-            effects=[],
         )
         assert scene.is_terminal
 
@@ -67,103 +53,82 @@ class TestSceneSchemaValidation:
         scene = Scene(
             narrative="The path forks ahead.",
             choices=[Choice(id="1", label="Go left"), Choice(id="2", label="Go right")],
-            effects=[],
         )
         assert not scene.is_terminal
-
-    def test_effect_params_are_arbitrary_dicts(self):
-        effect = Effect(
-            type="start_combat",
-            params={"enemies": [{"name": "Goblin", "skill": 5, "stamina": 4}], "flee_allowed": True},
-        )
-        assert effect.params["flee_allowed"] is True
 
     def test_scene_round_trips_json(self):
         scene = Scene(
             narrative="The mountain looms.",
             choices=[Choice(id="1", label="Climb")],
-            effects=[Effect(type="register_event", params={"type": "test", "data": {}})],
         )
         reconstructed = Scene.model_validate(scene.model_dump())
         assert reconstructed == scene
 
 
-class TestOutputValidator:
-    """Test the ``_scene_contains_fabricated_numbers`` heuristic directly."""
+# ---------------------------------------------------------------------------
+# Contract: Scene and TurnResponse have the simplified shape (FR-002, FR-003)
+# ---------------------------------------------------------------------------
 
-    def test_clean_scene_passes(self):
-        from gamebook_web.harness.agent import _scene_contains_fabricated_numbers
-        scene = Scene(
-            narrative="A goblin blocks your path.",
-            choices=[Choice(id="1", label="Fight")],
-            effects=[
-                Effect(type="start_combat", params={
-                    "enemies": [{"name": "Goblin", "skill": 5, "stamina": 4}],
-                    "flee_allowed": True,
-                })
-            ],
+class TestSceneContractSimplified:
+    """Scene is narrative + choices only; TurnResponse has no effects_applied."""
+
+    def test_scene_has_no_effects_field(self):
+        """FR-002: Scene must not contain an effects field after the refactor."""
+        scene = Scene(narrative="Testing.", choices=[Choice(id="1", label="OK")])
+        data = scene.model_dump()
+        assert "effects" not in data, (
+            "Scene.effects was removed in spec 007 — narrator calls MCP tools directly"
         )
-        assert not _scene_contains_fabricated_numbers(scene)
 
-    def test_narrative_with_asserted_stamina_flagged(self):
-        from gamebook_web.harness.agent import _scene_contains_fabricated_numbers
-        scene = Scene(
-            narrative="Your stamina is 14 after the fight.",   # fabricated number
-            choices=[Choice(id="1", label="Continue")],
-            effects=[],
+    def test_turn_response_has_no_effects_applied_field(self):
+        """FR-003: TurnResponse must not contain effects_applied after the refactor."""
+        from gamebook_web.api.play import TurnResponse
+        fields = TurnResponse.model_fields
+        assert "effects_applied" not in fields, (
+            "TurnResponse.effects_applied was removed in spec 007"
         )
-        assert _scene_contains_fabricated_numbers(scene)
 
-    def test_effect_with_result_key_flagged(self):
-        """An effect carrying a computed result value (e.g. luck_after) is fabricated."""
-        from gamebook_web.harness.agent import _scene_contains_fabricated_numbers
-        scene = Scene(
-            narrative="You tested your luck.",
-            choices=[Choice(id="1", label="Continue")],
-            effects=[
-                Effect(type="test_luck", params={"luck_after": 8}),  # result key!
-            ],
-        )
-        assert _scene_contains_fabricated_numbers(scene)
+    def test_turn_response_shape_matches_contract(self, api_client):
+        """TurnResponse contains scene, character, world — nothing else (CONTRACTS.md §9)."""
+        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
+        api_client.post(f"/campaigns/{cid}/character", json={"name": "ContractCheck"},
+                        headers={"Authorization": "Bearer dev-token"})
 
-    def test_register_event_with_data_passes(self):
-        from gamebook_web.harness.agent import _scene_contains_fabricated_numbers
-        scene = Scene(
-            narrative="You enter the foothills.",
-            choices=[Choice(id="1", label="Onward")],
-            effects=[
-                Effect(type="register_event", params={"type": "enter_zone", "data": {"zone": "foothills"}}),
-            ],
-        )
-        assert not _scene_contains_fabricated_numbers(scene)
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+                               headers={"Authorization": "Bearer dev-token"})
+        assert resp.status_code == 200
+        data = resp.json()
 
+        assert "scene" in data
+        assert "effects_applied" not in data, "effects_applied must not appear in TurnResponse"
+        assert "effects" not in data.get("scene", {}), "effects must not appear in Scene"
+
+
+# ---------------------------------------------------------------------------
+# API validation gate: invalid narrator output → 422 (never stored)
+# ---------------------------------------------------------------------------
 
 class TestAPISceneValidationGate:
-    """Invalid narrator output → 422, never stored (SC-003, FR-014)."""
+    """Invalid narrator output → 422 and the bad scene is never stored (SC-004)."""
 
     def test_empty_narrative_returns_422(self, api_client):
-        """A narrator returning a Scene with empty narrative → 422 invalid_scene."""
+        """A narrator that raises → 422 invalid_scene."""
         from gamebook_web.api.app import app
 
         class _BadNarrator:
             async def narrate(self, campaign_id, context):
-                # Bypass the Scene validator by returning a broken scene
-                # The API should catch this
                 raise ValueError("Narrator produced invalid output")
 
         app.state.narrator = _BadNarrator()
 
         cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "BadTest"}, headers={"Authorization": "Bearer dev-token"})
+        api_client.post(f"/campaigns/{cid}/character", json={"name": "BadTest"},
+                        headers={"Authorization": "Bearer dev-token"})
 
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={},
-            headers={"Authorization": "Bearer dev-token"},
-        )
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+                               headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 422
-        body = resp.json()
-        assert body["error"]["code"] == "invalid_scene"
+        assert resp.json()["error"]["code"] == "invalid_scene"
 
     def test_invalid_scene_never_stored(self, api_client):
         """After a 422, the scene is NOT stored in GET /scene."""
@@ -177,84 +142,57 @@ class TestAPISceneValidationGate:
         app.state.narrator = _ErrorNarrator()
 
         cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "FailTest"}, headers={"Authorization": "Bearer dev-token"})
+        api_client.post(f"/campaigns/{cid}/character", json={"name": "FailTest"},
+                        headers={"Authorization": "Bearer dev-token"})
 
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers={"Authorization": "Bearer dev-token"})
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+                               headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 422
 
         # Scene not stored
-        scene_resp = api_client.get(f"/campaigns/{cid}/scene", headers={"Authorization": "Bearer dev-token"})
+        scene_resp = api_client.get(f"/campaigns/{cid}/scene",
+                                    headers={"Authorization": "Bearer dev-token"})
         assert scene_resp.json()["scene"] is None
 
-        # Campaign is still active (not corrupted)
-        state_resp = api_client.get(f"/campaigns/{cid}", headers={"Authorization": "Bearer dev-token"})
+        # Campaign still active (not corrupted)
+        state_resp = api_client.get(f"/campaigns/{cid}",
+                                    headers={"Authorization": "Bearer dev-token"})
         assert state_resp.json()["status"] == "active"
 
         app.state.narrator = original_narrator
 
 
+# ---------------------------------------------------------------------------
+# Engine authority: numbers come from engine state, not narrator (SC-001)
+# ---------------------------------------------------------------------------
+
 class TestEngineAuthorityNumbers:
-    """All numbers in accepted responses come from MCP tool results (SC-002)."""
+    """Character stats in turn response come from real engine state, not the narrator."""
 
     def test_character_stats_come_from_engine_not_narrator(self, api_client):
-        """Narrator returns a Scene with no update_character effects.
-        The character stats in the turn response are from the engine's stored state.
+        """Narrator returns a simple Scene with no tool calls (FakeNarrator).
+        Character stats in the turn response must equal the engine-rolled initial values.
         """
         from gamebook_web.api.app import app
 
-        no_effect_scene = Scene(
-            narrative="The wind howls.",
-            choices=[Choice(id="1", label="Wait")],
-            effects=[],
-        )
-        app.state.narrator = FakeNarrator(scenes=[no_effect_scene])
+        app.state.narrator = FakeNarrator(scenes=[
+            Scene(narrative="The wind howls.", choices=[Choice(id="1", label="Wait")]),
+        ])
 
         cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
         original = api_client.post(
             f"/campaigns/{cid}/character",
-            json={"name": "NoEffects"},
+            json={"name": "NoToolCalls"},
             headers={"Authorization": "Bearer dev-token"},
         ).json()
 
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={},
-            headers={"Authorization": "Bearer dev-token"},
-        )
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+                               headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 200
         data = resp.json()
 
-        # Stats in turn response == original engine-rolled stats (narrator didn't change them)
         char = data["character"]
         for attr in ("skill", "stamina", "luck"):
             assert char[attr]["current"] == original[attr]["current"], (
-                f"Narrator must not change {attr} without an engine effect"
+                f"Narrator must not change {attr} without an engine tool call"
             )
-
-    def test_dice_roll_effect_outcome_is_from_engine(self, api_client):
-        """An effect of type roll_dice returns an engine result, not a narrated number."""
-        from gamebook_web.api.app import app
-
-        roll_scene = Scene(
-            narrative="You roll the ancient dice.",
-            choices=[Choice(id="1", label="Accept fate")],
-            effects=[
-                Effect(type="roll_dice", params={"notation": "2d6"}),
-            ],
-        )
-        app.state.narrator = FakeNarrator(scenes=[roll_scene])
-
-        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "Roller"}, headers={"Authorization": "Bearer dev-token"})
-
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers={"Authorization": "Bearer dev-token"})
-        assert resp.status_code == 200
-
-        effects_applied = resp.json()["effects_applied"]
-        roll_results = [e for e in effects_applied if e["type"] == "roll_dice"]
-        assert roll_results, "Expected roll_dice effect to be applied"
-
-        result = roll_results[0]["result"]
-        # Engine returned a real dice result with valid range
-        assert 2 <= result["total"] <= 12
-        assert len(result["rolls"]) == 2

@@ -57,7 +57,7 @@ tests are green.
 - [ ] T002 [P1] Add `campaign_id: str` as the first parameter of every MCP tool in `src/gamebook/mcp/server.py` (18 tools). Each tool body looks up `storage = storage_factory(campaign_id)` before operating. (ADR-018, FR-001)
 - [ ] T003 [P1] Update `main()` composition root in `src/gamebook/mcp/server.py` to build a `storage_factory` closure: Phase-2 returns `PostgresStorage(database_url, campaign_id)` (cached per campaign_id); Phase-1 returns `JSONStorage(f"estado/{campaign_id}")`. Remove the single-`storage` construction. (ADR-018)
 - [ ] T004 [P1] Update `tests/server/conftest.py` to inject an in-process `storage_factory` that returns per-campaign `InMemoryStorage` instances (cached by campaign_id). Existing tests pass `campaign_id="dev-campaign"` or a fixture-provided id. (ADR-018, Principle IV)
-- [ ] T005 [P1] Update every `call_engine(toolset, tool_name, ...)` call site in `src/gamebook_web/api/play.py` (~15 sites) and `src/gamebook_web/api/combat.py` (~5 sites) to pass `campaign_id=campaign_id`. (ADR-018, FR-002)
+- [ ] T005 [P1] Update every `call_engine(toolset, tool_name, ...)` call site in `src/gamebook_web/api/play.py` (~15 sites) to pass `campaign_id=campaign_id`. _(Note: `combat.py` was deleted in spec 007 — only `play.py` call sites remain.)_ (ADR-018, FR-002)
 - [ ] T006 [P1] Remove `GAMEBOOK_CAMPAIGN_ID` reading from `src/gamebook_web/api/app.py` lifespan and `src/gamebook_web/mcp_host.py` — the web backend no longer boots scoped to one campaign. The Phase-1 terminal harness path in `main()` may still use it as a default. (ADR-018, FR-002)
 - [ ] T007 [P1] Update `docs/CONTRACTS.md` §6 (MCP tool contract) to show `campaign_id: str` as the first parameter of every tool. Update the HTTP API contract draft to match. (FR-017, Principle III)
 - [ ] T008 [P1] Add `tests/server/test_multi_campaign_isolation.py`: create two campaigns, create a character in A, assert B has no character; take a turn in A, assert B's world is unchanged; start combat in A, assert B has no active combat. (SC-002, FR-001)
@@ -74,11 +74,11 @@ state; CONTRACTS.md §6 updated; plugability audit green.
 assembles `CampaignState` from granular fields; a live-backend integration test
 catches future drift. Fixes HIGH Bugs #1–4, #6.
 
-- [ ] T010 [P2] Update `frontend/src/types/index.ts`: `TurnResponse` → `{ scene, character?, world?, effects_applied }`; `CombatRoundResponse` → `{ outcome, final_result?, character?, campaign_ended }`; `FleeCombatResponse` → `{ result, character?, campaign_ended }`; `CampaignSummary` → `{ campaign_id, status, name?, created_at?, updated_at? }`; `CampaignState` → `{ campaign_id, status, character?, world?, current_scene?, combat? }`. (ADR-017, FR-003, FR-004)
-- [ ] T011 [P2] Update `frontend/src/hooks/useGame.ts`: `applyTurnResponse` assembles `CampaignState` from `{ campaign_id (prior), status (prior), character: res.character, world: res.world, current_scene: res.scene, combat (prior) }`; `applyCombatResponse` updates `character` and `combat` from response fields. Remove `setCampaign(res.campaign)`. (ADR-017, FR-003)
+- [ ] T010 [P2] Update `frontend/src/types/index.ts`: `TurnResponse` → `{ scene, character?, world? }` _(no `effects_applied` — removed in spec 007)_; remove `CombatRoundResponse` and `FleeCombatResponse` types _(combat endpoints deleted in spec 007)_; `CampaignSummary` → `{ campaign_id, status, name?, created_at?, updated_at? }`; `CampaignState` → `{ campaign_id, status, character?, world?, current_scene?, combat? }`. (ADR-017, FR-003, FR-004)
+- [ ] T011 [P2] Update `frontend/src/hooks/useGame.ts`: `applyTurnResponse` assembles `CampaignState` from `{ campaign_id (prior), status (prior), character: res.character, world: res.world, current_scene: res.scene, combat (prior) }`. Remove `applyCombatResponse` _(combat is auto-resolved inside the turn — no separate combat response)_. Remove `setCampaign(res.campaign)`. (ADR-017, FR-003)
 - [ ] T012 [P2] Update `frontend/src/api/client.ts` and all components to use `campaign_id` (not `id`) everywhere. Update `createCampaign`/`listCampaigns`/`getCampaign` return-type usage. (ADR-017, FR-004)
-- [ ] T013 [P2] Update `frontend/src/api/mock.ts` to return the new response shapes (mock stays in sync with the canonical contract per ADR-016/ADR-017). (ADR-017)
-- [ ] T014 [P2] Add `frontend/tests/e2e/live-play-loop.spec.ts`: a Playwright suite that runs against the live FastAPI backend (started in global setup) with `VITE_USE_MOCK=false`. Drives: create campaign → create character → take 2 turns → combat round → end. Asserts no `undefined` fields. (SC-001, FR-015)
+- [ ] T013 [P2] Update `frontend/src/api/mock.ts` to return the new response shapes _(no `effects_applied` in TurnResponse; no combat round/flee mock handlers — endpoints deleted in spec 007)_. Mock stays in sync with the canonical contract per ADR-016/ADR-017. (ADR-017)
+- [ ] T014 [P2] Add `frontend/tests/e2e/live-play-loop.spec.ts`: a Playwright suite that runs against the live FastAPI backend (started in global setup) with `VITE_USE_MOCK=false`. Drives: create campaign → create character → take 2 turns → take a turn that triggers combat (auto-resolved inside the turn) → end. Asserts no `undefined` fields. _(No separate combat round endpoint — combat resolves inside `POST /turn` per spec 007.)_ (SC-001, FR-015)
 - [ ] T015 [P2] Run `npm test` and fix any type errors / test failures from the type changes. (SC-007)
 
 **Checkpoint**: SPA types match backend; live-backend Playwright test passes; mock
@@ -126,7 +126,7 @@ ADR renumbering. Fixes LOW + GOVERNANCE findings.
 
 - [ ] T025 [P5] [P] Align the dev token: `.env.local.example` → `VITE_DEV_TOKEN=dev-token`; `frontend/src/pages/AuthPage.tsx` fallback → `dev-token`; backend `DEV_TOKEN` is already `dev-token`. (FR-012)
 - [ ] T026 [P5] [P] Narrow CORS in `src/gamebook_web/api/app.py`: `allow_methods=["GET","POST","DELETE","OPTIONS"]`, `allow_headers=["Content-Type","Authorization"]`. (FR-013)
-- [ ] T027 [P5] Replace `_RESULT_KEYS` denylist with `_ALLOWED_EFFECT_PARAMS` allowlist in `src/gamebook_web/harness/agent.py`, keyed by `EffectType`. Unknown param keys → `ModelRetry`. Extend the prose regex to catch "lost N points", "took N damage", "N hp". Update `tests/server/test_scene_numbers.py` to cover the allowlist behavior. (ADR-019, FR-014)
+- [x] T027 [P5] **OBSOLETE — superseded by spec 007.** `_RESULT_KEYS`, `EffectType`, `Effect`, and `_scene_contains_fabricated_numbers` were all deleted in spec 007 (ADR-029). The narrator now calls MCP tools directly during generation — Principle I is enforced by design, not by a post-hoc validator. No replacement needed.
 - [ ] T028 [P5] [P] Rename `docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md` → `docs/adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md`; update the ADR header number. Delete `docs/adrs/ADR-014-vite-env-import-meta-types.md` and `docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md` (the "moved" stubs). (ADR-020, FR-016)
 - [ ] T029 [P5] [P] Update `docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md` cross-link from ADR-014 to ADR-021. (ADR-020, FR-016)
 
@@ -244,21 +244,21 @@ covers all event types; CORS `*` rejected with credentials.
 **⚠️ Can run in parallel with Phases 2–9** (different files, no dependency on Phase 1
 beyond the multi-tenant engine being in place).
 
-- [ ] T085 [P10] [P] Unify terminal-state checking: extract `_check_terminal_state` (or a shared helper) from `src/gamebook_web/api/play.py` and call it from both `take_turn` and `combat_round` in `src/gamebook_web/api/combat.py` when `outcome.ended` is True. Handle both victory (adventure module's `victory_flag`) and death. (ADR-028, FR-044)
-- [ ] T086 [P10] [P] Remove `= None` default from `request: Request` parameter on all rate-limited routes in `src/gamebook_web/api/play.py` and `src/gamebook_web/api/combat.py`. (FR-045)
+- [ ] T085 [P10] [P] ~~Unify terminal-state checking~~ **Simplified by spec 007.** `combat.py` was deleted — `_check_terminal_state` is only called from `take_turn` in `play.py`. No unification needed. Task reduces to: ensure `_check_terminal_state` handles both victory (adventure module's `victory_flag`) and death correctly after `take_turn`. (ADR-028, FR-044)
+- [ ] T086 [P10] [P] Remove `= None` default from `request: Request` parameter on all rate-limited routes in `src/gamebook_web/api/play.py`. _(Note: `combat.py` was deleted in spec 007 — only `play.py` routes remain.)_ (FR-045)
 - [ ] T087 [P10] [P] Key the rate limiter on `account_id` when authenticated in `src/gamebook_web/limiter.py`; fall back to IP only when unauthenticated. Configure trusted proxy headers (`X-Forwarded-For`). (FR-046)
 - [ ] T088 [P10] [P] Update `list_campaigns` in `src/gamebook_web/api/play.py` to include `name`, `created_at`, and `updated_at` in the response for each campaign. (FR-048)
 - [ ] T089 [P10] [P] Add upper bounds to floating `>=` ranges in `pyproject.toml` (e.g. `fastapi>=0.115.0,<1.0`). (FR-049)
 - [ ] T090 [P10] [P] Create `docs/learning-lessons/contract_drift_requires_live_integration_test.md` — API/frontend contract drift requires a live integration test, not eyeballing field names. (FR-050)
 - [ ] T091 [P10] [P] Create `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md` — booting a single shared engine subprocess scoped to an env var is a multi-tenancy anti-pattern. (FR-050)
-- [ ] T092 [P10] Add `tests/server/test_combat_victory.py`: win via `POST /combat/round` → campaign ended + archived; assert `_check_terminal_state` was called; assert further turns → `409`. (SC-025, FR-044)
-- [ ] T093 [P10] Add `tests/server/test_narrator_integration.py`: mocked LLM producing a valid `Scene` → validation → effects → response; mocked LLM producing fabricated numbers → `ModelRetry`. (SC-026, FR-047)
-- [ ] T094 [P10] Add `tests/server/test_combat_subagent.py`: delegate a combat to `combat_subagent.resolve_combat()`; verify the `CombatResult` structure and combat state update. (SC-027, FR-047)
+- [ ] T092 [P10] Add `tests/server/test_combat_victory.py`: win via `POST /turn` that triggers combat (auto-resolved inside the turn) → campaign ended + archived; assert `_check_terminal_state` was called; assert further turns → `409`. _(No `POST /combat/round` — combat resolves inside `POST /turn` per spec 007.)_ (SC-025, FR-044)
+- [ ] T093 [P10] Add `tests/server/test_narrator_integration.py`: mocked LLM producing a valid `Scene` (narrator calls MCP tools during generation, narrates real results) → validation → response; assert no `effects` field in Scene and no `effects_applied` in TurnResponse. _(Fabricated-number `ModelRetry` test is obsolete — validator deleted in spec 007; Principle I is now enforced by design.)_ (SC-026, FR-047)
+- [x] T094 [P10] **OBSOLETE — superseded by spec 007.** `combat_subagent.py` was deleted in spec 007 (ADR-029). Combat is now auto-resolved by the narrator calling MCP tools directly during generation. No subagent to test.
 - [ ] T095 [P10] Add `tests/server/test_rate_limiter.py`: assert rate limiter keys on `account_id` when authenticated; falls back to IP when unauthenticated. (SC-028, FR-046)
 
-**Checkpoint**: Combat victory works via explicit route; narrator and combat subagent
-tested; rate limiter keyed on account_id; `list_campaigns` complete; dependency upper
-bounds; learning lessons recorded.
+**Checkpoint**: Combat victory works inside `POST /turn`; narrator tool-use tested;
+rate limiter keyed on account_id; `list_campaigns` complete; dependency upper bounds;
+learning lessons recorded. _(Combat subagent test T094 is obsolete — deleted in spec 007.)_
 
 ---
 
@@ -275,7 +275,7 @@ phases beyond the contract alignment in Phase 2).
 - [ ] T097 [P11] [P] Disable source maps in production: change `sourcemap: true` to `sourcemap: false` (or `sourcemap: import.meta.env.DEV`) in `frontend/vite.config.ts`. (FR-051, SC-031)
 - [ ] T098 [P11] [P] Add Content-Security-Policy meta tag to `frontend/index.html`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'`. (FR-052, SC-032)
 - [ ] T099 [P11] [P] Create `frontend/src/components/ErrorBoundary.tsx` (class component catching render errors, fallback UI with "reload" button); wrap App root in `App.tsx`. (FR-053, SC-033)
-- [ ] T100 [P11] [P] Add `participants.length >= 2` validation in `frontend/src/components/CombatPanel.tsx` before accessing indices 0 and 1; render fallback if short. (FR-054, SC-034)
+- [ ] T100 [P11] [P] ~~Add `participants.length >= 2` validation in `CombatPanel.tsx`~~ **Simplified by spec 007.** Combat is auto-resolved inside the turn — there is no separate combat UI with per-round interaction. `CombatPanel` may be removed entirely from `PlayPage.tsx` (the `inCombat` branch is dead code since the backend never returns a separate `combat` state). If keeping `CombatPanel` as a narrative-only display, validate `combat` is non-null before rendering. (FR-054, SC-034)
 - [ ] T101 [P11] [P] Add 401/403 handling in `frontend/src/hooks/useGame.ts`: intercept `err.code === 'unauthenticated'` or `err.code === 'forbidden'` and redirect to `/auth`. (FR-055, SC-035)
 - [ ] T102 [P11] [P] Add token expiration checking in `frontend/src/hooks/useGame.ts` (or `useAuth.ts`): parse `expires_at` from session lease and redirect to `/auth` if expired. (FR-056, SC-036)
 - [ ] T103 [P11] [P] Fix useEffect stale closure in `frontend/src/hooks/useGame.ts` and `frontend/src/hooks/useCampaign.ts`: remove `load` from dependency array or wrap in `useCallback`. (FR-057)
@@ -284,7 +284,7 @@ phases beyond the contract alignment in Phase 2).
 - [ ] T106 [P11] [P] Add security headers to the backend response or reverse proxy: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. (FR-060)
 - [ ] T107 [P11] [P] Pin `vitest >= 3.2.6` in `frontend/package.json` to address GHSA-5xrq-8626-4rwp; run `npm install` to refresh lockfile. (FR-061)
 - [ ] T108 [P11] Add `frontend/src/components/__tests__/test_error_boundary.test.tsx`: throw in child component → assert fallback UI renders. (SC-033)
-- [ ] T109 [P11] Add `frontend/src/components/__tests__/test_combat_panel_validation.test.tsx`: render CombatPanel with empty/short participants → assert fallback. (SC-034)
+- [ ] T109 [P11] Add `frontend/src/components/__tests__/test_combat_panel_validation.test.tsx`: ~~render CombatPanel with empty/short participants → assert fallback~~ **Simplified by spec 007.** If `CombatPanel` is kept, test that it renders gracefully when `combat` is null/undefined (dead-code path post-spec-007). If `CombatPanel` is removed entirely, this test is not needed. (SC-034)
 - [ ] T110 [P11] Add `frontend/src/hooks/__tests__/test_auth_redirect.test.tsx`: mock 401 response → assert redirect to `/auth`; mock expired `expires_at` → assert redirect. (SC-035, SC-036)
 - [ ] T111 [P11] Add `frontend/src/components/__tests__/test_choices_validation.test.tsx`: empty input → submit button disabled; max length enforced. (FR-058)
 
@@ -330,7 +330,7 @@ ADR-028; verify all success criteria before merge.
 - [ ] T064 [P13] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
 - [ ] T083 [P13] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting the TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
 - [ ] T084 [P13] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
-- [ ] T096 [P13] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting the unification of terminal-state checking into a shared helper. (ADR-028, FR-044)
+- [ ] T096 [P13] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting that `_check_terminal_state` runs after `take_turn` (the only entry point post-spec-007). _(Original scope of "unifying between take_turn and combat_round" is moot — combat_round was deleted.)_ (ADR-028, FR-044)
 - [ ] T065 [P13] Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
 - [ ] T066 [P13] Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
 - [ ] T067 [P13] Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)

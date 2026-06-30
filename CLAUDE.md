@@ -162,6 +162,8 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-025](./docs/adrs/ADR-025-db-backed-campaign-registry.md) | DB-backed campaign registry (new in `006`) | Accepted | 2026-06-28 |
 | [ADR-026](./docs/adrs/ADR-026-postgres-tls-policy.md) | PostgreSQL TLS policy (new in `006`, closes 002 HIGH TLS finding) | Accepted | 2026-06-28 |
 | [ADR-027](./docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md) | PostgresStorage concurrency-safe seq allocation + deterministic lifecycle (new in `006`, closes 002 MEDIUM findings) | Accepted | 2026-06-28 |
+| [ADR-028](./docs/adrs/ADR-028-combat-resolution-via-agent-tool-sse-stream.md) | Combat terminal-state unification — unify `_check_terminal_state` into shared helper (reserved for spec 006; file is currently a redirect stub) | Proposed | 2026-06-28 |
+| [ADR-029](./docs/adrs/ADR-029-narrator-as-tool-use-agent-eliminate-effects.md) | Narrator as tool-use agent — eliminate `effects[]` pattern, restore Phase 1 interaction model (post-006, slice 007) | Accepted | 2026-06-30 |
 
 ## Learning Lessons
 
@@ -194,18 +196,20 @@ The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
   production hardening + OpenTelemetry; depends on `002`, `003`, `006`; cycle-1 findings
   remediated in `006`)
 - `005-professional-spa` ← done (merged to `dev`; mock-only until `006` aligns the contract)
-- `006-cycle1-remediation` ← **active** (closes cycle-1 findings from `001`, `002`, `004`; depends on `002`, `003`, `005`)
+- `006-cycle1-remediation` ← done (closes cycle-1 findings from `001`, `002`, `004`; merged to `dev`)
+- `007-narrator-tool-use-refactor` ← **active** (eliminates `effects[]` deferred-execution pattern; restores Phase 1 tool-use model; see ADR-029 and `specs/007-narrator-tool-use-refactor/spec.md`)
 
-Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated on `006`).
+Dependency chain: `002` → `003` → `006` → `004` // `005` (live mode gated on `006`) → `007` (narrator architecture).
 
-**Active feature artifacts** (`specs/006-cycle1-remediation/`):
-- Spec: `specs/006-cycle1-remediation/spec.md`
-- Plan: `specs/006-cycle1-remediation/plan.md`
-- Tasks: `specs/006-cycle1-remediation/tasks.md`
-- ADRs: `docs/adrs/ADR-017` (contract canonical), `ADR-018` (multi-tenant engine),
-  `ADR-019` (allowlist), `ADR-020` (ADR renumbering), `ADR-022` (OIDC fail-closed),
-`ADR-023` (session lease), `ADR-024` (OTel), `ADR-025` (DB-backed registry),
-`ADR-026` (Postgres TLS), `ADR-027` (Postgres concurrency + lifecycle)
+**Active feature artifacts** (`specs/007-narrator-tool-use-refactor/`):
+- Spec: `specs/007-narrator-tool-use-refactor/spec.md`
+- Plan: `specs/007-narrator-tool-use-refactor/plan.md`
+- Tasks: `specs/007-narrator-tool-use-refactor/tasks.md`
+- Research: `specs/007-narrator-tool-use-refactor/research.md`
+- Data model: `specs/007-narrator-tool-use-refactor/data-model.md`
+- Contracts: `specs/007-narrator-tool-use-refactor/contracts/http-api-changes.md`
+- Quickstart: `specs/007-narrator-tool-use-refactor/quickstart.md`
+- ADR: `docs/adrs/ADR-029` (narrator tool-use, eliminate effects[])
 
 **Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`

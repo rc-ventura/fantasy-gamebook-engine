@@ -5,38 +5,25 @@
  * The frontend NEVER invents, rolls, or fabricates any stat or number.
  *
  * Contracts:
- *   specs/001-web-platform-migration/contracts/scene.md
+ *   docs/CONTRACTS.md §10 (Scene — updated spec 007, ADR-029)
  *   specs/001-web-platform-migration/data-model.md §A
  */
 
-// ── Scene (narrator structured output, per scene.md) ────────────────────────
+// ── Scene (narrator structured output, CONTRACTS.md §10) ────────────────────
+// Updated spec 007 (ADR-029): narrator calls MCP tools directly during
+// generation. Scene carries only prose and choices — no deferred effects.
 
 export interface Choice {
   id: string
   label: string
 }
 
-export type EffectType =
-  | 'roll_dice'
-  | 'test_luck'
-  | 'update_character'
-  | 'register_event'
-  | 'update_world'
-  | 'start_combat'
-  | 'resolve_combat_round'
-  | 'flee_combat'
-  | 'end_combat'
-
-export interface Effect {
-  type: EffectType
-  params: Record<string, unknown>
-}
-
-/** The structured unit the narrator produces for one turn. */
+/** The structured unit the narrator produces for one turn.
+ *  narrative + choices only — no effects field (spec 007, ADR-029).
+ */
 export interface Scene {
   narrative: string
   choices: Choice[]
-  effects: Effect[]
 }
 
 // ── Engine domain entities (per data-model.md §A) ───────────────────────────
@@ -170,7 +157,8 @@ export interface TurnRequest {
 
 export interface TurnResponse {
   scene: Scene
-  campaign: CampaignState
+  character?: CharacterSheet
+  world?: WorldState
 }
 
 // ── Combat request ───────────────────────────────────────────────────────────

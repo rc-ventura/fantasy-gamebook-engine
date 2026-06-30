@@ -104,7 +104,6 @@ The road forks ahead: the left path winds through the Whispering Wood, faster bu
     { id: '2', label: 'Take the right path along the exposed ridgeline' },
     { id: '3', label: 'Speak to the wounded traveller' },
   ],
-  effects: [],
 }
 
 const EXPLORING_SCENE: Scene = {
@@ -118,9 +117,6 @@ The morning is advancing. You must choose your route before midday, when the mou
     { id: '2', label: 'Thank him and take the ridgeline path' },
     { id: '3', label: 'Head into the Whispering Wood regardless of his warning' },
   ],
-  effects: [
-    { type: 'register_event', params: { payload: 'Met wounded merchant Corvin at the crossroads' } },
-  ],
 }
 
 const COMBAT_SCENE: Scene = {
@@ -130,15 +126,6 @@ A Dire Wolf, larger than any hound you have seen, steps into the path. Its eyes 
 
 There is no room to run on this narrow ledge. You must fight.`,
   choices: [],
-  effects: [
-    {
-      type: 'start_combat',
-      params: {
-        enemies: [{ name: 'Dire Wolf', skill: 8, stamina: 10 }],
-        flee_allowed: false,
-      },
-    },
-  ],
 }
 
 const VICTORY_SCENE: Scene = {
@@ -149,10 +136,6 @@ You take a moment to tend your wounds and catch your breath. The battle is won, 
     { id: '1', label: 'Enter the tunnel and press forward' },
     { id: '2', label: 'Rest here and tend your wounds before continuing' },
   ],
-  effects: [
-    { type: 'end_combat', params: {} },
-    { type: 'register_event', params: { payload: 'Defeated the Dire Wolf guarding the mountain tunnel entrance' } },
-  ],
 }
 
 const ENDED_SCENE: Scene = {
@@ -162,7 +145,6 @@ Perhaps another adventurer will take up the quest. Perhaps the sorcerer will nev
 
 *— Your adventure ends here —*`,
   choices: [],
-  effects: [],
 }
 
 const MOCK_COMBAT: CombatState = {
@@ -339,7 +321,7 @@ export const mockApi = {
     const campaign = buildCampaignState(nextStage)
     campaign.current_scene = scene
 
-    return { scene, campaign }
+    return { scene, character: campaign.character, world: campaign.world }
   },
 
   async combatRound(_id: string, testLuck: boolean): Promise<CombatRoundResponse> {
