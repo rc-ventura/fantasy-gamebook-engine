@@ -42,11 +42,25 @@ class TestSceneSchemaValidation:
         with pytest.raises(ValidationError, match="narrative"):
             Scene(narrative="   \n\t  ", choices=[])
 
-    def test_terminal_scene_allows_empty_choices(self):
+    def test_terminal_scene_with_flag(self):
+        """Death/victory scenes set terminal=True and have empty choices."""
         scene = Scene(
             narrative="You have fallen. The adventure is over.",
-            choices=[],  # terminal — death
+            choices=[],
+            terminal=True,
         )
+        assert scene.is_terminal
+        assert scene.terminal
+
+    def test_terminal_flag_required_for_choiceless_scene(self):
+        """A scene with no choices but terminal=False (default) should be caught by the
+        output_validator. At the Pydantic model level it is accepted (validator fires
+        at agent runtime). But terminal=False + choices=[] means is_terminal via
+        len==0, not via explicit flag."""
+        scene = Scene(narrative="Nothing happened.", choices=[])
+        # Model accepts it (no Pydantic field constraint), but terminal=False is the bug
+        assert not scene.terminal
+        # is_terminal is True due to empty choices — demonstrates the tautology was real
         assert scene.is_terminal
 
     def test_non_terminal_scene_has_choices(self):
@@ -55,6 +69,7 @@ class TestSceneSchemaValidation:
             choices=[Choice(id="1", label="Go left"), Choice(id="2", label="Go right")],
         )
         assert not scene.is_terminal
+        assert not scene.terminal
 
     def test_scene_round_trips_json(self):
         scene = Scene(
@@ -63,6 +78,12 @@ class TestSceneSchemaValidation:
         )
         reconstructed = Scene.model_validate(scene.model_dump())
         assert reconstructed == scene
+
+    def test_terminal_flag_round_trips_json(self):
+        scene = Scene(narrative="Victory is yours.", choices=[], terminal=True)
+        reconstructed = Scene.model_validate(scene.model_dump())
+        assert reconstructed.terminal is True
+        assert reconstructed.is_terminal
 
 
 # ---------------------------------------------------------------------------

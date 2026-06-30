@@ -22,7 +22,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_ai.mcp import MCPToolset
 
 from gamebook_web.api.limiter import TURN_RATE, limiter
@@ -55,7 +55,8 @@ class CreateCharacterRequest(BaseModel):
 
 
 class TurnRequest(BaseModel):
-    choice: str | int | None = None   # player choice (index or free text)
+    # max_length caps adversarial payload size before it reaches the narrator LLM.
+    choice: str | int | None = Field(default=None, max_length=500)
 
 
 class TurnResponse(BaseModel):

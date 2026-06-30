@@ -20,10 +20,12 @@ export interface Choice {
 
 /** The structured unit the narrator produces for one turn.
  *  narrative + choices only — no effects field (spec 007, ADR-029).
+ *  terminal=true on death/victory scenes (choices will be empty).
  */
 export interface Scene {
   narrative: string
   choices: Choice[]
+  terminal?: boolean
 }
 
 // ── Engine domain entities (per data-model.md §A) ───────────────────────────
@@ -58,29 +60,6 @@ export interface WorldState {
   flags: Record<string, boolean | string | number>
 }
 
-export interface CombatParticipant {
-  name: string
-  skill: number
-  stamina: number
-}
-
-export interface CombatRound {
-  hero_attack: number
-  enemy_attack: number
-  hero_damage: number
-  enemy_damage: number
-  luck_used?: boolean
-  luck_result?: 'lucky' | 'unlucky'
-}
-
-export interface CombatState {
-  participants: CombatParticipant[]
-  rounds: CombatRound[]
-  outcome?: 'victory' | 'defeat' | 'fled'
-  flee_allowed: boolean
-  active: boolean
-}
-
 // ── Campaign (web-layer entity) ──────────────────────────────────────────────
 
 export type CampaignStatus = 'active' | 'ended'
@@ -98,7 +77,6 @@ export interface CampaignState {
   character?: CharacterSheet
   world?: WorldState
   current_scene?: Scene
-  combat?: CombatState | null
 }
 
 // ── Account / Identity ───────────────────────────────────────────────────────
@@ -161,14 +139,3 @@ export interface TurnResponse {
   world?: WorldState
 }
 
-// ── Combat request ───────────────────────────────────────────────────────────
-
-export interface CombatRoundRequest {
-  test_luck?: boolean
-}
-
-export interface CombatRoundResponse {
-  round: CombatRound
-  combat: CombatState
-  campaign: CampaignState
-}

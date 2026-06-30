@@ -316,6 +316,39 @@ class TestEndStates:
         assert resp2.status_code == 409
         assert resp2.json()["error"]["code"] == "run_ended"
 
+    def test_victory_ends_campaign(self, api_client, engine_storage):
+        """When malachar_defeated flag is set in world, the campaign ends after the next turn.
+
+        Simulates victory by directly writing the victory flag to engine_storage.
+        The API detects it in _check_terminal_state, archives to hall_of_fame, and ends.
+        """
+        from gamebook.domain.models import World
+
+        cid = _create_campaign(api_client)
+        _create_character(api_client, cid)
+
+        # Inject victory flag directly into engine world state
+        world = engine_storage.load_world()
+        engine_storage.save_world(World(
+            current_location=world.current_location,
+            flags={**world.flags, "malachar_defeated": True},
+            visited_locations=world.visited_locations,
+            known_npcs=world.known_npcs,
+            turn=world.turn,
+        ))
+
+        # Next turn: API reads world → _check_terminal_state triggers victory archive
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp.status_code == 200
+
+        campaign = api_client.get(f"/campaigns/{cid}", headers=_auth_headers()).json()
+        assert campaign["status"] == "ended"
+
+        # Further turns rejected
+        resp2 = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp2.status_code == 409
+        assert resp2.json()["error"]["code"] == "run_ended"
+
     def test_save_checkpoint(self, api_client):
         """POST /campaigns/{id}/save triggers engine's save_progress tool."""
         cid = _create_campaign(api_client)
@@ -325,6 +358,36 @@ class TestEndStates:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
+
+
+class TestInputValidation:
+    """Player input is bounded before reaching the narrator (A03 mitigation)."""
+
+    def test_choice_over_max_length_returns_422(self, api_client):
+        """A choice exceeding 500 chars is rejected before the narrator is called."""
+        cid = _create_campaign(api_client)
+        _create_character(api_client, cid)
+
+        long_choice = "x" * 501
+        resp = api_client.post(
+            f"/campaigns/{cid}/turn",
+            json={"choice": long_choice},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 422
+
+    def test_choice_at_max_length_accepted(self, api_client):
+        """A choice of exactly 500 chars is accepted."""
+        cid = _create_campaign(api_client)
+        _create_character(api_client, cid)
+
+        long_choice = "y" * 500
+        resp = api_client.post(
+            f"/campaigns/{cid}/turn",
+            json={"choice": long_choice},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
 
 
 class TestAuthEnvelope:

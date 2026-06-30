@@ -195,6 +195,36 @@ validator, no lockstep) outweighs it.
 
 ---
 
+## ADR-018 (per-campaign isolation) — implementation status as of spec 007
+
+**ADR-018 was NOT implemented by spec 006.** This is a load-bearing precondition for enabling `PydanticNarrator` in any multi-account deployment.
+
+### Current state (post-007, 2026-06-30)
+
+All `call_engine(...)` calls in `play.py` pass **no `campaign_id`**. The MCP subprocess launched by `app.py` at startup is shared across all campaigns; it reads/writes state from a single engine storage instance determined at server startup. There is **no per-campaign engine isolation**.
+
+This means:
+- In single-account / single-campaign deployments (dev, smoke tests): no observable impact.
+- In multi-account deployments: narrator tool calls on campaign A can read and write state belonging to campaign B. This is the A01 breach originally identified in the 006 SDD review.
+
+### Release gate
+
+**`PydanticNarrator` must NOT be enabled (i.e., `ANTHROPIC_API_KEY` must NOT be set) in any multi-account or multi-campaign deployment until ADR-018 is implemented.** The `FakeNarrator` is the default and is safe because it makes no engine tool calls.
+
+### What ADR-018 implementation requires (tracked to slice 004)
+
+1. `mcp_host.py`: `storage_factory` — accepts `campaign_id`, returns per-campaign `StorageBackend`.
+2. `play.py`: `call_engine(toolset, tool_name, campaign_id=campaign_id, ...)` on every engine call.
+3. `app.py`: per-request toolset scoping (one subprocess per campaign, or campaign_id forwarded to the engine).
+
+Until those three changes land, the narrator tool-use loop runs against a shared engine instance.
+
+### Why this is documented here and not fixed
+
+Per the user decision during spec 007 SDD cycle-1 review (item 2): implement items 1, 3, 4, 5, 6 in code; for item 2 (ADR-018 isolation), **skip implementation and document current state**. The fix is deferred to slice 004.
+
+---
+
 ## Relationship to spec 006
 
 **This ADR is post-006.** Spec 006 (cycle-1 remediation) must land first:

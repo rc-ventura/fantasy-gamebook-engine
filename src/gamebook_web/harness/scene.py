@@ -29,10 +29,16 @@ class Scene(BaseModel):
     The narrator calls MCP tools during generation, sees real results, and
     incorporates them into the narrative. The Scene carries the final prose
     and player choices — all state changes already happened during narration.
+
+    ``terminal=True`` signals death or victory — the narrator sets this explicitly
+    on end-game scenes.  The ``output_validator`` rejects scenes that have no
+    choices but are not marked terminal, so a narrator that accidentally omits
+    choices on a normal scene gets a ``ModelRetry``.
     """
 
     narrative: str
     choices: list[Choice] = []
+    terminal: bool = False      # True = death/victory; empty choices expected
 
     @field_validator("narrative")
     @classmethod
@@ -43,5 +49,5 @@ class Scene(BaseModel):
 
     @property
     def is_terminal(self) -> bool:
-        """True for death/victory scenes (no player choices)."""
-        return len(self.choices) == 0
+        """True for death/victory scenes (explicit terminal flag or no choices)."""
+        return self.terminal or len(self.choices) == 0

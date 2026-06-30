@@ -3,7 +3,9 @@
  *
  * The choices list comes entirely from the API scene — nothing is invented.
  * Accepts both numbered choice selection and free-text player input (FR-004).
- * Disabled when: loading, action in progress, run ended, or in combat.
+ * Disabled when: loading, action in progress, or run ended.
+ * Combat is now resolved inside the narrator's tool-use loop (ADR-029) and
+ * delivered as narrated prose in the Scene — no separate combat controls.
  */
 
 import { useState } from 'react'
@@ -17,8 +19,6 @@ interface ChoicesPanelProps {
   actionPending?: boolean
   /** True when the campaign is ended — no further choices. */
   isEnded?: boolean
-  /** True when the player is in combat — choices are replaced by combat controls. */
-  inCombat?: boolean
   onChoose: (choiceId: string) => void | Promise<void>
   onFreeText: (text: string) => void | Promise<void>
 }
@@ -28,12 +28,11 @@ export default function ChoicesPanel({
   loading = false,
   actionPending = false,
   isEnded = false,
-  inCombat = false,
   onChoose,
   onFreeText,
 }: ChoicesPanelProps) {
   const [freeText, setFreeText] = useState('')
-  const disabled = loading || actionPending || isEnded || inCombat
+  const disabled = loading || actionPending || isEnded
 
   if (loading) {
     return <LoadingState message="Preparing choices…" size="sm" />
@@ -53,24 +52,6 @@ export default function ChoicesPanel({
         }}
       >
         Your adventure has concluded.
-      </div>
-    )
-  }
-
-  if (inCombat) {
-    return (
-      <div
-        style={{
-          padding: 'var(--space-lg)',
-          textAlign: 'center',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.75rem',
-          letterSpacing: '0.1em',
-          textTransform: 'uppercase',
-          color: 'var(--muted)',
-        }}
-      >
-        Combat in progress — see combat panel below
       </div>
     )
   }

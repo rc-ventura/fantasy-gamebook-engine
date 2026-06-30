@@ -17,8 +17,6 @@ import type {
   CampaignState,
   CampaignSummary,
   CharacterSheet,
-  CombatRoundResponse,
-  CombatState,
   Scene,
   SessionLease,
   TurnResponse,
@@ -147,16 +145,6 @@ Perhaps another adventurer will take up the quest. Perhaps the sorcerer will nev
   choices: [],
 }
 
-const MOCK_COMBAT: CombatState = {
-  participants: [
-    { name: 'Aldric the Bold', skill: 10, stamina: 20 },
-    { name: 'Dire Wolf', skill: 8, stamina: 10 },
-  ],
-  rounds: [],
-  flee_allowed: false,
-  active: true,
-}
-
 // ── Campaign state builders ───────────────────────────────────────────────────
 
 function buildCampaignState(stage: MockStage): CampaignState {
@@ -175,7 +163,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: makeMockCharacter(),
         world: MOCK_WORLD_OPENING,
         current_scene: OPENING_SCENE,
-        combat: null,
       }
 
     case 'exploring':
@@ -185,7 +172,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: { ...makeMockCharacter(), luck: { initial: 9, current: 8 } },
         world: MOCK_WORLD_EXPLORING,
         current_scene: EXPLORING_SCENE,
-        combat: null,
       }
 
     case 'in_combat': {
@@ -200,7 +186,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: char,
         world: MOCK_WORLD_COMBAT,
         current_scene: COMBAT_SCENE,
-        combat: MOCK_COMBAT,
       }
     }
 
@@ -211,7 +196,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: { ...makeMockCharacter(false), stamina: { initial: 20, current: 0 } },
         world: MOCK_WORLD_COMBAT,
         current_scene: ENDED_SCENE,
-        combat: null,
       }
   }
 }
@@ -322,41 +306,6 @@ export const mockApi = {
     campaign.current_scene = scene
 
     return { scene, character: campaign.character, world: campaign.world }
-  },
-
-  async combatRound(_id: string, testLuck: boolean): Promise<CombatRoundResponse> {
-    await delay(700)
-    const round = {
-      hero_attack: 15, // engine-produced: skill(10) + 2d6(5)
-      enemy_attack: 11, // engine-produced: skill(8) + 2d6(3)
-      hero_damage: 2,
-      enemy_damage: 0,
-      luck_used: testLuck,
-      luck_result: testLuck ? ('lucky' as const) : undefined,
-    }
-
-    const updatedCombat: CombatState = {
-      ...MOCK_COMBAT,
-      rounds: [...MOCK_COMBAT.rounds, round],
-      participants: [
-        { name: 'Aldric the Bold', skill: 10, stamina: 20 },
-        { name: 'Dire Wolf', skill: 8, stamina: 8 }, // took 2 damage
-      ],
-    }
-
-    setMockStage('exploring') // combat resolved
-    const campaign = buildCampaignState('exploring')
-    campaign.current_scene = VICTORY_SCENE
-    campaign.combat = { ...updatedCombat, outcome: 'victory', active: false }
-
-    return { round, combat: updatedCombat, campaign }
-  },
-
-  async fleeCombat(_id: string): Promise<{ campaign: CampaignState }> {
-    await delay(500)
-    setMockStage('exploring')
-    const campaign = buildCampaignState('exploring')
-    return { campaign }
   },
 
   async acquireSession(_id: string): Promise<SessionLease> {
