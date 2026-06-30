@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- LEGEND / TITLE -->
+    <mxCell id="200" value="&lt;b&gt;fantasy-gamebook-engine — Modelo ER (PostgreSQL)&lt;/b&gt;&lt;br/&gt;&lt;font color=&quot;#6c8ebf&quot;&gt;Azul:&lt;/font&gt; entidade central (campaign) &amp;nbsp;&amp;nbsp; &lt;font color=&quot;#82b366&quot;&gt;Verde:&lt;/font&gt; implementado (slice 002) &amp;nbsp;&amp;nbsp; &lt;font color=&quot;#9673a6&quot;&gt;Roxo tracejado:&lt;/font&gt; planejado (slice 004)&lt;br/&gt;[PK] = chave primária &amp;nbsp;&amp;nbsp; [FK] = chave estrangeira &amp;nbsp;&amp;nbsp; Todas as FKs com CASCADE DELETE"
+      style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;overflow=hidden;fontSize=12;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="30" width="720" height="70" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: account  (slice 004 — planejado)                           -->
+    <!-- ================================================================ -->
+    <mxCell id="10" value="account  [slice 004]"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="340" width="250" height="114" as="geometry" />
+    </mxCell>
+    <mxCell id="11" value="id  :  TEXT  [PK]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="10">
+      <mxGeometry y="26" width="250" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="12" value="idp_subject  :  TEXT  [UNIQUE]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="10">
+      <mxGeometry y="48" width="250" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="13" value="created_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="10">
+      <mxGeometry y="70" width="250" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="14" value="email  :  TEXT"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="10">
+      <mxGeometry y="92" width="250" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: campaign  (entidade central)                               -->
+    <!-- ================================================================ -->
+    <mxCell id="20" value="campaign"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#dae8fc;strokeColor=#6c8ebf;"
+      vertex="1" parent="1">
+      <mxGeometry x="370" y="310" width="280" height="158" as="geometry" />
+    </mxCell>
+    <mxCell id="21" value="id  :  TEXT  [PK]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="20">
+      <mxGeometry y="26" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="22" value="account_id  :  TEXT  [FK &gt; account]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="20">
+      <mxGeometry y="48" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="23" value="status  :  TEXT  (active | ended)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="20">
+      <mxGeometry y="70" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="24" value="created_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="20">
+      <mxGeometry y="92" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="25" value="updated_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="20">
+      <mxGeometry y="114" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="26" value="summary_text  :  TEXT"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="20">
+      <mxGeometry y="136" width="280" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: character_sheet  (1:1)                                     -->
+    <!-- ================================================================ -->
+    <mxCell id="30" value="character_sheet"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="200" width="270" height="92" as="geometry" />
+    </mxCell>
+    <mxCell id="31" value="campaign_id  :  TEXT  [PK / FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="30">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="32" value="data  :  JSON  (CharacterSheet dump)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="30">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="33" value="alive  :  BOOLEAN"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="30">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: world  (1:1)                                               -->
+    <!-- ================================================================ -->
+    <mxCell id="40" value="world"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="340" width="270" height="136" as="geometry" />
+    </mxCell>
+    <mxCell id="41" value="campaign_id  :  TEXT  [PK / FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="40">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="42" value="location  :  TEXT"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="40">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="43" value="visited  :  JSON  (lista de locais)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="40">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="44" value="flags  :  JSON  (story flags dict)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="40">
+      <mxGeometry y="92" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="45" value="turn  :  INTEGER"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="40">
+      <mxGeometry y="114" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: combat  (1:1, transiente)                                  -->
+    <!-- ================================================================ -->
+    <mxCell id="50" value="combat  (transiente)"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="530" width="270" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="51" value="campaign_id  :  TEXT  [PK / FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="50">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="52" value="state  :  JSON nullable  (NULL = sem combate ativo)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="50">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: session_lease  (1:1, slice 004 — planejado)               -->
+    <!-- ================================================================ -->
+    <mxCell id="60" value="session_lease  [slice 004]"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="660" width="270" height="114" as="geometry" />
+    </mxCell>
+    <mxCell id="61" value="campaign_id  :  TEXT  [PK / FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="60">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="62" value="session_token  :  TEXT"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="60">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="63" value="holder  :  TEXT  (client / session id)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="60">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="64" value="expires_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="60">
+      <mxGeometry y="92" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: event  (1:N, append-only)                                  -->
+    <!-- ================================================================ -->
+    <mxCell id="70" value="event  (append-only)"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="580" width="270" height="136" as="geometry" />
+    </mxCell>
+    <mxCell id="71" value="id  :  TEXT  [PK]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="70">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="72" value="campaign_id  :  TEXT  [FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="70">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="73" value="seq  :  INTEGER  [UNIQUE(campaign_id, seq)]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="70">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="74" value="payload  :  JSON  (tipo + dados do evento)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="70">
+      <mxGeometry y="92" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="75" value="created_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="70">
+      <mxGeometry y="114" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: archive_record  (1:N, imutavel)                            -->
+    <!-- ================================================================ -->
+    <mxCell id="80" value="archive_record  (imutavel)"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="780" width="270" height="136" as="geometry" />
+    </mxCell>
+    <mxCell id="81" value="id  :  TEXT  [PK]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="80">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="82" value="campaign_id  :  TEXT  [FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="80">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="83" value="destination  :  TEXT  (graveyard | hall_of_fame)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="80">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="84" value="payload  :  JSON  (ArchiveRecord dump)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="80">
+      <mxGeometry y="92" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="85" value="archived_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="80">
+      <mxGeometry y="114" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- TABLE: save_slot  (1:N, PK composta)                             -->
+    <!-- ================================================================ -->
+    <mxCell id="90" value="save_slot"
+      style="swimlane;fontStyle=1;align=center;startSize=26;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="850" width="270" height="114" as="geometry" />
+    </mxCell>
+    <mxCell id="91" value="campaign_id  :  TEXT  [PK(1) / FK &gt; campaign]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="90">
+      <mxGeometry y="26" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="92" value="name  :  TEXT  [PK(2)]"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;fontStyle=1;"
+      vertex="1" parent="90">
+      <mxGeometry y="48" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="93" value="snapshot  :  JSON  (dump completo do estado)"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="90">
+      <mxGeometry y="70" width="270" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="94" value="created_at  :  TIMESTAMPTZ"
+      style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;"
+      vertex="1" parent="90">
+      <mxGeometry y="92" width="270" height="22" as="geometry" />
+    </mxCell>
+
+    <!-- ================================================================ -->
+    <!-- RELACIONAMENTOS / EDGES                                           -->
+    <!-- ================================================================ -->
+
+    <!-- account -> campaign  (1:N — planejado, tracejado roxo) -->
+    <mxCell id="100" value="1 : N"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=ERmany;endFill=0;startArrow=ERmandOne;startFill=0;dashed=1;strokeColor=#9673a6;fontColor=#9673a6;fontSize=11;"
+      edge="1" source="10" target="20" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> character_sheet  (1:1) -->
+    <mxCell id="101" value="1 : 1"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=ERmandOne;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="30" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> world  (1:1) -->
+    <mxCell id="102" value="1 : 1"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=ERmandOne;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="40" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> combat  (1:1) -->
+    <mxCell id="103" value="1 : 1"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=ERmandOne;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="50" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> session_lease  (1:1 — planejado, tracejado roxo) -->
+    <mxCell id="104" value="1 : 1"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;endArrow=ERmandOne;endFill=0;startArrow=ERmandOne;startFill=0;dashed=1;strokeColor=#9673a6;fontColor=#9673a6;fontSize=11;"
+      edge="1" source="20" target="60" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> event  (1:N) -->
+    <mxCell id="105" value="1 : N"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=ERmany;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="70" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> archive_record  (1:N) -->
+    <mxCell id="106" value="1 : N"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.1;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=ERmany;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="80" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- campaign -> save_slot  (1:N) -->
+    <mxCell id="107" value="1 : N"
+      style="rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.9;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;endArrow=ERmany;endFill=0;startArrow=ERmandOne;startFill=0;strokeColor=#6c8ebf;fontSize=11;"
+      edge="1" source="20" target="90" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

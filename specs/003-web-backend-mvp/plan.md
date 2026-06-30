@@ -109,7 +109,7 @@ src/gamebook_web/             # NEW backend service layer (consumes engine via M
 ├── harness/
 │   ├── scene.py              # Pydantic Scene schema (validated narrator output)
 │   ├── base.py               # NarratorBackend port + FakeNarrator
-│   ├── agent.py              # PydanticAI AnthropicNarrator (output_type=Scene, output_validator)
+│   ├── agent.py              # PydanticAI PydanticNarrator (output_type=Scene, output_validator)
 │   └── combat_subagent.py    # delegated combat subagent (ADR-001 pattern)
 ├── auth/                     # DEV AUTH STUB (replaced by OIDC in 004)
 ├── sessions/                 # minimal campaign scoping (session lease enforcement deferred to 004)

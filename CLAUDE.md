@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase-1 MVP + Slice 002 (persistence foundation) implemented
+## Status: Slices 002–007 implemented and merged to `dev`
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **162+ passing tests** (with Postgres suite running against a live DB) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **217+ passing tests** (42 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+
+The Phase-2 web stack (`src/gamebook_web/`) is implemented: FastAPI + PydanticAI narrator (`PydanticNarrator`) that calls MCP tools directly during `agent.run()` (ADR-029), React/Vite SPA, PostgresStorage (swap boundary #1). TypeScript: `node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit` → exit 0.
 
 **Slice 002 (PostgresStorage):** `src/gamebook/storage/postgres.py` implements `StorageBackend` behind Postgres (swap boundary #1). Schema in `alembic/versions/0001_initial_schema.py`. Phase-2 MCP path available when `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` are set.
 
@@ -148,10 +150,22 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 | [ADR-011](./docs/adrs/ADR-011-phase2-harness-pydanticai-narrator-backend.md) | Phase-2 production harness — PydanticAI core, model/provider-agnostic, behind a NarratorBackend port | Accepted | 2026-06-26 |
 | [ADR-012](./docs/adrs/ADR-012-react-vite-typescript-spa-toolchain.md) | React + Vite + TypeScript toolchain for `frontend/` SPA | Accepted | 2026-06-27 |
 | [ADR-013](./docs/adrs/ADR-013-async-alembic-env-database-url.md) | Async Alembic env.py pattern with asyncpg and DATABASE_URL | Accepted | 2026-06-27 |
-| [ADR-014](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents | Accepted | 2026-06-27 |
 | [ADR-014](./docs/adrs/ADR-014-postgres-storage-sync-async-bridge.md) | PostgresStorage sync/async bridge via dedicated daemon thread | Accepted | 2026-06-27 |
 | [ADR-015](./docs/adrs/ADR-015-vite-env-import-meta-types.md) | `import.meta.env` types via `src/vite-env.d.ts` (not tsconfig types array) | Accepted | 2026-06-27 |
 | [ADR-016](./docs/adrs/ADR-016-mock-mode-client-side-fixture-layer.md) | Mock mode via a client-side fixture layer (VITE_USE_MOCK=true) | Accepted | 2026-06-27 |
+| [ADR-017](./docs/adrs/ADR-017-api-frontend-contract-canonical-shape.md) | API/frontend contract canonical shape (backend wins) | Accepted | 2026-06-28 |
+| [ADR-018](./docs/adrs/ADR-018-multi-tenant-engine-per-call-campaign-id.md) | Multi-tenant engine via per-call campaign_id | Accepted | 2026-06-28 |
+| [ADR-019](./docs/adrs/ADR-019-allowlist-for-fabricated-number-detection.md) | Allowlist for fabricated-number detection | Accepted | 2026-06-28 |
+| [ADR-020](./docs/adrs/ADR-020-resolve-duplicate-adr-numbering.md) | Resolve duplicate ADR numbering (ADR-014/015) | Accepted | 2026-06-28 |
+| [ADR-021](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents (renumbered from ADR-014 by ADR-020; file rename pending in `006`) | Accepted | 2026-06-27 |
+| [ADR-022](./docs/adrs/ADR-022-oidc-jwt-jwks-validation-pattern.md) | OIDC JWT/JWKS validation + fail-closed auth (renumbered from 004's ADR-017 in `006`) | Accepted | 2026-06-28 |
+| [ADR-023](./docs/adrs/ADR-023-session-lease-acquire-takeover-semantics.md) | Session lease semantics — `takeover` validates `current_token` (renumbered from 004's ADR-018 in `006`) | Accepted | 2026-06-28 |
+| [ADR-024](./docs/adrs/ADR-024-opentelemetry-auto-instrumentation.md) | OTel auto-instrumentation + no-PII-in-spans (renumbered from 004's ADR-019 in `006`) | Accepted | 2026-06-28 |
+| [ADR-025](./docs/adrs/ADR-025-db-backed-campaign-registry.md) | DB-backed campaign registry (new in `006`) | Accepted | 2026-06-28 |
+| [ADR-026](./docs/adrs/ADR-026-postgres-tls-policy.md) | PostgreSQL TLS policy (new in `006`, closes 002 HIGH TLS finding) | Accepted | 2026-06-28 |
+| [ADR-027](./docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md) | PostgresStorage concurrency-safe seq allocation + deterministic lifecycle (new in `006`, closes 002 MEDIUM findings) | Accepted | 2026-06-28 |
+| [ADR-028](./docs/adrs/ADR-028-combat-resolution-via-agent-tool-sse-stream.md) | Combat terminal-state unification — unify `_check_terminal_state` into shared helper (reserved for spec 006; file is currently a redirect stub) | Proposed | 2026-06-28 |
+| [ADR-029](./docs/adrs/ADR-029-narrator-as-tool-use-agent-eliminate-effects.md) | Narrator as tool-use agent — eliminate `effects[]` pattern, restore Phase 1 interaction model (post-006, slice 007) | Accepted | 2026-06-30 |
 
 ## Learning Lessons
 
@@ -166,35 +180,34 @@ The authoritative MCP tool contract these reference is `docs/CONTRACTS.md` §6.
 - [Vite config (`vite.config.ts`) requires `@types/node` as an explicit devDependency](./docs/learning-lessons/vite_config_needs_types_node.md) — 2026-06-27
 - [pydantic-ai 2.0 MCPToolset: `direct_call_tool` vs `toolsets=[]` in agents](./docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md) — 2026-06-27
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
+- [RTK proxy rewrites `tsc`/`npx tsc` and masks TypeScript errors — use `node_modules/.bin/tsc` directly](./docs/learning-lessons/rtk_proxy_masks_tsc_errors.md) — 2026-06-30
 
 <!-- SPECKIT START -->
-**Active feature**: `003-web-backend-mvp` (second slice of the decomposed
-`001-web-platform-migration` epic). The epic was decomposed into a dependency-ordered chain of
-independently-shippable features; see the Decomposition section in
-`specs/001-web-platform-migration/spec.md`:
-- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1)
-- `003-web-backend-mvp` ← **active** (FastAPI + MCP host + PydanticAI narrator + `Scene` + documented API
-  playable via script; depends on `002`)
-- `004-accounts-hardening-obs` (real OIDC + accounts + session lease + resume + privacy +
-  production hardening + OpenTelemetry; depends on `002`, `003`)
-- `005-professional-spa` (React/Vite SPA consuming `003`'s documented API; depends on `003`,
-  sign-in UI also `004`; can develop in parallel with `004` against `003`'s frozen OpenAPI)
+**Active feature**: `004-accounts-hardening-obs` (real OIDC auth, per-account isolation,
+session leases, GDPR export/erasure, OpenTelemetry observability). Depends on slices 002, 003,
+006, and 007 — all merged to `dev`. ADR-018 per-campaign engine isolation is the merge gate for
+`PydanticNarrator` in multi-account deployments (documented in ADR-029; tracked to this slice).
 
-Dependency chain: `002` → `003` → `004` // `005`.
+The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
+- `002-persistence-foundation` ← done (PostgresStorage behind `StorageBackend`, swap boundary #1; TLS/concurrency/lifecycle remediated in `006`)
+- `003-web-backend-mvp` ← done (merged to `dev`)
+- `004-accounts-hardening-obs` ← **next** (real OIDC + accounts + session lease + resume +
+  privacy + production hardening + OpenTelemetry; depends on `002`, `003`, `006`, `007`)
+- `005-professional-spa` ← done (merged to `dev`; live mode gated on `006` + `007`)
+- `006-cycle1-remediation` ← done (closes cycle-1 SDD findings; merged to `dev`)
+- `007-narrator-tool-use-refactor` ← done (PR #8 → `dev`; eliminates `effects[]`; narrator calls MCP tools directly; ADR-029)
 
-**Active feature artifacts** (`specs/002-persistence-foundation/`):
-- Spec: `specs/002-persistence-foundation/spec.md`
-- Plan: `specs/002-persistence-foundation/plan.md`
-- Tasks: `specs/002-persistence-foundation/tasks.md`
+Dependency chain: `002` → `003` → `006` → `007` → `004` // `005` (live mode gated on `006`+`007`).
 
 **Shared epic design artifacts** (authoritative for every slice; referenced, not duplicated):
 - Research (tech decisions): `specs/001-web-platform-migration/research.md`
 - Data model: `specs/001-web-platform-migration/data-model.md`
-- Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`)
+- Contracts: `specs/001-web-platform-migration/contracts/` (`http-api.md`, `scene.md`) — updated 2026-06-30 for spec 007
 - Quickstart (validation): `specs/001-web-platform-migration/quickstart.md`
 
-Stack across the epic: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`), a new
-agent-based narrator on `claude-opus-4-8` emitting a Pydantic-validated `Scene`, a separate OIDC
-auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool contract and the engine
-(`src/gamebook/`) stay behavior-unchanged. Constitution: `.specify/memory/constitution.md` (v1.0.0).
+Stack across the epic: FastAPI + Postgres (`PostgresStorage` behind `StorageBackend`), a
+PydanticAI narrator (`PydanticNarrator`) on `claude-opus-4-8` calling MCP tools directly
+(ADR-029), a separate OIDC auth service, a React/Vite SPA, and OpenTelemetry. The MCP tool
+contract and the engine (`src/gamebook/`) stay behavior-unchanged.
+Constitution: `.specify/memory/constitution.md` (v1.0.0).
 <!-- SPECKIT END -->

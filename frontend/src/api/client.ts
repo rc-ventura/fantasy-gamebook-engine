@@ -21,8 +21,6 @@ import type {
   CampaignState,
   CampaignSummary,
   CharacterSheet,
-  CombatRoundRequest,
-  CombatRoundResponse,
   Scene,
   SessionLease,
   TurnRequest,
@@ -177,9 +175,9 @@ export async function releaseSession(id: string): Promise<void> {
 // ── Character ─────────────────────────────────────────────────────────────────
 
 /** POST /campaigns/{id}/character — create the hero (attributes rolled by engine). */
-export async function createCharacter(id: string): Promise<CharacterSheet> {
-  if (USE_MOCK) return mockApi.createCharacter(id)
-  return request<CharacterSheet>('POST', `/campaigns/${id}/character`, {})
+export async function createCharacter(id: string, name?: string): Promise<CharacterSheet> {
+  if (USE_MOCK) return mockApi.createCharacter(id, name)
+  return request<CharacterSheet>('POST', `/campaigns/${id}/character`, { name })
 }
 
 /** GET /campaigns/{id}/character — read the character sheet (real engine state). */
@@ -206,20 +204,6 @@ export async function takeTurn(id: string, turnReq: TurnRequest): Promise<TurnRe
 export async function getCurrentScene(id: string): Promise<Scene> {
   if (USE_MOCK) return mockApi.getScene(id)
   return request<Scene>('GET', `/campaigns/${id}/scene`)
-}
-
-// ── Combat ────────────────────────────────────────────────────────────────────
-
-/** POST /campaigns/{id}/combat/round — resolve a combat round (engine-computed). */
-export async function combatRound(id: string, req: CombatRoundRequest): Promise<CombatRoundResponse> {
-  if (USE_MOCK) return mockApi.combatRound(id, req.test_luck ?? false)
-  return request<CombatRoundResponse>('POST', `/campaigns/${id}/combat/round`, req)
-}
-
-/** POST /campaigns/{id}/combat/flee — attempt to flee combat. */
-export async function fleeCombat(id: string): Promise<{ campaign: CampaignState }> {
-  if (USE_MOCK) return mockApi.fleeCombat(id)
-  return request<{ campaign: CampaignState }>('POST', `/campaigns/${id}/combat/flee`, {})
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────

@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{background:#15110d}
+    ::selection{background:rgba(217,122,60,.3)}
+    .gb-scroll::-webkit-scrollbar{width:9px;height:9px}
+    .gb-scroll::-webkit-scrollbar-thumb{background:rgba(140,110,80,.35);border-radius:6px}
+    .gb-scroll::-webkit-scrollbar-track{background:transparent}
+    @keyframes gbIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes gbFlick{0%,100%{opacity:.85}50%{opacity:1}}
+  </style>
+</helmet>
+
+<div style="{{ rootStyle }}">
+
+  <!-- ===================== MARKETING / PRODUCT PAGE ===================== -->
+  <sc-if value="{{ isMarketing }}" hint-placeholder-val="{{ true }}">
+  <div class="gb-scroll">
+    <!-- nav -->
+    <header style="position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;padding:0 40px;height:66px;background:rgba(21,17,13,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="color:var(--accent);font-size:1.1rem">◆</span>
+        <span style="font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.12em;color:var(--ink)">THE GRIMOIRE</span>
+      </div>
+      <nav style="display:flex;gap:30px;font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">
+        <span style="cursor:default">The Concept</span><span style="cursor:default">The Engine</span><span style="cursor:default">Modules</span>
+      </nav>
+      <div style="display:flex;gap:10px">
+        <button onClick="{{ goLogin }}" style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:9px 16px;background:transparent;border:1px solid var(--line);border-radius:3px;color:var(--ink);cursor:pointer" style-hover="border-color:var(--accent)">Log in</button>
+        <button onClick="{{ goSignup }}" style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:9px 16px;background:var(--accent);border:none;border-radius:3px;color:var(--accent-ink);cursor:pointer" style-hover="filter:brightness(1.08)">Create account</button>
+      </div>
+    </header>
+
+    <!-- hero -->
+    <section style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:84px 24px 70px;position:relative">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.74rem;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin-bottom:22px">The Grimoire of Claude Code</div>
+      <h1 style="font-family:'Cinzel',serif;font-weight:700;font-size:clamp(2.8rem,6.4vw,4.8rem);line-height:1.03;margin:0 0 20px;color:var(--ink);max-width:880px">The Fantasy Gamebook</h1>
+      <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:1.4rem;color:var(--muted);margin:0 0 14px">"You are the hero. Claude narrates. The engine decides."</p>
+      <p style="font-family:'EB Garamond',serif;font-size:1.18rem;line-height:1.6;color:var(--muted);max-width:600px;margin:0 0 36px;text-wrap:pretty">A solo-play, Fighting Fantasy–style gamebook where an AI improvises the story — but every dice roll, stat change and combat outcome is decided by a deterministic engine.</p>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:18px">
+        <button onClick="{{ goSignup }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.95rem;letter-spacing:.04em;padding:16px 34px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer" style-hover="filter:brightness(1.08)">Create your account →</button>
+        <button onClick="{{ goLogin }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.95rem;letter-spacing:.04em;padding:16px 34px;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:3px;cursor:pointer" style-hover="border-color:var(--accent)">Log in</button>
+      </div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.68rem;letter-spacing:.08em;color:var(--faint)">No setup · Your campaigns are saved to your account</div>
+
+      <div style="position:relative;border:1px solid var(--line);border-radius:5px;overflow:hidden;margin:54px auto 0;max-width:840px;width:100%;height:330px;background:repeating-linear-gradient(135deg,rgba(217,122,60,.05) 0 12px,transparent 12px 24px),var(--bg2)">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">
+          <span style="font-size:2.2rem;color:var(--accent);opacity:.7">◆</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:.74rem;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">product screenshot · the play interface</span>
+        </div>
+        <div style="position:absolute;inset:0;box-shadow:inset 0 0 110px rgba(0,0,0,.55)"></div>
+      </div>
+    </section>
+
+    <!-- concept -->
+    <section style="max-width:920px;margin:0 auto;padding:40px 24px 30px;text-align:center">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);margin-bottom:20px">§ The Concept</div>
+      <p style="font-family:'EB Garamond',serif;font-size:1.5rem;line-height:1.55;color:var(--ink);margin:0 auto;max-width:740px;text-wrap:pretty">The AI handles <em style="color:var(--accent)">language and story</em>. The engine handles <em style="color:var(--accent)">math and state</em>. The narrator never invents a number and never rolls a die in prose — every outcome flows through the MCP server.</p>
+    </section>
+
+    <!-- features -->
+    <section style="max-width:1060px;margin:0 auto;padding:40px 24px 30px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <sc-for list="{{ features }}" as="feat" hint-placeholder-count="3">
+          <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:5px;padding:28px 24px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.68rem;letter-spacing:.1em;color:var(--accent);margin-bottom:14px">{{ feat.tag }}</div>
+            <h3 style="font-family:'Cinzel',serif;font-weight:600;font-size:1.25rem;color:var(--panel-ink);margin:0 0 10px">{{ feat.title }}</h3>
+            <p style="font-family:'EB Garamond',serif;font-size:1.08rem;line-height:1.55;color:var(--panel-muted);margin:0">{{ feat.body }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- steps -->
+    <section style="max-width:920px;margin:0 auto;padding:40px 24px 30px;text-align:center">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:var(--accent);margin-bottom:30px">§ How a session begins</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;text-align:left">
+        <sc-for list="{{ steps }}" as="step" hint-placeholder-count="3">
+          <div>
+            <div style="font-family:'Cinzel',serif;font-weight:700;font-size:2rem;color:var(--accent);opacity:.5;margin-bottom:8px">{{ step.n }}</div>
+            <p style="font-family:'EB Garamond',serif;font-size:1.08rem;line-height:1.55;color:var(--muted);margin:0">{{ step.body }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- cta band -->
+    <section style="max-width:1060px;margin:50px auto 0;padding:0 24px">
+      <div style="background:repeating-linear-gradient(135deg,rgba(217,122,60,.06) 0 12px,transparent 12px 24px),var(--bg2);border:1px solid var(--accent);border-radius:6px;padding:54px 40px;text-align:center">
+        <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:2.1rem;color:var(--ink);margin:0 0 12px">Begin your adventure</h2>
+        <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:1.2rem;color:var(--muted);margin:0 0 26px">"You stand at the foot of the Grey Mountain. The wind smells of ash and old iron."</p>
+        <button onClick="{{ goSignup }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.95rem;letter-spacing:.04em;padding:16px 36px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer" style-hover="filter:brightness(1.08)">Create your account →</button>
+      </div>
+    </section>
+
+    <footer style="max-width:1060px;margin:0 auto;padding:46px 24px;display:flex;align-items:center;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:.08em;color:var(--faint);text-transform:uppercase">
+      <span><span style="color:var(--accent)">◆</span> The Grimoire of Claude Code</span>
+      <span>MCP · 18 Tools · 158 Tests · 96% Coverage</span>
+    </footer>
+  </div>
+  </sc-if>
+
+  <!-- ===================== AUTH (LOGIN / SIGNUP) ===================== -->
+  <sc-if value="{{ isAuth }}" hint-placeholder-val="{{ true }}">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px;position:relative">
+    <button onClick="{{ goMarketing }}" style="position:absolute;top:26px;left:34px;font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;background:transparent;border:none;color:var(--faint);cursor:pointer">← Back to the Grimoire</button>
+
+    <div style="width:100%;max-width:430px;animation:gbIn .45s ease both">
+      <div style="text-align:center;margin-bottom:26px">
+        <span style="color:var(--accent);font-size:1.3rem">◆</span>
+        <div style="font-family:'Cinzel',serif;font-weight:700;font-size:1.7rem;color:var(--ink);margin-top:8px">{{ authTitle }}</div>
+        <div style="font-family:'EB Garamond',serif;font-style:italic;font-size:1.05rem;color:var(--muted);margin-top:4px">{{ authSubtitle }}</div>
+      </div>
+
+      <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:5px;padding:32px;box-shadow:0 30px 70px rgba(0,0,0,.4)">
+        <div style="display:flex;background:var(--bg2);border:1px solid var(--panel-border);border-radius:4px;padding:4px;margin-bottom:24px">
+          <button onClick="{{ goLogin }}" style="{{ tabLogin }}">Log in</button>
+          <button onClick="{{ goSignup }}" style="{{ tabSignup }}">Create account</button>
+        </div>
+
+        <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+          <label style="display:block;font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--panel-muted);margin-bottom:7px">Adventurer name</label>
+          <input value="{{ authName }}" onInput="{{ setAuthName }}" placeholder="Arquimedes" style="width:100%;padding:12px 13px;background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;color:var(--ink);font-family:'EB Garamond',serif;font-size:1.05rem;margin-bottom:16px;outline:none" />
+        </sc-if>
+
+        <label style="display:block;font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--panel-muted);margin-bottom:7px">Email</label>
+        <input value="{{ authEmail }}" onInput="{{ setAuthEmail }}" placeholder="you@grey-mountain.io" style="width:100%;padding:12px 13px;background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;color:var(--ink);font-family:'EB Garamond',serif;font-size:1.05rem;margin-bottom:16px;outline:none" />
+
+        <label style="display:block;font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--panel-muted);margin-bottom:7px">Password</label>
+        <input value="{{ authPass }}" onInput="{{ setAuthPass }}" type="password" placeholder="••••••••" style="width:100%;padding:12px 13px;background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;color:var(--ink);font-family:'EB Garamond',serif;font-size:1.05rem;margin-bottom:24px;outline:none" />
+
+        <button onClick="{{ submitAuth }}" style="width:100%;font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.04em;padding:14px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer" style-hover="filter:brightness(1.08)">{{ authCta }}</button>
+
+        <div style="margin-top:18px;text-align:center;font-family:'EB Garamond',serif;font-size:.98rem;color:var(--panel-muted)">{{ authSwitchText }} <span onClick="{{ toggleAuth }}" style="color:var(--accent);cursor:pointer;text-decoration:underline">{{ authSwitchLink }}</span></div>
+      </div>
+
+      <p style="text-align:center;font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.06em;color:var(--faint);margin-top:20px">Your character sheets &amp; campaigns persist to your account.</p>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ===================== HALL (POST-LOGIN HOME) ===================== -->
+  <sc-if value="{{ isHall }}" hint-placeholder-val="{{ true }}">
+  <div class="gb-scroll" style="min-height:100vh">
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:0 36px;height:64px;border-bottom:1px solid var(--line);background:var(--bg2);position:sticky;top:0;z-index:20">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="color:var(--accent);font-size:1.05rem">◆</span>
+        <span style="font-family:'Cinzel',serif;font-weight:600;font-size:.86rem;letter-spacing:.12em;color:var(--ink)">THE GRIMOIRE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:3px">
+          <button onClick="{{ setEmber }}" style="{{ themeEmberBtn }}">Emberfall</button>
+          <button onClick="{{ setCandle }}" style="{{ themeCandleBtn }}">Candlewax</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding-left:16px;border-left:1px solid var(--line)">
+          <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:'Cinzel',serif;font-weight:700;font-size:.9rem">{{ userInitial }}</div>
+          <div style="line-height:1.15">
+            <div style="font-family:'EB Garamond',serif;font-size:.98rem;color:var(--ink)">{{ user.name }}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--faint)">{{ user.email }}</div>
+          </div>
+          <button onClick="{{ logout }}" style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;background:transparent;border:1px solid var(--line);border-radius:3px;padding:7px 11px;color:var(--muted);cursor:pointer" style-hover="border-color:var(--accent)">Log out</button>
+        </div>
+      </div>
+    </header>
+
+    <div style="max-width:1080px;margin:0 auto;padding:46px 30px 70px;animation:gbIn .4s ease both">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Welcome back, {{ user.name }}</div>
+      <h1 style="font-family:'Cinzel',serif;font-weight:700;font-size:clamp(2.2rem,4.4vw,3.2rem);line-height:1.05;margin:0 0 8px;color:var(--ink)">The Hall of Heroes</h1>
+      <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:1.2rem;color:var(--muted);margin:0 0 38px">Choose an adventure, resume your run, or forge a new hero.</p>
+
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:22px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:22px">
+
+          <!-- continue run -->
+          <div style="background:var(--panel-bg);border:1px solid var(--accent);border-radius:6px;padding:28px;position:relative;overflow:hidden">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Active campaign · Ignarok</div>
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap">
+              <div>
+                <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.7rem;color:var(--panel-ink);margin:0 0 6px">{{ char.name }} · The Sunless Caverns</h2>
+                <div style="display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--panel-muted)">
+                  <span>Turn <span style="color:var(--panel-ink)">{{ world.turn }}</span></span>
+                  <span>Stamina <span style="color:var(--stamina)">{{ char.stamina.current }}/{{ char.stamina.initial }}</span></span>
+                  <span>Luck <span style="color:var(--luck)">{{ char.luck.current }}/{{ char.luck.initial }}</span></span>
+                </div>
+              </div>
+              <button onClick="{{ continueRun }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.04em;padding:14px 28px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer;white-space:nowrap" style-hover="filter:brightness(1.08)">Continue your run →</button>
+            </div>
+          </div>
+
+          <!-- module picker -->
+          <div>
+            <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.05rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Adventure modules</div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <sc-for list="{{ modules }}" as="mod" hint-placeholder-count="3">
+                <div style="{{ mod.cardStyle }}">
+                  <div style="display:flex;align-items:center;gap:16px">
+                    <span style="{{ mod.badgeStyle }}">{{ mod.glyph }}</span>
+                    <div>
+                      <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.1rem;color:var(--panel-ink)">{{ mod.title }}</div>
+                      <div style="font-family:'EB Garamond',serif;font-style:italic;font-size:1rem;color:var(--panel-muted);margin-top:2px">{{ mod.desc }}</div>
+                    </div>
+                  </div>
+                  <button onClick="{{ mod.act }}" style="{{ mod.btnStyle }}">{{ mod.btnLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- new hero + graveyard -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <button onClick="{{ startCreate }}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:18px;background:transparent;border:1px dashed var(--line);border-radius:5px;color:var(--accent);font-family:'Cinzel',serif;font-weight:600;font-size:1rem;letter-spacing:.04em;cursor:pointer" style-hover="border-color:var(--accent)">⚔ Forge a new hero</button>
+            <button onClick="{{ goGraveyard }}" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:18px;background:transparent;border:1px dashed var(--line);border-radius:5px;color:var(--muted);font-family:'Cinzel',serif;font-weight:600;font-size:1rem;letter-spacing:.04em;cursor:pointer" style-hover="border-color:var(--danger);color:var(--danger)">⚰ Visit the Graveyard</button>
+          </div>
+        </div>
+
+        <!-- account registry -->
+        <aside style="background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:24px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin-bottom:16px">Account registry</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px">
+            <sc-for list="{{ registry }}" as="stat" hint-placeholder-count="4">
+              <div style="background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:14px;text-align:center">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:600;color:{{ stat.color }}">{{ stat.value }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:4px">{{ stat.label }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:12px">Recent chronicle</div>
+          <div style="display:flex;flex-direction:column;gap:11px">
+            <sc-for list="{{ chronicle }}" as="entry" hint-placeholder-count="3">
+              <div style="display:flex;gap:10px;align-items:flex-start;font-family:'EB Garamond',serif;font-size:1rem;color:var(--muted);line-height:1.4"><span style="color:var(--accent);font-size:.7rem;margin-top:5px">◆</span><span>{{ entry }}</span></div>
+            </sc-for>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ===================== GRAVEYARD ===================== -->
+  <sc-if value="{{ isGraveyard }}" hint-placeholder-val="{{ true }}">
+  <div class="gb-scroll" style="min-height:100vh">
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:0 36px;height:64px;border-bottom:1px solid var(--line);background:var(--bg2);position:sticky;top:0;z-index:20">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="color:var(--accent);font-size:1.05rem">◆</span>
+        <span style="font-family:'Cinzel',serif;font-weight:600;font-size:.86rem;letter-spacing:.12em;color:var(--ink)">THE GRIMOIRE</span>
+      </div>
+      <button onClick="{{ goHall }}" style="font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;background:transparent;border:1px solid var(--line);border-radius:3px;padding:9px 14px;color:var(--muted);cursor:pointer" style-hover="border-color:var(--accent)">← Back to the Hall</button>
+    </header>
+
+    <div style="max-width:1000px;margin:0 auto;padding:52px 30px 80px;animation:gbIn .4s ease both">
+      <div style="text-align:center;margin-bottom:44px">
+        <span style="color:var(--faint);font-size:1.6rem">⚰</span>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.26em;text-transform:uppercase;color:var(--faint);margin:14px 0 10px">Hall of the Fallen</div>
+        <h1 style="font-family:'Cinzel',serif;font-weight:700;font-size:clamp(2.2rem,4.6vw,3.2rem);line-height:1.05;margin:0 0 10px;color:var(--ink)">The Graveyard</h1>
+        <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:1.2rem;color:var(--muted);margin:0">{{ fallenCount }} heroes rest beneath the Grey Mountain. The engine remembers them all.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
+        <sc-for list="{{ fallen }}" as="hero" hint-placeholder-count="3">
+          <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:5px 5px 90px 90px / 5px 5px 26px 26px;padding:30px 24px 34px;text-align:center;position:relative">
+            <div style="font-family:'Cinzel',serif;font-weight:600;font-size:.78rem;letter-spacing:.22em;color:var(--faint);margin-bottom:14px">R · I · P</div>
+            <div style="width:38px;height:1px;background:var(--panel-border);margin:0 auto 16px"></div>
+            <h3 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.22rem;color:var(--panel-ink);margin:0 0 6px;line-height:1.2">{{ hero.name }}</h3>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--danger);margin-bottom:18px">Fell at turn {{ hero.turn }}</div>
+
+            <p style="font-family:'EB Garamond',serif;font-size:1.05rem;line-height:1.45;color:var(--panel-muted);margin:0 0 6px">{{ hero.cause }}</p>
+            <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:.98rem;color:var(--faint);margin:0 0 20px">in {{ hero.zone }}</p>
+
+            <div style="display:flex;justify-content:center;gap:16px;padding:14px 0;border-top:1px solid var(--panel-border);border-bottom:1px solid var(--panel-border);margin-bottom:18px">
+              <div><div style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--skill)">{{ hero.skill }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:2px">Skill</div></div>
+              <div><div style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--stamina)">{{ hero.stamina }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:2px">Stamina</div></div>
+              <div><div style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--luck)">{{ hero.luck }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:2px">Luck</div></div>
+            </div>
+
+            <p style="font-family:'EB Garamond',serif;font-style:italic;font-size:1rem;line-height:1.5;color:var(--panel-muted);margin:0;text-wrap:pretty">"{{ hero.epitaph }}"</p>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="text-align:center;margin-top:44px">
+        <button onClick="{{ startCreate }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.04em;padding:15px 30px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer" style-hover="filter:brightness(1.08)">⚔ Forge a new hero in their memory</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ===================== CHARACTER CREATION ===================== -->
+  <sc-if value="{{ isCreate }}" hint-placeholder-val="{{ true }}">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px">
+    <div style="width:100%;max-width:560px;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:5px;padding:40px;animation:gbIn .45s ease both;box-shadow:0 30px 70px rgba(0,0,0,.4)">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);margin-bottom:10px">New Campaign</div>
+      <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.9rem;margin:0 0 6px;color:var(--panel-ink)">Forge your hero</h2>
+      <p style="font-family:'EB Garamond',serif;font-size:1.05rem;color:var(--panel-muted);margin:0 0 26px;line-height:1.5">Name your adventurer, then let the engine roll your fate. Attributes are rolled by the dice — never chosen, never narrated.</p>
+
+      <label style="display:block;font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;color:var(--panel-muted);margin-bottom:8px">Hero name</label>
+      <input value="{{ draftName }}" onInput="{{ setDraftName }}" placeholder="Arquimedes" style="width:100%;padding:13px 14px;background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;color:var(--ink);font-family:'EB Garamond',serif;font-size:1.1rem;margin-bottom:26px;outline:none" />
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+        <div style="background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;padding:16px 12px;text-align:center">
+          <div style="font-family:'Cinzel',serif;font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--skill);margin-bottom:8px">Skill</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:600;color:var(--panel-ink)">{{ draftSkill }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--faint);margin-top:4px">1d6 + 6</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;padding:16px 12px;text-align:center">
+          <div style="font-family:'Cinzel',serif;font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--stamina);margin-bottom:8px">Stamina</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:600;color:var(--panel-ink)">{{ draftStamina }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--faint);margin-top:4px">2d6 + 12</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;padding:16px 12px;text-align:center">
+          <div style="font-family:'Cinzel',serif;font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--luck);margin-bottom:8px">Luck</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:600;color:var(--panel-ink)">{{ draftLuck }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--faint);margin-top:4px">1d6 + 6</div>
+        </div>
+      </div>
+
+      <button onClick="{{ rollDraft }}" style="width:100%;font-family:'JetBrains Mono',monospace;font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;padding:13px;background:transparent;border:1px dashed var(--panel-border);border-radius:3px;color:var(--accent);cursor:pointer;margin-bottom:24px;transition:border-color .15s" style-hover="border-color:var(--accent)">⚄ Roll attributes via the engine</button>
+
+      <div style="display:flex;gap:12px">
+        <button onClick="{{ backToLanding }}" style="font-family:'EB Garamond',serif;font-size:1rem;padding:13px 18px;background:transparent;border:1px solid var(--panel-border);border-radius:3px;color:var(--panel-muted);cursor:pointer">Back</button>
+        <button onClick="{{ beginAdventure }}" style="flex:1;font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.04em;padding:13px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer;transition:filter .15s" style-hover="filter:brightness(1.08)">Enter the Grey Mountain →</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+  <div style="min-height:100vh;display:flex;flex-direction:column">
+
+    <!-- top bar -->
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:62px;border-bottom:1px solid var(--line);background:var(--bg2);position:sticky;top:0;z-index:20">
+      <div style="display:flex;align-items:center;gap:14px;min-width:230px">
+        <span style="color:var(--accent);font-size:1.05rem">◆</span>
+        <div>
+          <div style="font-family:'Cinzel',serif;font-weight:600;font-size:.86rem;letter-spacing:.08em;color:var(--ink)">FANTASY GAMEBOOK</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.08em;color:var(--faint)">{{ world.current_location }} · Turn {{ world.turn }}</div>
+        </div>
+      </div>
+
+      <nav style="display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:4px">
+        <button onClick="{{ goScene }}" style="{{ tabScene }}">Story</button>
+        <button onClick="{{ goMap }}" style="{{ tabMap }}">Map</button>
+        <button onClick="{{ goInventory }}" style="{{ tabInventory }}">Backpack</button>
+        <button onClick="{{ goSaves }}" style="{{ tabSaves }}">Saves</button>
+      </nav>
+
+      <div style="display:flex;align-items:center;gap:14px;min-width:230px;justify-content:flex-end">
+        <div style="display:flex;background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:3px">
+          <button onClick="{{ setEmber }}" style="{{ themeEmberBtn }}">Emberfall</button>
+          <button onClick="{{ setCandle }}" style="{{ themeCandleBtn }}">Candlewax</button>
+        </div>
+      </div>
+    </header>
+
+    <div style="flex:1;display:grid;grid-template-columns:1fr 312px;gap:0;min-height:0">
+
+      <!-- ============ MAIN CONTENT ============ -->
+      <main class="gb-scroll" style="overflow-y:auto;padding:44px 36px 80px">
+        <div style="max-width:680px;margin:0 auto">
+
+          <!-- SCENE -->
+          <sc-if value="{{ isScene }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:gbIn .4s ease both">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:26px">
+              <span style="font-family:'Cinzel',serif;font-size:1.4rem;color:var(--accent)">§</span>
+              <span style="font-family:'Cinzel',serif;font-weight:600;font-size:1.05rem;letter-spacing:.06em;color:var(--ink)">{{ world.current_location }}</span>
+              <span style="flex:1;height:1px;background:var(--line)"></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.1em;color:var(--faint)">TURN {{ world.turn }}</span>
+            </div>
+
+            <article style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:4px;padding:38px 40px;box-shadow:0 20px 50px rgba(0,0,0,.22)">
+              <sc-for list="{{ narrative }}" as="para" hint-placeholder-count="3">
+                <p style="font-family:'EB Garamond',serif;font-size:1.2rem;line-height:1.74;color:var(--panel-ink);margin:0 0 1.1em;text-wrap:pretty">{{ para }}</p>
+              </sc-for>
+            </article>
+
+            <div style="margin:34px 0 14px;font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.08em;color:var(--muted);text-transform:uppercase">What do you do?</div>
+
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ choices }}" as="choice" hint-placeholder-count="4">
+                <button onClick="{{ choice.act }}" style="display:flex;gap:14px;align-items:flex-start;width:100%;text-align:left;padding:15px 17px;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:3px;color:var(--panel-ink);cursor:pointer;font-family:'EB Garamond',serif;font-size:1.1rem;line-height:1.4;transition:border-color .15s,transform .12s" style-hover="border-color:var(--accent);transform:translateX(3px)">
+                  <span style="width:27px;height:27px;flex:none;display:grid;place-items:center;border:1px solid var(--panel-border);border-radius:50%;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--accent)">{{ choice.n }}</span>
+                  <span style="padding-top:2px">{{ choice.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:18px">
+              <input value="{{ freeText }}" onInput="{{ setFreeText }}" placeholder="…or describe your own action" style="flex:1;padding:13px 15px;background:var(--bg2);border:1px solid var(--line);border-radius:3px;color:var(--ink);font-family:'EB Garamond',serif;font-style:italic;font-size:1.05rem;outline:none" />
+              <button onClick="{{ submitFree }}" style="font-family:'Cinzel',serif;font-weight:600;font-size:.82rem;letter-spacing:.04em;padding:0 22px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer">Act</button>
+            </div>
+
+            <sc-if value="{{ showEngineNotes }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top:28px;display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--faint);letter-spacing:.04em">
+              <span style="display:inline-grid;place-items:center;width:18px;height:18px;border:1px solid var(--line);border-radius:3px;color:var(--accent)">⚂</span>
+              Numbers come from the engine. The narrator only describes what the dice decide.
+            </div>
+            </sc-if>
+          </div>
+          </sc-if>
+
+          <!-- MAP -->
+          <sc-if value="{{ isMap }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:gbIn .4s ease both">
+            <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.7rem;color:var(--ink);margin:0 0 6px">The Grey Mountain</h2>
+            <p style="font-family:'EB Garamond',serif;font-size:1.05rem;color:var(--muted);margin:0 0 34px">Six descending zones. You have walked three.</p>
+            <div style="position:relative;padding-left:8px">
+              <sc-for list="{{ zones }}" as="zone" hint-placeholder-count="6">
+                <div style="display:flex;gap:18px;align-items:stretch">
+                  <div style="display:flex;flex-direction:column;align-items:center;width:34px">
+                    <div style="{{ zone.dotStyle }}">{{ zone.n }}</div>
+                    <div style="{{ zone.lineStyle }}"></div>
+                  </div>
+                  <div style="{{ zone.cardStyle }}">
+                    <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.06rem;color:{{ zone.titleColor }}">{{ zone.name }}</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;margin-top:4px;color:var(--faint)">{{ zone.tag }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          </sc-if>
+
+          <!-- INVENTORY -->
+          <sc-if value="{{ isInventory }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:gbIn .4s ease both">
+            <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.7rem;color:var(--ink);margin:0 0 6px">Backpack</h2>
+            <p style="font-family:'EB Garamond',serif;font-size:1.05rem;color:var(--muted);margin:0 0 26px">Everything {{ char.name }} carries into the dark.</p>
+
+            <div style="display:flex;gap:12px;margin-bottom:26px">
+              <div style="flex:1;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:4px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-family:'Cinzel',serif;font-size:.86rem;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)">Gold</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:600;color:var(--panel-ink)">{{ char.gold }}</span>
+              </div>
+              <div style="flex:1;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:4px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+                <span style="font-family:'Cinzel',serif;font-size:.86rem;letter-spacing:.08em;text-transform:uppercase;color:var(--stamina)">Provisions</span>
+                <span style="display:flex;align-items:center;gap:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:600;color:var(--panel-ink)">{{ char.provisions }}</span>
+                <button onClick="{{ useProvision }}" style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;padding:7px 11px;background:transparent;border:1px solid var(--panel-border);border-radius:3px;color:var(--accent);cursor:pointer" style-hover="border-color:var(--accent)">Eat +4</button></span>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ items }}" as="item" hint-placeholder-count="4">
+                <div style="display:flex;gap:16px;align-items:flex-start;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:4px;padding:16px 18px">
+                  <span style="width:38px;height:38px;flex:none;display:grid;place-items:center;background:var(--bg2);border:1px solid var(--panel-border);border-radius:3px;color:var(--accent);font-size:1.1rem">{{ item.glyph }}</span>
+                  <div>
+                    <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.02rem;color:var(--panel-ink)">{{ item.name }}</div>
+                    <div style="font-family:'EB Garamond',serif;font-style:italic;font-size:1rem;color:var(--panel-muted);margin-top:2px">{{ item.note }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          </sc-if>
+
+          <!-- SAVES -->
+          <sc-if value="{{ isSaves }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:gbIn .4s ease both">
+            <h2 style="font-family:'Cinzel',serif;font-weight:700;font-size:1.7rem;color:var(--ink);margin:0 0 6px">Checkpoints</h2>
+            <p style="font-family:'EB Garamond',serif;font-size:1.05rem;color:var(--muted);margin:0 0 26px">Progress is persisted by the engine — atomic, never half-written.</p>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <sc-for list="{{ saves }}" as="save" hint-placeholder-count="3">
+                <div style="{{ save.cardStyle }}">
+                  <div style="display:flex;align-items:center;gap:16px">
+                    <span style="{{ save.slotStyle }}">{{ save.slot }}</span>
+                    <div>
+                      <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.05rem;color:var(--panel-ink)">{{ save.label }}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:.68rem;letter-spacing:.08em;color:var(--faint);margin-top:3px">{{ save.meta }}</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button onClick="{{ goScene }}" style="{{ save.loadStyle }}">Load</button>
+                    <button onClick="{{ saveHere }}" style="font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;padding:9px 14px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer">Save</button>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          </sc-if>
+
+          <!-- COMBAT -->
+          <sc-if value="{{ isCombat }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:gbIn .4s ease both">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+              <span style="font-family:'Cinzel',serif;font-size:1.05rem;letter-spacing:.1em;color:var(--danger);text-transform:uppercase;font-weight:700">⚔ Combat</span>
+              <span style="flex:1;height:1px;background:var(--line)"></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:.66rem;color:var(--faint)">flee allowed</span>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin-bottom:22px">
+              <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:4px;padding:18px">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Hero</div>
+                <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.15rem;color:var(--panel-ink);margin-bottom:12px">{{ char.name }}</div>
+                <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.76rem;color:var(--panel-muted);margin-bottom:6px"><span>Skill</span><span style="color:var(--skill)">{{ char.skill.current }}</span></div>
+                <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.76rem;color:var(--panel-muted);margin-bottom:6px"><span>Stamina</span><span style="color:var(--stamina)">{{ char.stamina.current }}/{{ char.stamina.initial }}</span></div>
+                <div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="{{ heroFill }}"></div></div>
+              </div>
+              <div style="font-family:'Cinzel',serif;font-size:1.3rem;color:var(--danger)">VS</div>
+              <div style="background:var(--panel-bg);border:1px solid var(--danger);border-radius:4px;padding:18px">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Foe</div>
+                <div style="font-family:'Cinzel',serif;font-weight:600;font-size:1.15rem;color:var(--panel-ink);margin-bottom:12px">{{ combat.enemy.name }}</div>
+                <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.76rem;color:var(--panel-muted);margin-bottom:6px"><span>Skill</span><span style="color:var(--skill)">{{ combat.enemy.skill }}</span></div>
+                <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.76rem;color:var(--panel-muted);margin-bottom:6px"><span>Stamina</span><span style="color:var(--stamina)">{{ combat.enemy.stamina.current }}/{{ combat.enemy.stamina.initial }}</span></div>
+                <div style="height:6px;background:var(--bg2);border-radius:3px;overflow:hidden"><div style="{{ enemyFill }}"></div></div>
+              </div>
+            </div>
+
+            <div class="gb-scroll" style="background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:16px 18px;height:188px;overflow-y:auto;margin-bottom:18px">
+              <sc-for list="{{ combatLog }}" as="line" hint-placeholder-count="2">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.5;margin-bottom:7px;color:{{ line.color }}">{{ line.text }}</div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ combatOver }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ resultStyle }}">{{ combat.result }}</div>
+              <button onClick="{{ goScene }}" style="width:100%;font-family:'Cinzel',serif;font-weight:600;font-size:.92rem;letter-spacing:.04em;padding:14px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer">Continue the story →</button>
+            </sc-if>
+            <sc-if value="{{ combatOngoing }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <button onClick="{{ toggleLuck }}" style="{{ luckToggleStyle }}">⚅ Test luck this round</button>
+                <button onClick="{{ resolveRound }}" style="flex:1;min-width:160px;font-family:'Cinzel',serif;font-weight:600;font-size:.9rem;letter-spacing:.04em;padding:13px;background:var(--danger);color:#fff;border:none;border-radius:3px;cursor:pointer">Resolve round</button>
+                <button onClick="{{ flee }}" style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;padding:13px 16px;background:transparent;border:1px solid var(--panel-border);border-radius:3px;color:var(--muted);cursor:pointer">Flee −2</button>
+              </div>
+            </sc-if>
+          </div>
+          </sc-if>
+
+        </div>
+      </main>
+
+      <!-- ============ CHARACTER SHEET SIDEBAR ============ -->
+      <aside class="gb-scroll" style="border-left:1px solid var(--line);background:var(--bg2);padding:26px 22px;overflow-y:auto">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;letter-spacing:.22em;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Character Sheet</div>
+        <div style="font-family:'Cinzel',serif;font-weight:700;font-size:1.5rem;color:var(--ink);margin-bottom:2px">{{ char.name }}</div>
+        <div style="font-family:'EB Garamond',serif;font-style:italic;font-size:.98rem;color:var(--muted);margin-bottom:24px">Adventurer of the Grey Mountain</div>
+
+        <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:24px">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-family:'Cinzel',serif;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;color:var(--skill)">Skill</span><span style="font-family:'JetBrains Mono',monospace;font-size:.86rem;color:var(--ink)">{{ char.skill.current }}<span style="color:var(--faint)">/{{ char.skill.initial }}</span></span></div>
+            <div style="height:7px;background:var(--bg);border:1px solid var(--line);border-radius:4px;overflow:hidden"><div style="{{ skillFill }}"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-family:'Cinzel',serif;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;color:var(--stamina)">Stamina</span><span style="font-family:'JetBrains Mono',monospace;font-size:.86rem;color:var(--ink)">{{ char.stamina.current }}<span style="color:var(--faint)">/{{ char.stamina.initial }}</span></span></div>
+            <div style="height:7px;background:var(--bg);border:1px solid var(--line);border-radius:4px;overflow:hidden"><div style="{{ staminaFill }}"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-family:'Cinzel',serif;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;color:var(--luck)">Luck</span><span style="font-family:'JetBrains Mono',monospace;font-size:.86rem;color:var(--ink)">{{ char.luck.current }}<span style="color:var(--faint)">/{{ char.luck.initial }}</span></span></div>
+            <div style="height:7px;background:var(--bg);border:1px solid var(--line);border-radius:4px;overflow:hidden"><div style="{{ luckFill }}"></div></div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:24px">
+          <div style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:12px;text-align:center">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:600;color:var(--gold)">{{ char.gold }}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:2px">Gold</div>
+          </div>
+          <div style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:12px;text-align:center">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:600;color:var(--stamina)">{{ char.provisions }}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:2px">Provisions</div>
+          </div>
+        </div>
+
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:10px">Inventory</div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:24px">
+          <sc-for list="{{ items }}" as="item" hint-placeholder-count="4">
+            <div style="display:flex;gap:10px;align-items:center;font-family:'EB Garamond',serif;font-size:1rem;color:var(--muted)"><span style="color:var(--accent);font-size:.8rem">{{ item.glyph }}</span>{{ item.name }}</div>
+          </sc-for>
+        </div>
+
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:10px">Conditions</div>
+        <div style="font-family:'EB Garamond',serif;font-style:italic;font-size:1rem;color:var(--faint)">None — for now.</div>
+      </aside>
+
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:860},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ember&quot;,&quot;candle&quot;],&quot;default&quot;:&quot;ember&quot;,&quot;tsType&quot;:&quot;'ember'|'candle'&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#d97a3c&quot;,&quot;options&quot;:[&quot;#d97a3c&quot;,&quot;#bb8a3e&quot;,&quot;#a9573b&quot;,&quot;#7a8c4f&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;showEngineNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'marketing', // marketing | auth | hall | create | app
+    sub: 'scene',        // scene | map | inventory | saves | combat
+    theme: null,
+    authMode: 'login',   // login | signup
+    user: { name: 'Arquimedes', email: 'arquimedes@grey-mountain.io' },
+    auth: { name: '', email: '', pass: '' },
+    char: {
+      name: 'Arquimedes',
+      skill: { initial: 7, current: 7 },
+      stamina: { initial: 19, current: 11 },
+      luck: { initial: 10, current: 5 },
+      gold: 6,
+      provisions: 2,
+    },
+    world: {
+      current_location: 'The Sunless Caverns',
+      turn: 10,
+    },
+    draft: { name: '', skill: 7, stamina: 19, luck: 10 },
+    freeText: '',
+    combat: {
+      enemy: { name: 'Cave Lurker', skill: 8, stamina: { initial: 9, current: 9 } },
+      log: [{ text: 'A shape unfolds from the black water — too many limbs, eyes like wet coins. The Cave Lurker is upon you.', color: 'var(--muted)' }],
+      testLuck: false,
+      over: false,
+      result: '',
+    },
+  };
+
+  THEMES = {
+    ember: {
+      '--bg':'#15110d','--bg2':'#1d1712','--ink':'#ece3d4','--muted':'#a4937c','--faint':'#6c5e4d',
+      '--panel-bg':'#201a14','--panel-ink':'#ece3d4','--panel-muted':'#9d8d77','--panel-border':'#372c20',
+      '--line':'#2c2319','--accent':'#d97a3c','--accent-ink':'#15110d','--gold':'#dba94f',
+      '--skill':'#6f9bb5','--stamina':'#cf6244','--luck':'#c9a64a','--danger':'#bf4a31',
+    },
+    candle: {
+      '--bg':'#14100c','--bg2':'#1b150f','--ink':'#e9dcc2','--muted':'#9c8a6f','--faint':'#6a5a44',
+      '--panel-bg':'#ece0c6','--panel-ink':'#2a2118','--panel-muted':'#6e5f48','--panel-border':'#cbb892',
+      '--line':'#241d15','--accent':'#bb8a3e','--accent-ink':'#1b150f','--gold':'#a8843a',
+      '--skill':'#4f7a8c','--stamina':'#9a3b2e','--luck':'#9c7a2e','--danger':'#9a3b2e',
+    },
+  };
+
+  d6 = () => 1 + Math.floor(Math.random() * 6);
+  clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  go = (sub) => this.setState({ screen: 'app', sub });
+  goScene = () => this.go('scene');
+  goMap = () => this.go('map');
+  goInventory = () => this.go('inventory');
+  goSaves = () => this.go('saves');
+  continueRun = () => this.setState({ screen: 'app', sub: 'scene' });
+  startCreate = () => this.setState({ screen: 'create', draft: { name: '', skill: 7, stamina: 19, luck: 10 } });
+  backToLanding = () => this.setState({ screen: 'hall' });
+  setEmber = () => this.setState({ theme: 'ember' });
+  setCandle = () => this.setState({ theme: 'candle' });
+
+  goMarketing = () => this.setState({ screen: 'marketing' });
+  goGraveyard = () => this.setState({ screen: 'graveyard' });
+  goHall = () => this.setState({ screen: 'hall' });
+  goLogin = () => this.setState({ screen: 'auth', authMode: 'login' });
+  goSignup = () => this.setState({ screen: 'auth', authMode: 'signup' });
+  toggleAuth = () => this.setState({ authMode: this.state.authMode === 'login' ? 'signup' : 'login' });
+  setAuthName = (e) => this.setState({ auth: { ...this.state.auth, name: e.target.value } });
+  setAuthEmail = (e) => this.setState({ auth: { ...this.state.auth, email: e.target.value } });
+  setAuthPass = (e) => this.setState({ auth: { ...this.state.auth, pass: e.target.value } });
+  submitAuth = () => {
+    const a = this.state.auth;
+    const name = (this.state.authMode === 'signup' && a.name && a.name.trim()) ? a.name.trim() : this.state.user.name;
+    const email = (a.email && a.email.trim()) ? a.email.trim() : this.state.user.email;
+    this.setState({ screen: 'hall', user: { name, email } });
+  };
+  logout = () => this.setState({ screen: 'marketing', auth: { name: '', email: '', pass: '' } });
+
+  setDraftName = (e) => this.setState({ draft: { ...this.state.draft, name: e.target.value } });
+  rollDraft = () => this.setState({ draft: {
+    ...this.state.draft,
+    skill: this.d6() + 6,
+    stamina: this.d6() + this.d6() + 12,
+    luck: this.d6() + 6,
+  }});
+  beginAdventure = () => {
+    const d = this.state.draft;
+    this.setState({
+      screen: 'app', sub: 'scene',
+      char: {
+        name: (d.name && d.name.trim()) || 'Wanderer',
+        skill: { initial: d.skill, current: d.skill },
+        stamina: { initial: d.stamina, current: d.stamina },
+        luck: { initial: d.luck, current: d.luck },
+        gold: 0, provisions: 2,
+      },
+      world: { current_location: 'The Shattered Trailhead', turn: 1 },
+    });
+  };
+
+  setFreeText = (e) => this.setState({ freeText: e.target.value });
+  submitFree = () => this.setState({ freeText: '', world: { ...this.state.world, turn: this.state.world.turn + 1 } });
+
+  advance = () => this.setState({ world: { ...this.state.world, turn: this.state.world.turn + 1 } });
+
+  startCombat = () => this.setState({
+    sub: 'combat',
+    combat: {
+      enemy: { name: 'Cave Lurker', skill: 8, stamina: { initial: 9, current: 9 } },
+      log: [{ text: 'A shape unfolds from the black water — too many limbs, eyes like wet coins. The Cave Lurker is upon you.', color: 'var(--muted)' }],
+      testLuck: false, over: false, result: '',
+    },
+  });
+
+  toggleLuck = () => this.setState({ combat: { ...this.state.combat, testLuck: !this.state.combat.testLuck } });
+
+  resolveRound = () => {
+    const c = { ...this.state.combat };
+    if (c.over) return;
+    const char = { ...this.state.char, skill: { ...this.state.char.skill }, stamina: { ...this.state.char.stamina }, luck: { ...this.state.char.luck } };
+    const enemy = { ...c.enemy, stamina: { ...c.enemy.stamina } };
+    const log = c.log.slice();
+
+    const heroRoll = this.d6() + this.d6();
+    const foeRoll = this.d6() + this.d6();
+    const heroAS = char.skill.current + heroRoll;
+    const foeAS = enemy.skill + foeRoll;
+    log.push({ text: `Attack strength — you ${char.skill.current}+${heroRoll}=${heroAS}  ·  foe ${enemy.skill}+${foeRoll}=${foeAS}`, color: 'var(--faint)' });
+
+    let dmgText = '';
+    if (heroAS > foeAS) {
+      let dmg = 2;
+      if (c.testLuck) {
+        const lr = this.d6() + this.d6();
+        const lucky = lr <= char.luck.current;
+        char.luck.current = this.clamp(char.luck.current - 1, 0, char.luck.initial);
+        dmg = lucky ? 4 : 1;
+        log.push({ text: `Luck test ${lr} vs ${char.luck.current + 1} → ${lucky ? 'LUCKY' : 'unlucky'} (luck now ${char.luck.current})`, color: lucky ? 'var(--luck)' : 'var(--muted)' });
+      }
+      enemy.stamina.current = this.clamp(enemy.stamina.current - dmg, 0, enemy.stamina.initial);
+      dmgText = `You wound the ${enemy.name} for ${dmg}. (foe stamina ${enemy.stamina.current})`;
+      log.push({ text: dmgText, color: 'var(--skill)' });
+    } else if (foeAS > heroAS) {
+      let dmg = 2;
+      if (c.testLuck) {
+        const lr = this.d6() + this.d6();
+        const lucky = lr <= char.luck.current;
+        char.luck.current = this.clamp(char.luck.current - 1, 0, char.luck.initial);
+        dmg = lucky ? 1 : 3;
+        log.push({ text: `Luck test ${lr} vs ${char.luck.current + 1} → ${lucky ? 'LUCKY' : 'unlucky'} (luck now ${char.luck.current})`, color: lucky ? 'var(--luck)' : 'var(--muted)' });
+      }
+      char.stamina.current = this.clamp(char.stamina.current - dmg, 0, char.stamina.initial);
+      dmgText = `The ${enemy.name} strikes you for ${dmg}. (your stamina ${char.stamina.current})`;
+      log.push({ text: dmgText, color: 'var(--stamina)' });
+    } else {
+      log.push({ text: 'Blades lock — neither lands a blow.', color: 'var(--muted)' });
+    }
+
+    c.testLuck = false;
+    if (enemy.stamina.current <= 0) {
+      c.over = true;
+      c.result = `The ${enemy.name} collapses into the water and is still. You stand victorious — Stamina ${char.stamina.current}/${char.stamina.initial}.`;
+    } else if (char.stamina.current <= 0) {
+      c.over = true;
+      c.result = `Your strength fails. The dark closes over you in the Sunless Caverns. Your tale ends here.`;
+      char.alive = false;
+    }
+    c.enemy = enemy;
+    c.log = log;
+    this.setState({ combat: c, char });
+  };
+
+  flee = () => {
+    const char = { ...this.state.char, stamina: { ...this.state.char.stamina } };
+    char.stamina.current = this.clamp(char.stamina.current - 2, 0, char.stamina.initial);
+    this.setState({ char, sub: 'scene' });
+  };
+
+  useProvision = () => {
+    if (this.state.char.provisions <= 0) return;
+    const char = { ...this.state.char, stamina: { ...this.state.char.stamina } };
+    char.provisions -= 1;
+    char.stamina.current = this.clamp(char.stamina.current + 4, 0, char.stamina.initial);
+    this.setState({ char });
+  };
+
+  saveHere = () => {};
+
+  pct = (cur, init) => `${this.clamp(Math.round((cur / init) * 100), 0, 100)}%`;
+  fill = (cur, init, color) => `width:${this.pct(cur, init)};height:100%;background:${color};border-radius:3px;transition:width .3s`;
+
+  tab = (active) => `font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:8px 14px;border:none;border-radius:3px;cursor:pointer;transition:all .15s;background:${active ? 'var(--accent)' : 'transparent'};color:${active ? 'var(--accent-ink)' : 'var(--muted)'}`;
+
+  themeBtn = (active) => `font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.06em;padding:6px 13px;border:none;border-radius:16px;cursor:pointer;transition:all .15s;background:${active ? 'var(--accent)' : 'transparent'};color:${active ? 'var(--accent-ink)' : 'var(--faint)'}`;
+
+  renderVals() {
+    const s = this.state;
+    const theme = s.theme || this.props.defaultTheme || 'ember';
+    const tk = { ...this.THEMES[theme] };
+    if (this.props.accent) tk['--accent'] = this.props.accent;
+
+    const rootStyle = {
+      ...tk,
+      position: 'relative', minHeight: '100vh', width: '100%',
+      background: 'radial-gradient(130% 90% at 50% -10%, rgba(217,122,60,0.07), transparent 55%), var(--bg)',
+      color: 'var(--ink)', fontFamily: "'EB Garamond', Georgia, serif",
+      overflowX: 'hidden',
+    };
+
+    const char = s.char;
+    const items = [
+      { glyph: '🜂', name: 'Torch', note: 'Burning low. Lights the dark — for now.' },
+      { glyph: '◈', name: 'Waterlogged trinket', note: 'Salvaged from the Drowned Mines. Its purpose is unclear.' },
+      { glyph: '⛏', name: "Miner's chisel", note: 'Cold iron. Good for prying, probing, or worse.' },
+      { glyph: '🗡', name: 'Dark steel dagger', note: 'Your blade. It never fails to draw.' },
+    ];
+
+    const choices = [
+      { n: 1, label: 'Edge along the slick ledge toward the half-sunk metal door.', act: this.advance },
+      { n: 2, label: "Probe the black water with your miner's chisel before you cross.", act: this.advance },
+      { n: 3, label: 'Stand fast, dagger drawn, and watch the water.', act: this.startCombat },
+      { n: 4, label: 'Withdraw toward the Drowned Mines and the way you came.', act: this.advance },
+    ];
+
+    const zoneDot = (st) => {
+      const base = 'width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:50%;font-family:\'JetBrains Mono\',monospace;font-size:.78rem;';
+      if (st === 'current') return base + 'background:var(--accent);color:var(--accent-ink);box-shadow:0 0 0 4px rgba(217,122,60,.18)';
+      if (st === 'visited') return base + 'background:var(--bg2);border:1px solid var(--accent);color:var(--accent)';
+      return base + 'background:var(--bg2);border:1px solid var(--line);color:var(--faint)';
+    };
+    const zones = [
+      { n: 1, name: 'The Shattered Trailhead', st: 'visited' },
+      { n: 2, name: 'The Drowned Mines', st: 'visited' },
+      { n: 3, name: 'The Sunless Caverns', st: 'current' },
+      { n: 4, name: 'The Emberforge', st: 'locked' },
+      { n: 5, name: 'The Howling Stair', st: 'locked' },
+      { n: 6, name: "Malachar's Sanctum", st: 'locked' },
+    ].map((z, i, arr) => ({
+      n: z.n, name: z.name,
+      tag: z.st === 'current' ? 'You are here' : z.st === 'visited' ? 'Cleared' : 'Sealed ahead',
+      dotStyle: zoneDot(z.st),
+      lineStyle: `width:2px;flex:1;min-height:26px;background:${i < arr.length - 1 ? 'var(--line)' : 'transparent'}`,
+      cardStyle: `flex:1;margin-bottom:14px;padding:14px 18px;border-radius:4px;border:1px solid ${z.st === 'current' ? 'var(--accent)' : 'var(--panel-border)'};background:var(--panel-bg);opacity:${z.st === 'locked' ? '.5' : '1'}`,
+      titleColor: z.st === 'locked' ? 'var(--panel-muted)' : 'var(--panel-ink)',
+    }));
+
+    const saves = [
+      { slot: 'I', label: 'The Sunless Caverns', meta: 'Turn 10 · Stamina 11/19 · Luck 5/10', active: true },
+      { slot: 'II', label: 'Empty slot', meta: 'No checkpoint', active: false },
+      { slot: 'III', label: 'Empty slot', meta: 'No checkpoint', active: false },
+    ].map((sv) => ({
+      ...sv,
+      cardStyle: `display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;border-radius:4px;background:var(--panel-bg);border:1px solid ${sv.active ? 'var(--accent)' : 'var(--panel-border)'};opacity:${sv.active ? '1' : '.6'}`,
+      slotStyle: `width:42px;height:42px;flex:none;display:grid;place-items:center;border-radius:4px;font-family:'Cinzel',serif;font-weight:700;font-size:1.05rem;background:var(--bg2);border:1px solid ${sv.active ? 'var(--accent)' : 'var(--panel-border)'};color:${sv.active ? 'var(--accent)' : 'var(--faint)'}`,
+      loadStyle: `font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;padding:9px 14px;background:transparent;border:1px solid var(--panel-border);border-radius:3px;color:${sv.active ? 'var(--ink)' : 'var(--faint)'};cursor:${sv.active ? 'pointer' : 'not-allowed'}`,
+    }));
+
+    const cb = s.combat;
+    const resultDeath = cb.result && cb.result.indexOf('ends here') !== -1;
+
+    return {
+      rootStyle,
+      isMarketing: s.screen === 'marketing',
+      isAuth: s.screen === 'auth',
+      isHall: s.screen === 'hall',
+      isCreate: s.screen === 'create',
+      isApp: s.screen === 'app',
+      isSignup: s.authMode === 'signup',
+      isScene: s.sub === 'scene', isMap: s.sub === 'map', isInventory: s.sub === 'inventory', isSaves: s.sub === 'saves', isCombat: s.sub === 'combat',
+
+      continueRun: this.continueRun, startCreate: this.startCreate, backToLanding: this.backToLanding,
+      goScene: this.goScene, goMap: this.goMap, goInventory: this.goInventory, goSaves: this.goSaves,
+      setEmber: this.setEmber, setCandle: this.setCandle,
+      goMarketing: this.goMarketing, goLogin: this.goLogin, goSignup: this.goSignup, toggleAuth: this.toggleAuth,
+      goGraveyard: this.goGraveyard, goHall: this.goHall,
+      isGraveyard: s.screen === 'graveyard',
+      fallen: [
+        { name: 'Thessaly the Bold', cause: 'Torn apart by the Cave Lurker', zone: 'The Sunless Caverns', turn: 14, skill: 9, stamina: 21, luck: 8, epitaph: 'She crossed three zones unbeaten — the water claimed the fourth.' },
+        { name: 'Corvin Ashgrim', cause: 'Impaled by a trailhead trap', zone: 'The Shattered Trailhead', turn: 3, skill: 7, stamina: 17, luck: 6, epitaph: 'Too eager by half. The mountain rewards patience, not speed.' },
+        { name: 'Old Bram', cause: 'Drowned in the flooded shafts', zone: 'The Drowned Mines', turn: 9, skill: 8, stamina: 18, luck: 11, epitaph: 'Lucky to the last roll — but luck always decrements by one.' },
+      ],
+      fallenCount: 3,
+      setAuthName: this.setAuthName, setAuthEmail: this.setAuthEmail, setAuthPass: this.setAuthPass,
+      submitAuth: this.submitAuth, logout: this.logout,
+      authName: s.auth.name, authEmail: s.auth.email, authPass: s.auth.pass,
+      authTitle: s.authMode === 'signup' ? 'Join the Grimoire' : 'Return to the Grimoire',
+      authSubtitle: s.authMode === 'signup' ? 'Create an account to begin your chronicle.' : 'Log in to resume your campaigns.',
+      authCta: s.authMode === 'signup' ? 'Create account →' : 'Enter the Grimoire →',
+      authSwitchText: s.authMode === 'signup' ? 'Already have an account?' : 'New to the Grey Mountain?',
+      authSwitchLink: s.authMode === 'signup' ? 'Log in' : 'Create one',
+      tabLogin: this.tab(s.authMode === 'login') + ';flex:1;text-align:center', tabSignup: this.tab(s.authMode === 'signup') + ';flex:1;text-align:center',
+      user: s.user, userInitial: (s.user.name || '?').charAt(0).toUpperCase(),
+      features: [
+        { tag: '/game-master', title: 'The Narrator', body: 'Claude opens your sheet, narrates in second person, offers numbered choices, and compacts the story as it grows.' },
+        { tag: 'MCP · 18 tools', title: 'The Engine', body: 'A deterministic Python core owns dice, attributes, luck tests and combat math. Reproducible, seedable, never improvised.' },
+        { tag: '/ignarok', title: 'The Adventure', body: 'Six zones of the Grey Mountain, a full bestiary, and one archmage to defeat. Swap the module to play a different tale.' },
+      ],
+      steps: [
+        { n: '1', body: 'Claude reads the lore pack and checks the engine for an existing character.' },
+        { n: '2', body: 'If no hero exists, the engine rolls your attributes — never narrated in prose.' },
+        { n: '3', body: 'Claude narrates the opening of the Grey Mountain. Your adventure begins at §1.' },
+      ],
+      modules: [
+        { glyph: '▲', title: 'Ignarok — The Grey Mountain', desc: 'The debut module. Six zones, one archmage.', state: 'active' },
+        { glyph: '≈', title: 'The Drowned Coast', desc: 'A sunken city beneath the tides.', state: 'locked' },
+        { glyph: '✦', title: 'Ashfall Reliquary', desc: 'A vault of cursed relics.', state: 'locked' },
+      ].map((m) => ({
+        glyph: m.glyph, title: m.title, desc: m.state === 'locked' ? 'Coming soon' : m.desc,
+        cardStyle: `display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;border-radius:5px;background:var(--panel-bg);border:1px solid ${m.state === 'active' ? 'var(--accent)' : 'var(--panel-border)'};opacity:${m.state === 'locked' ? '.55' : '1'}`,
+        badgeStyle: `width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:5px;font-size:1.2rem;background:var(--bg2);border:1px solid ${m.state === 'active' ? 'var(--accent)' : 'var(--panel-border)'};color:${m.state === 'active' ? 'var(--accent)' : 'var(--faint)'}`,
+        btnLabel: m.state === 'active' ? 'Play →' : 'Locked',
+        btnStyle: m.state === 'active'
+          ? "font-family:'Cinzel',serif;font-weight:600;font-size:.84rem;letter-spacing:.04em;padding:11px 20px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:3px;cursor:pointer;white-space:nowrap"
+          : "font-family:'JetBrains Mono',monospace;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;padding:11px 18px;background:transparent;border:1px solid var(--panel-border);border-radius:3px;color:var(--faint);cursor:not-allowed;white-space:nowrap",
+        act: m.state === 'active' ? this.continueRun : (() => {}),
+      })),
+      registry: [
+        { value: '4', label: 'Campaigns', color: 'var(--ink)' },
+        { value: '1', label: 'Victories', color: 'var(--luck)' },
+        { value: '3', label: 'Heroes fallen', color: 'var(--danger)' },
+        { value: '37', label: 'Turns played', color: 'var(--accent)' },
+      ],
+      chronicle: [
+        'Crossed the Drowned Mines and recovered a waterlogged trinket.',
+        'Tested your luck against the Trailhead trap — and survived.',
+        'Account created · joined the Grimoire.',
+      ],
+
+      tabScene: this.tab(s.sub === 'scene'), tabMap: this.tab(s.sub === 'map'),
+      tabInventory: this.tab(s.sub === 'inventory'), tabSaves: this.tab(s.sub === 'saves'),
+      themeEmberBtn: this.themeBtn(theme === 'ember'), themeCandleBtn: this.themeBtn(theme === 'candle'),
+
+      char, world: s.world, items, choices, zones, saves,
+      showEngineNotes: this.props.showEngineNotes !== false,
+
+      narrative: [
+        'The torchlight gutters as the tunnel opens into a vault of black stone. Water drips somewhere in the dark, each drop swallowed by a silence so complete you can hear your own pulse. The air tastes of wet iron and something older — the breath of the mountain itself.',
+        'Ahead, the floor falls away into a flooded trench. A narrow ledge skirts its edge, slick with pale fungus that glows the colour of a drowned moon. On the far wall, half-sunk in mineral crust, something metal catches your light: a door, or the lid of a tomb.',
+        'Behind you the passage exhales a cold draught. And from the water — or from beneath it — comes a slow, deliberate stir.',
+      ],
+
+      draftName: s.draft.name, draftSkill: s.draft.skill, draftStamina: s.draft.stamina, draftLuck: s.draft.luck,
+      setDraftName: this.setDraftName, rollDraft: this.rollDraft, beginAdventure: this.beginAdventure,
+      freeText: s.freeText, setFreeText: this.setFreeText, submitFree: this.submitFree,
+
+      skillFill: this.fill(char.skill.current, char.skill.initial, 'var(--skill)'),
+      staminaFill: this.fill(char.stamina.current, char.stamina.initial, 'var(--stamina)'),
+      luckFill: this.fill(char.luck.current, char.luck.initial, 'var(--luck)'),
+      heroFill: this.fill(char.stamina.current, char.stamina.initial, 'var(--stamina)'),
+      enemyFill: this.fill(cb.enemy.stamina.current, cb.enemy.stamina.initial, 'var(--danger)'),
+
+      combat: cb, combatLog: cb.log, combatOver: cb.over, combatOngoing: !cb.over,
+      resolveRound: this.resolveRound, toggleLuck: this.toggleLuck, flee: this.flee,
+      useProvision: this.useProvision, saveHere: this.saveHere,
+      luckToggleStyle: `font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:13px 15px;border-radius:3px;cursor:pointer;transition:all .15s;background:${cb.testLuck ? 'var(--luck)' : 'transparent'};border:1px solid ${cb.testLuck ? 'var(--luck)' : 'var(--panel-border)'};color:${cb.testLuck ? 'var(--accent-ink)' : 'var(--muted)'}`,
+      resultStyle: `padding:16px 18px;border-radius:4px;margin-bottom:14px;font-family:'EB Garamond',serif;font-size:1.08rem;line-height:1.5;background:var(--panel-bg);border:1px solid ${resultDeath ? 'var(--danger)' : 'var(--accent)'};color:var(--panel-ink)`,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -193,6 +193,10 @@ drives the play loop without an LLM.
   (no invalid state ever stored) (epic SC-008).
 - **SC-004**: The plugability audit is green; no web module imports a concrete storage impl or engine
   internals; the `FakeNarrator` drives the full loop with no LLM call.
+- **SC-005**: The `PydanticNarrator` (PydanticAI Agent, `output_type=Scene`, model
+  `anthropic:claude-opus-4-8`) completes one full turn end-to-end — a real LLM call produces a
+  `Scene` that passes Pydantic v2 validation, with every number in the response originating from
+  an MCP tool result (no narrator-fabricated values). Verified manually against the running API.
 
 ## Assumptions
 

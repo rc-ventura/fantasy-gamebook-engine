@@ -3,7 +3,9 @@
  *
  * The choices list comes entirely from the API scene — nothing is invented.
  * Accepts both numbered choice selection and free-text player input (FR-004).
- * Disabled when: loading, action in progress, run ended, or in combat.
+ * Disabled when: loading, action in progress, or run ended.
+ * Combat is now resolved inside the narrator's tool-use loop (ADR-029) and
+ * delivered as narrated prose in the Scene — no separate combat controls.
  */
 
 import { useState } from 'react'
@@ -17,8 +19,6 @@ interface ChoicesPanelProps {
   actionPending?: boolean
   /** True when the campaign is ended — no further choices. */
   isEnded?: boolean
-  /** True when the player is in combat — choices are replaced by combat controls. */
-  inCombat?: boolean
   onChoose: (choiceId: string) => void | Promise<void>
   onFreeText: (text: string) => void | Promise<void>
 }
@@ -28,12 +28,11 @@ export default function ChoicesPanel({
   loading = false,
   actionPending = false,
   isEnded = false,
-  inCombat = false,
   onChoose,
   onFreeText,
 }: ChoicesPanelProps) {
   const [freeText, setFreeText] = useState('')
-  const disabled = loading || actionPending || isEnded || inCombat
+  const disabled = loading || actionPending || isEnded
 
   if (loading) {
     return <LoadingState message="Preparing choices…" size="sm" />
@@ -53,24 +52,6 @@ export default function ChoicesPanel({
         }}
       >
         Your adventure has concluded.
-      </div>
-    )
-  }
-
-  if (inCombat) {
-    return (
-      <div
-        style={{
-          padding: 'var(--space-lg)',
-          textAlign: 'center',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.75rem',
-          letterSpacing: '0.1em',
-          textTransform: 'uppercase',
-          color: 'var(--muted)',
-        }}
-      >
-        Combat in progress — see combat panel below
       </div>
     )
   }
@@ -100,6 +81,16 @@ export default function ChoicesPanel({
         borderRadius: 'var(--radius-md)',
       }}
     >
+      {/* Section label */}
+      {choices.length > 0 && (
+        <div style={{
+          fontFamily: 'var(--font-title)', fontWeight: 600, fontSize: '0.82rem',
+          letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)',
+        }}>
+          What do you do?
+        </div>
+      )}
+
       {/* Numbered choices */}
       {choices.length > 0 && (
         <ol
@@ -122,46 +113,47 @@ export default function ChoicesPanel({
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: 'var(--space-sm)',
+                  gap: '14px',
                   width: '100%',
-                  background: 'transparent',
+                  background: 'var(--panel-bg)',
                   border: '1px solid var(--panel-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-sm) var(--space-md)',
+                  borderRadius: '3px',
+                  padding: '15px 17px',
                   cursor: disabled ? 'not-allowed' : 'pointer',
                   opacity: disabled ? 0.5 : 1,
-                  transition: 'all var(--transition)',
+                  transition: 'border-color var(--transition), transform 120ms',
                   textAlign: 'left',
                 }}
                 onMouseOver={(e) => {
                   if (!disabled) {
                     e.currentTarget.style.borderColor = 'var(--accent)'
-                    e.currentTarget.style.background = 'rgba(217,122,60,0.08)'
+                    e.currentTarget.style.transform = 'translateX(3px)'
                   }
                 }}
                 onMouseOut={(e) => {
                   e.currentTarget.style.borderColor = 'var(--panel-border)'
-                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.transform = ''
                 }}
               >
+                {/* Circular number badge */}
                 <span
                   style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.75rem',
-                    color: 'var(--accent)',
-                    minWidth: '1.5rem',
-                    paddingTop: '0.15rem',
-                    flexShrink: 0,
+                    width: '27px', height: '27px', flexShrink: 0,
+                    display: 'grid', placeItems: 'center',
+                    border: '1px solid var(--panel-border)', borderRadius: '50%',
+                    fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--accent)',
                   }}
+                  aria-hidden="true"
                 >
-                  {i + 1}.
+                  {i + 1}
                 </span>
                 <span
                   style={{
                     fontFamily: 'var(--font-body)',
-                    fontSize: '1rem',
+                    fontSize: '1.1rem',
                     color: 'var(--panel-ink)',
-                    lineHeight: 1.5,
+                    lineHeight: 1.4,
+                    paddingTop: '2px',
                   }}
                 >
                   {choice.label}

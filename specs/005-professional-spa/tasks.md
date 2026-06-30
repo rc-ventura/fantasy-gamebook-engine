@@ -34,9 +34,9 @@ this feature.
 
 **Purpose**: Frontend scaffolding, test runners, and the typed API client.
 
-- [ ] T001 Scaffold the `frontend/` SPA project (React + Vite + TypeScript) under `frontend/` — `package.json`, `tsconfig`, Vite config, entry point
-- [ ] T002 [P] Set up vitest (unit/component runner) + Playwright (E2E) in `frontend/`
-- [ ] T003 Generate the typed API client from `003`'s frozen OpenAPI schema into `frontend/src/api/` (keeps the UI honest to the contract; regenerable when `003` updates)
+- [x] T001 Scaffold the `frontend/` SPA project (React + Vite + TypeScript) under `frontend/` — `package.json`, `tsconfig`, Vite config, entry point
+- [x] T002 [P] Set up vitest (unit/component runner) + Playwright (E2E) in `frontend/`
+- [x] T003 Generate the typed API client from `003`'s frozen OpenAPI schema into `frontend/src/api/` (keeps the UI honest to the contract; regenerable when `003` updates)
 
 ---
 
@@ -46,10 +46,10 @@ this feature.
 
 **⚠️ CRITICAL**: No user-story work begins until this phase is complete.
 
-- [ ] T004 Wire the typed API client in `frontend/src/api/` with a configurable base URL + auth-token injection seam
-- [ ] T005 [P] Add a mock mode for dev against `003`'s frozen OpenAPI contract (deterministic mock responses) so the UI is testable without the backend (Principle IV)
-- [ ] T006 App shell + routing (landing/play views, campaign list/open) in `frontend/src/pages/`
-- [ ] T007 Dev-auth-stub integration: sign-in UI against `003`'s dev auth stub, token storage/injection, designed so `004`'s real OIDC swaps in without touching the play loop
+- [x] T004 Wire the typed API client in `frontend/src/api/` with a configurable base URL + auth-token injection seam
+- [x] T005 [P] Add a mock mode for dev against `003`'s frozen OpenAPI contract (deterministic mock responses) so the UI is testable without the backend (Principle IV)
+- [x] T006 App shell + routing (landing/play views, campaign list/open) in `frontend/src/pages/`
+- [x] T007 Dev-auth-stub integration: sign-in UI against `003`'s dev auth stub, token storage/injection, designed so `004`'s real OIDC swaps in without touching the play loop
 
 **Checkpoint**: typed client + mock mode + app shell + dev auth exist; the UI is testable against the mock.
 
@@ -64,14 +64,14 @@ browser, with every number engine-authoritative.
 one combat → a clean end-state; confirm every number shown traces to an engine result, no
 UI-fabricated values.
 
-- [ ] T008 [P] [US1] Scene view: render narration + numbered choices + free-text input in `frontend/src/components/` (FR-004)
-- [ ] T009 [P] [US1] Character sheet panel rendering only real engine state in `frontend/src/components/` (FR-007/008)
-- [ ] T010 [P] [US1] Inventory/backpack panel rendering only real engine state in `frontend/src/components/` (FR-007/008)
-- [ ] T011 [P] [US1] Map panel rendering only real engine state (current location, visited) in `frontend/src/components/` (FR-007/008)
-- [ ] T012 [P] [US1] Combat panel: rounds, optional luck tests, final outcome — all engine-computed — in `frontend/src/components/` (FR-005)
-- [ ] T013 [US1] Play-loop wiring: create/resume campaign → character creation → take turn (choice/free text) → combat → end-state, calling the typed API client (FR-001/003/006)
-- [ ] T014 [US1] E2E (Playwright): opening → exploration → combat → end-state in the browser against the mock (then the live `003` API), in `frontend/tests/` (SC-004)
-- [ ] T015 [P] [US1] Audit test: every number shown in the UI traces to an engine result from the API — zero UI-fabricated values — in `frontend/tests/` (SC-003, FR-002/008)
+- [x] T008 [P] [US1] Scene view: render narration + numbered choices + free-text input in `frontend/src/components/` (FR-004)
+- [x] T009 [P] [US1] Character sheet panel rendering only real engine state in `frontend/src/components/` (FR-007/008)
+- [x] T010 [P] [US1] Inventory/backpack panel rendering only real engine state in `frontend/src/components/` (FR-007/008)
+- [x] T011 [P] [US1] Map panel rendering only real engine state (current location, visited) in `frontend/src/components/` (FR-007/008)
+- [x] T012 [P] [US1] Combat panel: rounds, optional luck tests, final outcome — all engine-computed — in `frontend/src/components/` (FR-005)
+- [x] T013 [US1] Play-loop wiring: create/resume campaign → character creation → take turn (choice/free text) → combat → end-state, calling the typed API client (FR-001/003/006)
+- [x] T014 [US1] E2E (Playwright): opening → exploration → combat → end-state in the browser against the mock (then the live `003` API), in `frontend/tests/` (SC-004)
+- [x] T015 [P] [US1] Audit test: every number shown in the UI traces to an engine result from the API — zero UI-fabricated values — in `frontend/tests/` (SC-003, FR-002/008)
 
 **Checkpoint**: US1 fully playable in the browser against the mock (then the live `003` API), numbers engine-authoritative.
 
@@ -85,9 +85,9 @@ session per campaign.
 **Independent Test**: Sign in, play several turns, sign out, sign in on another session/device,
 resume the exact recorded state; open a second tab and confirm it is read-only until takeover.
 
-- [ ] T016 [US2] Sign-up / sign-in UI flow against the OIDC provider in `frontend/src/` (gated on `004`'s real OIDC; dev auth stub until then) (FR-010/011)
-- [ ] T017 [US2] "My campaigns" view showing only the signed-in player's campaigns in `frontend/src/pages/` (FR-011)
-- [ ] T018 [US2] Single-active-session UX: acquire/refresh/takeover/release session lease; second tab read-only until takeover, in `frontend/src/components/` (FR-013)
+- [x] T016 [US2] Sign-up / sign-in UI flow against the OIDC provider in `frontend/src/` (gated on `004`'s real OIDC; dev auth stub until then) (FR-010/011)
+- [x] T017 [US2] "My campaigns" view showing only the signed-in player's campaigns in `frontend/src/pages/` (FR-011)
+- [x] T018 [US2] Single-active-session UX: acquire/refresh/takeover/release session lease; second tab read-only until takeover, in `frontend/src/components/` (FR-013)
 - [ ] T019 [P] [US2] E2E (Playwright): resume across devices — sign out on A, sign in on B, state intact — in `frontend/tests/` (FR-012, SC-002)
 - [ ] T020 [P] [US2] E2E (Playwright): single active session — second tab read-only until takeover — in `frontend/tests/` (FR-013)
 
@@ -103,10 +103,10 @@ engine-real.
 **Independent Test**: Exercise each panel and state; confirm clear loading/empty/error and no
 fabricated values.
 
-- [ ] T021 [P] [US3] Loading states for every async operation in `frontend/src/components/` (FR-009)
-- [ ] T022 [P] [US3] Empty states (no character yet, empty inventory, no map data) in `frontend/src/components/` (FR-009)
-- [ ] T023 [P] [US3] Error states for API errors (auth unavailable, run ended, not session holder) — safe, no corrupted game state — in `frontend/src/components/` (FR-009/015)
-- [ ] T024 [US3] Professional styling pass across all panels/views in `frontend/src/` (epic FR-020)
+- [x] T021 [P] [US3] Loading states for every async operation in `frontend/src/components/` (FR-009)
+- [x] T022 [P] [US3] Empty states (no character yet, empty inventory, no map data) in `frontend/src/components/` (FR-009)
+- [x] T023 [P] [US3] Error states for API errors (auth unavailable, run ended, not session holder) — safe, no corrupted game state — in `frontend/src/components/` (FR-009/015)
+- [x] T024 [US3] Professional styling pass across all panels/views in `frontend/src/` (epic FR-020)
 - [ ] T025 [US3] Accessibility pass (keyboard navigation, semantics, contrast) across the play loop in `frontend/src/`
 
 **Checkpoint**: US3 — a polished, professional, accessible UI.
@@ -115,7 +115,7 @@ fabricated values.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T026 [P] Finalize `frontend/` docs/README for running the SPA (dev against the mock, dev against live `003`, running vitest + Playwright)
+- [x] T026 [P] Finalize `frontend/` docs/README for running the SPA (dev against the mock, dev against live `003`, running vitest + Playwright)
 - [ ] T027 Run vitest + Playwright green against the mock, then against the live `003` API; run the SDD review pipeline (`/sdd-qa` + `/sdd-security` → `/sdd-tech`) before merge (constitution Development Workflow)
 
 ---

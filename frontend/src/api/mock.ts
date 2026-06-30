@@ -17,8 +17,6 @@ import type {
   CampaignState,
   CampaignSummary,
   CharacterSheet,
-  CombatRoundResponse,
-  CombatState,
   Scene,
   SessionLease,
   TurnResponse,
@@ -104,7 +102,6 @@ The road forks ahead: the left path winds through the Whispering Wood, faster bu
     { id: '2', label: 'Take the right path along the exposed ridgeline' },
     { id: '3', label: 'Speak to the wounded traveller' },
   ],
-  effects: [],
 }
 
 const EXPLORING_SCENE: Scene = {
@@ -118,9 +115,6 @@ The morning is advancing. You must choose your route before midday, when the mou
     { id: '2', label: 'Thank him and take the ridgeline path' },
     { id: '3', label: 'Head into the Whispering Wood regardless of his warning' },
   ],
-  effects: [
-    { type: 'register_event', params: { payload: 'Met wounded merchant Corvin at the crossroads' } },
-  ],
 }
 
 const COMBAT_SCENE: Scene = {
@@ -130,15 +124,6 @@ A Dire Wolf, larger than any hound you have seen, steps into the path. Its eyes 
 
 There is no room to run on this narrow ledge. You must fight.`,
   choices: [],
-  effects: [
-    {
-      type: 'start_combat',
-      params: {
-        enemies: [{ name: 'Dire Wolf', skill: 8, stamina: 10 }],
-        flee_allowed: false,
-      },
-    },
-  ],
 }
 
 const VICTORY_SCENE: Scene = {
@@ -149,10 +134,6 @@ You take a moment to tend your wounds and catch your breath. The battle is won, 
     { id: '1', label: 'Enter the tunnel and press forward' },
     { id: '2', label: 'Rest here and tend your wounds before continuing' },
   ],
-  effects: [
-    { type: 'end_combat', params: {} },
-    { type: 'register_event', params: { payload: 'Defeated the Dire Wolf guarding the mountain tunnel entrance' } },
-  ],
 }
 
 const ENDED_SCENE: Scene = {
@@ -162,17 +143,6 @@ Perhaps another adventurer will take up the quest. Perhaps the sorcerer will nev
 
 *— Your adventure ends here —*`,
   choices: [],
-  effects: [],
-}
-
-const MOCK_COMBAT: CombatState = {
-  participants: [
-    { name: 'Aldric the Bold', skill: 10, stamina: 20 },
-    { name: 'Dire Wolf', skill: 8, stamina: 10 },
-  ],
-  rounds: [],
-  flee_allowed: false,
-  active: true,
 }
 
 // ── Campaign state builders ───────────────────────────────────────────────────
@@ -193,7 +163,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: makeMockCharacter(),
         world: MOCK_WORLD_OPENING,
         current_scene: OPENING_SCENE,
-        combat: null,
       }
 
     case 'exploring':
@@ -203,7 +172,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: { ...makeMockCharacter(), luck: { initial: 9, current: 8 } },
         world: MOCK_WORLD_EXPLORING,
         current_scene: EXPLORING_SCENE,
-        combat: null,
       }
 
     case 'in_combat': {
@@ -218,7 +186,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: char,
         world: MOCK_WORLD_COMBAT,
         current_scene: COMBAT_SCENE,
-        combat: MOCK_COMBAT,
       }
     }
 
@@ -229,7 +196,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         character: { ...makeMockCharacter(false), stamina: { initial: 20, current: 0 } },
         world: MOCK_WORLD_COMBAT,
         current_scene: ENDED_SCENE,
-        combat: null,
       }
   }
 }
@@ -276,10 +242,22 @@ export const mockApi = {
     return buildCampaignState(stage)
   },
 
-  async createCharacter(_id: string): Promise<CharacterSheet> {
+  async createCharacter(_id: string, name?: string): Promise<CharacterSheet> {
     await delay(600)
     setMockStage('opening')
-    return makeMockCharacter()
+    // Simulate engine dice rolls: SKILL 1d6+6, STAMINA 2d6+12, LUCK 1d6+6
+    const d6 = () => Math.floor(Math.random() * 6) + 1
+    const skill = d6() + 6
+    const stamina = d6() + d6() + 12
+    const luck = d6() + 6
+    const char = makeMockCharacter()
+    return {
+      ...char,
+      name: name?.trim() || char.name,
+      skill: { initial: skill, current: skill },
+      stamina: { initial: stamina, current: stamina },
+      luck: { initial: luck, current: luck },
+    }
   },
 
   async getScene(_id: string): Promise<Scene> {
@@ -327,42 +305,7 @@ export const mockApi = {
     const campaign = buildCampaignState(nextStage)
     campaign.current_scene = scene
 
-    return { scene, campaign }
-  },
-
-  async combatRound(_id: string, testLuck: boolean): Promise<CombatRoundResponse> {
-    await delay(700)
-    const round = {
-      hero_attack: 15, // engine-produced: skill(10) + 2d6(5)
-      enemy_attack: 11, // engine-produced: skill(8) + 2d6(3)
-      hero_damage: 2,
-      enemy_damage: 0,
-      luck_used: testLuck,
-      luck_result: testLuck ? ('lucky' as const) : undefined,
-    }
-
-    const updatedCombat: CombatState = {
-      ...MOCK_COMBAT,
-      rounds: [...MOCK_COMBAT.rounds, round],
-      participants: [
-        { name: 'Aldric the Bold', skill: 10, stamina: 20 },
-        { name: 'Dire Wolf', skill: 8, stamina: 8 }, // took 2 damage
-      ],
-    }
-
-    setMockStage('exploring') // combat resolved
-    const campaign = buildCampaignState('exploring')
-    campaign.current_scene = VICTORY_SCENE
-    campaign.combat = { ...updatedCombat, outcome: 'victory', active: false }
-
-    return { round, combat: updatedCombat, campaign }
-  },
-
-  async fleeCombat(_id: string): Promise<{ campaign: CampaignState }> {
-    await delay(500)
-    setMockStage('exploring')
-    const campaign = buildCampaignState('exploring')
-    return { campaign }
+    return { scene, status: campaign.status, character: campaign.character, world: campaign.world }
   },
 
   async acquireSession(_id: string): Promise<SessionLease> {

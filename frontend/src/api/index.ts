@@ -28,9 +28,6 @@ export {
   // Play loop
   takeTurn,
   getCurrentScene,
-  // Combat
-  combatRound,
-  fleeCombat,
   // Save
   saveCampaign,
 } from './client'

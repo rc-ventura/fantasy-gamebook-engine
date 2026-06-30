@@ -24,7 +24,6 @@ class CampaignState:
     campaign_id: str
     account_id: str
     status: Literal["active", "ended"] = "active"
-    current_combat_id: str | None = None    # cleared after end_combat
     current_scene: dict[str, Any] | None = None  # latest narrator Scene (for GET /scene)
 
 
@@ -56,10 +55,6 @@ class CampaignRegistry:
     # ------------------------------------------------------------------
     # State mutations
     # ------------------------------------------------------------------
-
-    def set_combat(self, campaign_id: str, combat_id: str | None) -> None:
-        if s := self._campaigns.get(campaign_id):
-            s.current_combat_id = combat_id
 
     def set_ended(self, campaign_id: str) -> None:
         if s := self._campaigns.get(campaign_id):

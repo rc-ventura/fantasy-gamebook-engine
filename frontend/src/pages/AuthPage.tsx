@@ -67,19 +67,39 @@ export default function AuthPage() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 'var(--space-xl)',
+        position: 'relative',
       }}
     >
+      {/* Back link */}
+      <button
+        onClick={() => { void navigate('/') }}
+        style={{
+          position: 'absolute', top: '26px', left: '34px',
+          fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.1em', textTransform: 'uppercase',
+          background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer',
+        }}
+      >
+        ← Back to the Grimoire
+      </button>
+
       {/* Glyph */}
       <div
         style={{
           fontFamily: 'var(--font-title)',
-          fontSize: '3rem',
+          fontSize: '1.3rem',
           color: 'var(--accent)',
-          marginBottom: 'var(--space-lg)',
+          marginBottom: 'var(--space-sm)',
+          textAlign: 'center',
         }}
         aria-hidden="true"
       >
         ◆
+      </div>
+      <div style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.7rem', color: 'var(--ink)', marginBottom: '4px', textAlign: 'center' }}>
+        {tab === 'signin' ? 'Return to the Grimoire' : 'Join the Grimoire'}
+      </div>
+      <div style={{ fontFamily: 'var(--font-body)', fontStyle: 'italic', fontSize: '1.05rem', color: 'var(--muted)', marginBottom: 'var(--space-lg)', textAlign: 'center' }}>
+        {tab === 'signin' ? 'Log in to resume your campaigns.' : 'Create your account to begin.'}
       </div>
 
       {/* Card */}
@@ -87,27 +107,16 @@ export default function AuthPage() {
         style={{
           background: 'var(--panel-bg)',
           border: '1px solid var(--panel-border)',
-          borderRadius: 'var(--radius-lg)',
-          padding: 'var(--space-2xl)',
+          borderRadius: '5px',
+          padding: '32px',
           width: '100%',
-          maxWidth: '400px',
+          maxWidth: '430px',
           display: 'flex',
           flexDirection: 'column',
           gap: 'var(--space-lg)',
+          boxShadow: '0 30px 70px rgba(0,0,0,.4)',
         }}
       >
-        <h1
-          style={{
-            fontFamily: 'var(--font-title)',
-            color: 'var(--accent)',
-            fontSize: '1.25rem',
-            letterSpacing: '0.08em',
-            textAlign: 'center',
-            margin: 0,
-          }}
-        >
-          The Grimoire
-        </h1>
 
         {/* Tabs */}
         <div
@@ -268,7 +277,7 @@ export default function AuthPage() {
             margin: 0,
           }}
         >
-          {tab === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+          {tab === 'signin' ? "New to the Grey Mountain? " : 'Already have an account? '}
           <button
             onClick={() => { setTab(tab === 'signin' ? 'register' : 'signin'); setError(null) }}
             style={{
@@ -279,12 +288,17 @@ export default function AuthPage() {
               fontSize: '0.85rem',
               cursor: 'pointer',
               padding: 0,
+              textDecoration: 'underline',
             }}
           >
-            {tab === 'signin' ? 'Register' : 'Sign in'}
+            {tab === 'signin' ? 'Create one' : 'Log in'}
           </button>
         </p>
       </div>
+
+      <p style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', letterSpacing: '0.06em', color: 'var(--faint)', marginTop: '20px' }}>
+        Your character sheets &amp; campaigns persist to your account.
+      </p>
     </div>
   )
 }

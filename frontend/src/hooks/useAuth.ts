@@ -13,37 +13,41 @@ import { useState, useCallback, useEffect } from 'react'
 import { setAuthToken, clearAuthToken, isAuthenticated } from '../api'
 
 interface AuthState {
-  /** True when the user has a valid auth token. */
   authenticated: boolean
-  /** Sign in with a dev token (dev auth stub — replaced by OIDC in slice 004). */
   signIn: (token: string) => void
-  /** Sign out and clear the stored token. */
   signOut: () => void
 }
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
+// Module-level state so signOut/signIn propagate across all hook instances.
+// In mock mode, starts as true; flips to false when the user explicitly signs out.
+let _auth: boolean = USE_MOCK ? true : isAuthenticated()
+const _listeners = new Set<(v: boolean) => void>()
+
+function broadcast(value: boolean) {
+  _auth = value
+  _listeners.forEach((fn) => fn(value))
+}
+
 export function useAuth(): AuthState {
-  // In mock mode, always authenticated; in real mode, check for a stored token.
-  const [authenticated, setAuthenticated] = useState<boolean>(
-    USE_MOCK ? true : isAuthenticated()
-  )
+  const [authenticated, setAuthenticated] = useState<boolean>(_auth)
 
   useEffect(() => {
-    // Sync auth state with sessionStorage on mount (handles tab restoration).
-    if (!USE_MOCK) {
-      setAuthenticated(isAuthenticated())
-    }
+    _listeners.add(setAuthenticated)
+    // Non-mock: sync with sessionStorage in case another tab signed out.
+    if (!USE_MOCK) setAuthenticated(isAuthenticated())
+    return () => { _listeners.delete(setAuthenticated) }
   }, [])
 
   const signIn = useCallback((token: string) => {
     setAuthToken(token)
-    setAuthenticated(true)
+    broadcast(true)
   }, [])
 
   const signOut = useCallback(() => {
     clearAuthToken()
-    setAuthenticated(false)
+    broadcast(false)
   }, [])
 
   return { authenticated, signIn, signOut }

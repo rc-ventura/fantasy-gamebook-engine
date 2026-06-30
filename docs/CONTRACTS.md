@@ -433,12 +433,6 @@ account (FR-009).
 | `POST /campaigns/{id}/turn` | Take a turn (returns a validated `Scene`; all effects via MCP) |
 | `GET /campaigns/{id}/scene` | Re-fetch the current scene (resume/refresh) |
 
-### Combat
-| Method & path | Purpose |
-|---|---|
-| `POST /campaigns/{id}/combat/round` | Resolve a combat round (optional `test_luck`) |
-| `POST /campaigns/{id}/combat/flee` | Attempt to flee |
-
 ### Save/Resume
 | Method & path | Purpose |
 |---|---|
@@ -466,48 +460,62 @@ account (FR-009).
 
 ---
 
-## 10. Phase-2 `Scene` contract (narrator structured output, 2026-06-26)
+## 10. Phase-2 `Scene` contract (narrator structured output, updated spec 007, 2026-06-30)
 
 > Folded from `specs/001-web-platform-migration/contracts/scene.md` per Principle III.
+> **Updated by spec 007-narrator-tool-use-refactor (ADR-029):** `effects[]` removed;
+> narrator calls MCP tools directly during `agent.run()`.
 
 `Scene` is the validated unit produced by the PydanticAI narrator for one turn (ADR-011,
-swap boundary #3).  **Safety invariant**: a `Scene` carries no narrator-fabricated numbers;
-`effects[]` reference engine operations, and every numeric outcome comes from an MCP tool result
-(Principle I).  Invalid `Scene` objects are rejected with `422 invalid_scene` and never persisted.
+swap boundary #3).  **Safety invariant**: the narrator calls MCP tools during generation,
+sees real results, and narrates only those real results (Principle I).  The `Scene` carries
+only prose and player choices — no deferred engine operations.
+Invalid `Scene` objects are rejected with `422 invalid_scene` and never persisted.
 
 ```python
 class Scene(BaseModel):
     narrative: str                   # 2–4 paragraphs, 2nd person, adventure-module tone
-    choices:   list[Choice]          # numbered options offered to the player
-    effects:   list[Effect]          # engine operations to apply this turn (no literal stat values)
+    choices:   list[Choice]          # numbered options offered to the player (empty = terminal)
+    terminal:  bool = False          # True = death/victory; empty choices expected
 
 class Choice(BaseModel):
     id:    str    # stable id ("1", "2", …)
     label: str    # what the player sees
-
-# Effect — discriminated union; each type maps to one MCP tool (§6)
-class Effect(BaseModel):
-    type: Literal[
-        "roll_dice", "test_luck", "update_character", "register_event",
-        "update_world", "start_combat", "resolve_combat_round", "flee_combat", "end_combat"
-    ]
-    params: dict[str, Any] = {}     # operation parameters — NO resulting values
 ```
 
 **Validation rules (Pydantic v2):**
-- `narrative` non-empty; `choices` may be empty only on terminal scenes (death/victory).
-- `effects[].type` must be one of the known engine operations (closed enum).
-- No `Effect` may carry a literal resulting stat/dice value — only operation parameters.
-- A `PydanticAI output_validator` raises `ModelRetry` when a `Scene` contains a literal number.
+- `narrative` non-empty (field validator).
+- `terminal=False` and `choices=[]` → `output_validator` raises `ModelRetry` (non-terminal scene
+  must include choices — the non-tautological fix from spec 007).
+- `terminal=True` → `choices` expected empty (death/victory end-states).
+- No `effects` field — removed by spec 007 (ADR-029).
 
-**Lifecycle:** `POST /campaigns/{id}/turn` → narrator emits `Scene` → validator rejects literals →
-`effects[]` executed through MCP → validated `Scene` (with engine-resolved outcomes merged)
-returned to UI.
+**Lifecycle (ADR-029):**
+`POST /campaigns/{id}/turn` → narrator calls MCP tools during `agent.run()` → narrator emits
+`Scene` (structural validator) → API re-reads engine state (post-turn reality) →
+checks terminal state → stores scene → returns `TurnResponse`.
 
-**Terminal scenes:** death/victory → `choices` empty, campaign → `ended`, `ArchiveRecord` written.
+**Terminal scenes:** death/victory → `terminal=True`, `choices=[]`, campaign → `ended`, `ArchiveRecord` written.
 Acting on an already-`ended` campaign → `409 run_ended`.
 
 **File:** `src/gamebook_web/harness/scene.py` (Pydantic v2 `BaseModel`).
+
+### 9b. `TurnResponse` shape (updated spec 007)
+
+```json
+{
+  "scene": {
+    "narrative": "...",
+    "choices": [{"id": "1", "label": "..."}, ...]
+  },
+  "character": { ... },
+  "world": { ... }
+}
+```
+
+`effects_applied` field removed by spec 007 (ADR-029). All state changes happen inside
+`narrator.narrate()` during `agent.run()`. The API re-reads state after narration and returns
+the engine-authoritative values in `character` and `world`.
 
 ---
 

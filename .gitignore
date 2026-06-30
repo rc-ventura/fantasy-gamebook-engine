@@ -14,6 +14,10 @@ htmlcov/
 .claude/settings.local.json
 .env
 
-# uv 
+# uv
 uv.lock
 .python-version
+
+# Playwright
+.playwright-mcp/
+*.png
