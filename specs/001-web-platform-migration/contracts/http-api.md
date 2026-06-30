@@ -1,7 +1,11 @@
 # Contract Draft — HTTP API
 
-Feature: Web Platform Migration · Date: 2026-06-26 · Status: **draft** (to be folded into
-`docs/CONTRACTS.md` per Principle III before/with implementation).
+Feature: Web Platform Migration · Date: 2026-06-26 · Last updated: 2026-06-30 (spec 007, ADR-029)
+Status: **authoritative** (folded into `docs/CONTRACTS.md` §9).
+
+> **Spec 007 (ADR-029) breaking change:** Combat routes (`POST /campaigns/{id}/combat/round` and
+> `POST /campaigns/{id}/combat/flee`) removed. Combat is now driven entirely by the narrator
+> calling MCP tools directly during `agent.run()`. These routes no longer exist in the API.
 
 The HTTP API exposes the engine's full play loop. **The UI and external clients use this same
 surface — no privileged hidden path** (FR-017). All routes require a valid bearer token from the
@@ -50,15 +54,6 @@ consistent JSON shape. Concrete request/response schemas reuse the engine domain
 |---|---|---|
 | `POST /campaigns/{id}/turn` | Take a turn (choice index or free text) | Runs the narrator; returns a validated `Scene`; all rolls/effects via MCP (FR-001/002/004) |
 | `GET /campaigns/{id}/scene` | Re-fetch the current scene | For resume/refresh |
-
-## Combat
-| Method & path | Purpose | Notes |
-|---|---|---|
-| `POST /campaigns/{id}/combat/round` | Resolve a combat round | Optional `test_luck` flag; engine computes outcome (FR-005) |
-| `POST /campaigns/{id}/combat/flee` | Attempt to flee | Only if `flee_allowed`; costs engine-computed damage |
-
-> Combat is normally driven *inside* a turn by the narrator's combat subagent; these routes exist
-> for explicit/stepwise control and for external API clients.
 
 ## Save / resume
 | Method & path | Purpose | Notes |

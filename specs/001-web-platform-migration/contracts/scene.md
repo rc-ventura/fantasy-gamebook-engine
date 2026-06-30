@@ -1,57 +1,47 @@
-# Contract Draft — `Scene` (narrator structured output)
+# Contract — `Scene` (narrator structured output)
 
-Feature: Web Platform Migration · Date: 2026-06-26 · Status: **draft** (to be folded into
-`docs/CONTRACTS.md` per Principle III before/with implementation).
+Feature: Web Platform Migration · Date: 2026-06-26 · Last updated: 2026-06-30 (spec 007, ADR-029)
+Status: **authoritative** (folded into `docs/CONTRACTS.md` §10).
 
-`Scene` is the structured unit the new harness produces for one turn. It is the swap-boundary-#3
-contract: the narrator emits a `Scene`, the frontend renders it, and the engine applies its
-`effects[]`. It is **schema-validated with Pydantic v2 before it can reach storage or the player**
-(FR-014). The defining safety property: a `Scene` carries **no narrator-fabricated numbers** — its
-`effects[]` reference engine operations, and every numeric outcome comes from an MCP tool result
-(Principle I).
+> **Spec 007 (ADR-029) breaking change:** `effects[]` field eliminated. The narrator calls MCP
+> tools directly during `agent.run()` and narrates only the real results it sees. `Scene` carries
+> prose and choices only — no deferred engine operations.
+
+`Scene` is the validated unit produced by the PydanticAI narrator for one turn (ADR-011,
+swap boundary #3). The defining safety property: the narrator calls MCP tools and sees real
+results; every number in `narrative` comes from an actual tool call (Principle I).
+Invalid `Scene` objects are rejected with `422 invalid_scene` and never persisted.
 
 ## Shape
 
-```text
-Scene
-├── narrative : str            # 2–4 paragraphs, 2nd person, adventure-module tone
-├── choices   : Choice[]       # numbered options offered to the player (free text also accepted)
-└── effects   : Effect[]       # engine operations to apply this turn (NOT literal stat values)
+```python
+class Scene(BaseModel):
+    narrative: str              # 2–4 paragraphs, 2nd person, adventure-module tone
+    choices:   list[Choice]     # numbered options offered to the player (empty = terminal)
+    terminal:  bool = False     # True = death/victory; empty choices expected on terminal scenes
 
-Choice
-├── id        : str            # stable id for the UI / API ("1", "2", ...)
-└── label     : str            # what the player sees
-
-Effect  (discriminated union by `type` — each maps to an MCP tool, never a narrated number)
-├── type: "roll_dice"          → params: { notation }            # engine returns the roll
-├── type: "test_luck"          → params: {}                      # engine resolves + decrements luck
-├── type: "update_character"   → params: { field, delta|set }    # engine enforces invariants
-├── type: "register_event"     → params: { payload }             # append hard fact
-├── type: "update_world"       → params: { location?, flags? }   # world write via MCP
-├── type: "start_combat"       → params: { enemies[], flee_allowed }
-├── type: "resolve_combat_round"→ params: { test_luck: bool }
-├── type: "flee_combat"        → params: {}
-└── type: "end_combat"         → params: {}
+class Choice(BaseModel):
+    id:    str    # stable id ("1", "2", …)
+    label: str    # what the player sees
 ```
 
 ## Validation rules (Pydantic v2)
-- `narrative` non-empty; `choices` may be empty only on terminal scenes (death/victory).
-- `effects[].type` must be one of the known engine operations (closed enum / discriminated union).
-- No `Effect` may carry a literal resulting stat/dice value — only operation parameters. The engine
-  computes outcomes; the narrator never asserts them. A `Scene` violating this is rejected (`422
-  invalid_scene`) and never persisted.
-- The set of `Effect.type` values **must stay in lockstep with the MCP tool contract**
-  (`docs/CONTRACTS.md` §6). Adding an effect type requires a corresponding MCP tool and a
-  CONTRACTS.md update (Principle III).
+- `narrative` non-empty (field validator + `output_validator` raises `ModelRetry` if empty).
+- `terminal=False` and `choices=[]` → `ModelRetry` (non-terminal scene must have choices).
+- `terminal=True` → `choices` expected to be empty (death/victory end-states).
+- No `effects` field — removed by spec 007 (ADR-029).
 
-## Lifecycle
-1. Player submits a choice/free text → `POST /campaigns/{id}/turn`.
-2. Narrator loop (claude-opus-4-8) reads engine state via MCP, decides the turn, and emits a `Scene`.
-3. `Scene` is validated; its `effects[]` are executed through MCP (producing real numbers/state).
-4. The validated `Scene` (with engine-resolved outcomes merged in for display) is returned to the UI
-   and rendered; durable state lives in the engine, not in the `Scene`.
+## Lifecycle (ADR-029)
+1. Player submits choice/free text → `POST /campaigns/{id}/turn`.
+2. Narrator calls MCP tools during `agent.run()` — reads state, resolves dice/combat/luck, updates state.
+3. Narrator emits `Scene` with real numbers already in `narrative`.
+4. API validates `Scene` (structural) → re-reads engine state (post-turn) → checks terminal state → stores scene.
+5. Returns `TurnResponse` with scene + authoritative character + world from engine.
 
 ## Terminal scenes
-- Death → `choices` empty, narrative is the death ending; campaign → `ended`, ArchiveRecord written.
-- Victory (module flag, e.g. `malachar_defeated`) → epilogue narrative; campaign → `ended`.
+- Death → `terminal=True`, `choices=[]`, campaign → `ended`, `ArchiveRecord` written.
+- Victory (module flag, e.g. `malachar_defeated`) → `terminal=True`, epilogue narrative; campaign → `ended`.
 - A turn on an already-`ended` campaign → `409 run_ended` (no new `Scene`).
+
+## Authoritative source
+`docs/CONTRACTS.md` §10 (updated 2026-06-30). `src/gamebook_web/harness/scene.py`.

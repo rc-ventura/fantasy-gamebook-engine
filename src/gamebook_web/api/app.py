@@ -139,10 +139,8 @@ if _cors_origins:
 # ---------------------------------------------------------------------------
 
 from gamebook_web.api.play import router as play_router        # noqa: E402
-from gamebook_web.api.combat import router as combat_router    # noqa: E402
 
 app.include_router(play_router)
-app.include_router(combat_router)
 
 
 # ---------------------------------------------------------------------------

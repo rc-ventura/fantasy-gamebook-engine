@@ -1,4 +1,4 @@
-"""NarratorBackend port and FakeNarrator (ADR-011, Principle IV).
+"""NarratorBackend port and FakeNarrator (ADR-011, ADR-029, Principle IV).
 
 ``NarratorBackend`` is the swap boundary #3 interface: the FastAPI routes
 talk to a ``NarratorBackend``; the concrete implementations (``FakeNarrator``
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from gamebook_web.harness.scene import Choice, Effect, Scene
+from gamebook_web.harness.scene import Choice, Scene
 
 # ---------------------------------------------------------------------------
 # Context passed to the narrator for a turn
@@ -24,9 +24,10 @@ from gamebook_web.harness.scene import Choice, Effect, Scene
 class NarratorContext:
     """Engine state snapshot read before narrating a turn.
 
-    The narrator reads these fields to produce the next ``Scene``.  State
-    changes happen ONLY via ``Scene.effects[]`` executed through MCP — never
-    by the narrator directly (Principle I).
+    The narrator reads these fields and then calls MCP tools directly during
+    generation. State is updated during narrator.narrate() — not after.
+    All numeric values in the returned Scene come from real engine tool calls
+    (Principle I).
     """
 
     character: dict[str, Any] | None = None       # CharacterSheet or None (not yet created)
@@ -69,16 +70,6 @@ _DEFAULT_OPENING_SCENE = Scene(
         Choice(id="2", label="Study the glowing runes"),
         Choice(id="3", label="Make camp and rest first"),
     ],
-    effects=[
-        Effect(
-            type="register_event",
-            params={"type": "adventure_start", "data": {"location": "mountain_base"}},
-        ),
-        Effect(
-            type="update_world",
-            params={"current_location": "mountain_base"},
-        ),
-    ],
 )
 
 _DEFAULT_FOLLOWUP_SCENE = Scene(
@@ -91,12 +82,6 @@ _DEFAULT_FOLLOWUP_SCENE = Scene(
     choices=[
         Choice(id="1", label="Enter the cave"),
         Choice(id="2", label="Continue along the ridge"),
-    ],
-    effects=[
-        Effect(
-            type="register_event",
-            params={"type": "exploration", "data": {"location": "mountain_path"}},
-        ),
     ],
 )
 

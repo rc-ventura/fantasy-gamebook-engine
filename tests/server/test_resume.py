@@ -6,7 +6,9 @@ Confirms that:
 3. ``GET /campaigns/{id}`` never re-rolls, re-starts, or contradicts facts.
 4. The current scene (last narrator output) is re-fetchable via ``GET /scene``.
 
-Tests use FakeNarrator + in-process engine (no LLM, no subprocess).
+After the narrator tool-use refactor (spec 007, ADR-029), the narrator calls
+MCP tools directly during generation. FakeNarrator tests verify state-read
+paths; engine mutations are injected via ``engine_storage`` where needed.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from gamebook_web.harness.base import FakeNarrator
-from gamebook_web.harness.scene import Choice, Effect, Scene
+from gamebook_web.harness.scene import Choice, Scene
 
 _HEADERS = {"Authorization": "Bearer dev-token"}
 
@@ -69,54 +71,46 @@ class TestResumeLivingCampaign:
         assert state2["character"] == state1["character"]
         assert state2["character"] == original  # exact same engine record
 
-    def test_events_accumulate_across_turns(self, api_client, api_client_factory):
-        """Events registered in effects are visible on subsequent reads (FR-003)."""
-        from gamebook_web.api.app import app
+    def test_events_injected_via_storage_are_visible(self, api_client, engine_storage):
+        """Events written directly to engine_storage appear in GET /campaigns/{id}.
 
-        scenes_queue = [
-            Scene(
-                narrative="Turn 1: You enter the foothills.",
-                choices=[Choice(id="1", label="Continue")],
-                effects=[
-                    Effect(
-                        type="register_event",
-                        params={"type": "enter_zone", "data": {"zone": "foothills"}},
-                    )
-                ],
-            ),
-            Scene(
-                narrative="Turn 2: You find an old shrine.",
-                choices=[Choice(id="1", label="Investigate")],
-                effects=[
-                    Effect(
-                        type="register_event",
-                        params={"type": "discover", "data": {"object": "shrine"}},
-                    )
-                ],
-            ),
-        ]
-        app.state.narrator = FakeNarrator(scenes=list(scenes_queue))
-
+        This tests the state-read path (FR-003). In live play, the narrator
+        calls register_event during narrate(); here we inject events directly
+        to keep the test deterministic and LLM-free.
+        """
         cid = _create_campaign(api_client)
         _create_character(api_client, cid)
 
-        _take_turn(api_client, cid, choice="1")   # registers enter_zone
-        _take_turn(api_client, cid, choice="1")   # registers discover
+        # Inject two events directly via engine_storage (simulates what the
+        # narrator's register_event tool calls would produce)
+        from datetime import datetime, timezone
+
+        from gamebook.domain.models import Event
+        engine_storage.append_event(Event(
+            turn=1, type="enter_zone", data={"zone": "foothills"},
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+        ))
+        engine_storage.append_event(Event(
+            turn=2, type="discover", data={"object": "shrine"},
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+        ))
 
         state = api_client.get(f"/campaigns/{cid}", headers=_HEADERS).json()
         types = [e["type"] for e in state["events"]]
-        assert "enter_zone" in types, "Event from turn 1 must persist"
-        assert "discover" in types, "Event from turn 2 must persist"
+        assert "enter_zone" in types, "Injected enter_zone event must be visible"
+        assert "discover" in types, "Injected discover event must be visible"
 
-    def test_stats_do_not_change_without_engine_mutation(self, api_client):
-        """Character stats are unchanged if no update_character effect is applied."""
+    def test_stats_do_not_change_without_engine_tool_calls(self, api_client):
+        """Character stats are unchanged if the narrator makes no MCP tool calls.
+
+        FakeNarrator returns plain Scenes without calling any tools, so stats
+        must remain identical to their post-creation values.
+        """
         from gamebook_web.api.app import app
 
-        # Scene with no character-mutation effects
         safe_scene = Scene(
             narrative="Nothing happens. You observe the landscape.",
             choices=[Choice(id="1", label="Move on")],
-            effects=[],
         )
         app.state.narrator = FakeNarrator(scenes=[safe_scene] * 3)
 
@@ -128,10 +122,9 @@ class TestResumeLivingCampaign:
 
         state = api_client.get(f"/campaigns/{cid}", headers=_HEADERS).json()
         final_char = state["character"]
-        # Stats unchanged by turns with no effects
         for attr in ("skill", "stamina", "luck"):
             assert final_char[attr]["current"] == original[attr]["current"], (
-                f"{attr}.current changed without an engine mutation effect"
+                f"{attr}.current changed without an engine tool call"
             )
 
     def test_current_scene_refetchable(self, api_client):
@@ -150,25 +143,28 @@ class TestResumeLivingCampaign:
         assert stored_scene["narrative"] == scene_from_turn["narrative"]
         assert stored_scene["choices"] == scene_from_turn["choices"]
 
-    def test_world_location_persists_after_update(self, api_client):
-        """World updates from effects are reflected in subsequent reads."""
-        from gamebook_web.api.app import app
+    def test_world_state_injected_via_storage_is_visible(self, api_client, engine_storage):
+        """World state written to engine_storage appears in GET /campaigns/{id}.
 
-        location_scene = Scene(
-            narrative="You arrive at the Cave of Echoes.",
-            choices=[Choice(id="1", label="Enter")],
-            effects=[
-                Effect(
-                    type="update_world",
-                    params={"current_location": "cave_of_echoes"},
-                )
-            ],
-        )
-        app.state.narrator = FakeNarrator(scenes=[location_scene])
+        In live play, the narrator calls update_world during narrate(); here
+        we inject world state directly to keep the test deterministic.
+        """
+        from gamebook.domain.models import World
 
         cid = _create_campaign(api_client)
         _create_character(api_client, cid)
-        _take_turn(api_client, cid)
+
+        # Directly set the world location (simulates what the narrator's
+        # update_world tool call would produce)
+        world = engine_storage.load_world()
+        updated_world = World(
+            current_location="cave_of_echoes",
+            flags=world.flags,
+            visited_locations=world.visited_locations,
+            known_npcs=world.known_npcs,
+            turn=world.turn,
+        )
+        engine_storage.save_world(updated_world)
 
         state = api_client.get(f"/campaigns/{cid}", headers=_HEADERS).json()
         assert state["world"]["current_location"] == "cave_of_echoes"

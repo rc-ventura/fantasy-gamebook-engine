@@ -14,7 +14,6 @@ import ChoicesPanel from '../components/ChoicesPanel'
 import CharacterSheetPanel from '../components/CharacterSheet'
 import InventoryPanel from '../components/Inventory'
 import MapPanelComp from '../components/MapPanel'
-import CombatPanel from '../components/CombatPanel'
 import SessionConflict from '../components/SessionConflict'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
@@ -32,8 +31,6 @@ export default function PlayPage() {
     sessionConflict,
     onChoose,
     onFreeText,
-    onCombatRound,
-    onFlee,
     onTakeover,
     onReload,
     onSave,
@@ -84,10 +81,8 @@ export default function PlayPage() {
   const scene = campaign?.current_scene
   const character = campaign?.character
   const world = campaign?.world
-  const combat = campaign?.combat
   const isEnded = campaign?.status === 'ended'
-  const inCombat = combat?.active === true
-  const isTerminal = isEnded || (!inCombat && scene?.choices.length === 0 && !!scene?.narrative)
+  const isTerminal = isEnded || (scene?.choices.length === 0 && !!scene?.narrative)
   const actionPending = actionState === 'pending'
 
   // No character yet — offer character creation.
@@ -319,14 +314,9 @@ export default function PlayPage() {
                     </div>
                   )}
 
-                  {inCombat ? (
-                    <CombatPanel combat={combat ?? null} character={character} loading={isDataLoading} actionPending={actionPending}
-                      onCombatRound={(testLuck) => { void onCombatRound(testLuck) }} onFlee={() => { void onFlee() }} />
-                  ) : (
-                    <ChoicesPanel choices={scene?.choices ?? []} loading={isDataLoading} actionPending={actionPending}
-                      isEnded={isEnded} inCombat={inCombat}
-                      onChoose={(id) => { void onChoose(id) }} onFreeText={(text) => { void onFreeText(text) }} />
-                  )}
+                  <ChoicesPanel choices={scene?.choices ?? []} loading={isDataLoading} actionPending={actionPending}
+                    isEnded={isEnded}
+                    onChoose={(id) => { void onChoose(id) }} onFreeText={(text) => { void onFreeText(text) }} />
 
                   {isEnded && (
                     <div style={{ textAlign: 'center', paddingTop: 'var(--space-md)' }}>

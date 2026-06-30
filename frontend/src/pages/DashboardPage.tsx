@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCampaign } from '../hooks/useCampaign'
@@ -22,7 +22,7 @@ function applyTheme(t: Theme) {
 // Derive a display name from an account (email prefix or generic)
 function accountName(account: Account | null): string {
   if (!account?.email) return 'Adventurer'
-  const prefix = account.email.split('@')[0]
+  const prefix = account.email.split('@').at(0) ?? account.email
   return prefix.charAt(0).toUpperCase() + prefix.slice(1)
 }
 
@@ -66,8 +66,9 @@ function chronicle(campaigns: CampaignSummary[]): string[] {
     const d = new Date(active.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     entries.push(`Last session · ${d} — Grey Mountain Expedition`)
   }
-  if (campaigns.length > 0) {
-    const d = new Date(campaigns[0].created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const first = campaigns.at(0)
+  if (first) {
+    const d = new Date(first.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     entries.push(`Account created · joined the Grimoire ${d}`)
   }
   if (entries.length === 0) entries.push('Your chronicle is empty — begin an adventure.')
@@ -77,7 +78,7 @@ function chronicle(campaigns: CampaignSummary[]): string[] {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
-  const { state, campaigns, error, onCreate, onDelete, onReload } = useCampaign()
+  const { state, campaigns, error, onDelete, onReload } = useCampaign()
   const [account, setAccount] = useState<Account | null>(null)
   const [activeCampaignState, setActiveCampaignState] = useState<CampaignState | null>(null)
   const [theme, setTheme] = useState<Theme>(getTheme)
@@ -97,9 +98,6 @@ export default function DashboardPage() {
     getCampaign(active.id).then(setActiveCampaignState).catch(() => null)
   }, [campaigns])
 
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'ember' ? 'candle' : 'ember'))
-  }, [])
 
   function handleCreate() {
     void navigate('/create')

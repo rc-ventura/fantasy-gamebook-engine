@@ -1,25 +1,24 @@
 /**
  * useGame — core game-state hook for the play loop.
  *
- * Loads and holds the full campaign state (character, world, scene, combat).
+ * Loads and holds the full campaign state (character, world, scene).
  * All numeric values come from the API — this hook never fabricates any stat.
+ * Combat is now resolved inside the narrator's tool-use loop (ADR-029);
+ * the frontend has no separate combat endpoints.
  *
  * Handles:
  *   - Loading campaign state on mount
  *   - Taking turns (choice or free text)
- *   - Combat rounds and flee
  *   - Session lease acquisition and 409 conflict detection
  *   - Error and loading states
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { CampaignState, CombatRoundResponse, TurnResponse } from '../types'
+import type { CampaignState, TurnResponse } from '../types'
 import { ApiError } from '../types'
 import {
   getCampaign,
   takeTurn,
-  combatRound,
-  fleeCombat,
   acquireSession,
   takeoverSession,
   releaseSession,
@@ -44,10 +43,6 @@ export interface GameState {
   onChoose: (choiceId: string) => Promise<void>
   /** Take a turn with free-text input. */
   onFreeText: (text: string) => Promise<void>
-  /** Resolve one combat round; optionally test luck. */
-  onCombatRound: (testLuck: boolean) => Promise<void>
-  /** Attempt to flee combat. */
-  onFlee: () => Promise<void>
   /** Take over the session lease (resolves 409 conflict). */
   onTakeover: () => Promise<void>
   /** Reload campaign state from the API. */
@@ -109,11 +104,16 @@ export function useGame(campaignId: string): GameState {
   // ── Action helpers ────────────────────────────────────────────────────────
 
   function applyTurnResponse(res: TurnResponse): void {
-    setCampaign(res.campaign)
-  }
-
-  function applyCombatResponse(res: CombatRoundResponse): void {
-    setCampaign(res.campaign)
+    setCampaign(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        status: res.status,
+        current_scene: res.scene,
+        ...(res.character !== undefined && { character: res.character }),
+        ...(res.world !== undefined && { world: res.world }),
+      }
+    })
   }
 
   // ── Take turn ─────────────────────────────────────────────────────────────
@@ -157,39 +157,6 @@ export function useGame(campaignId: string): GameState {
     },
     [campaignId]
   )
-
-  // ── Combat ────────────────────────────────────────────────────────────────
-
-  const onCombatRound = useCallback(
-    async (testLuck: boolean): Promise<void> => {
-      setActionState('pending')
-      setError(null)
-      try {
-        const res = await combatRound(campaignId, { test_luck: testLuck })
-        applyCombatResponse(res)
-        setActionState('idle')
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to resolve combat round'
-        setError(msg)
-        setActionState('error')
-      }
-    },
-    [campaignId]
-  )
-
-  const onFlee = useCallback(async (): Promise<void> => {
-    setActionState('pending')
-    setError(null)
-    try {
-      const res = await fleeCombat(campaignId)
-      setCampaign(res.campaign)
-      setActionState('idle')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to flee combat'
-      setError(msg)
-      setActionState('error')
-    }
-  }, [campaignId])
 
   // ── Session takeover ──────────────────────────────────────────────────────
 
@@ -235,8 +202,6 @@ export function useGame(campaignId: string): GameState {
     sessionConflict,
     onChoose,
     onFreeText,
-    onCombatRound,
-    onFlee,
     onTakeover,
     onReload,
     onSave,

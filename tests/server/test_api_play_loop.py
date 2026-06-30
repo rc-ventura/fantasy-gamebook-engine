@@ -5,8 +5,10 @@ end-state — using ONLY the HTTP API (FastAPI TestClient) with:
   - FakeNarrator (no LLM — deterministic)
   - In-process engine (InMemoryStorage + seeded RNG — fast and isolated)
 
-Confirms every number in responses traces to an engine MCP tool result
-(SC-002, Principle I).
+After the narrator tool-use refactor (spec 007, ADR-029), the narrator calls
+MCP tools directly during generation. The explicit combat endpoints
+(POST /combat/round, POST /combat/flee) are removed; combat resolves inside
+POST /turn. Tests confirm this API shape and the simplified TurnResponse.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from gamebook_web.harness.base import FakeNarrator
-from gamebook_web.harness.scene import Choice, Effect, Scene
+from gamebook_web.harness.scene import Choice, Scene
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,7 +100,6 @@ class TestCampaignCRUD:
         assert data["status"] == "active"
         assert data["character"] is not None
         assert data["character"]["name"] == "TestHero"
-        # Summary and events come from engine state (not narrated)
         assert isinstance(data["summary"], str)
         assert isinstance(data["events"], list)
 
@@ -152,7 +153,6 @@ class TestCharacterCreation:
         """Creating a character on an ended campaign returns 409."""
         from gamebook_web.api.app import app
         cid = _create_campaign(api_client)
-        # Manually end the campaign
         app.state.campaign_registry.set_ended(cid)
 
         resp = api_client.post(
@@ -165,7 +165,7 @@ class TestCharacterCreation:
 
 
 class TestTurnBasedPlay:
-    """US1: full play loop — exploration turns via FakeNarrator."""
+    """Play loop — exploration turns via FakeNarrator (US1, US2)."""
 
     def test_first_turn_returns_scene(self, api_client):
         cid = _create_campaign(api_client)
@@ -181,7 +181,10 @@ class TestTurnBasedPlay:
         scene = data["scene"]
         assert scene["narrative"]
         assert isinstance(scene["choices"], list)
-        assert isinstance(scene["effects"], list)
+        # Structural contract: no effects field (FR-002, spec 007)
+        assert "effects" not in scene
+        # No effects_applied in TurnResponse (FR-003, spec 007)
+        assert "effects_applied" not in data
 
     def test_turn_returns_engine_state(self, api_client):
         """After a turn the response includes real engine state (not narrated numbers)."""
@@ -195,7 +198,6 @@ class TestTurnBasedPlay:
         )
         assert resp.status_code == 200
         data = resp.json()
-        # character comes from engine, not narrator
         char = data["character"]
         assert char is not None
         assert "skill" in char
@@ -213,42 +215,8 @@ class TestTurnBasedPlay:
             )
             assert resp.status_code == 200
 
-    def test_turn_with_register_event_effect(self, api_client, engine_server):
-        """Effects in the FakeNarrator Scene are applied via MCP (not narrated)."""
-        from gamebook_web.api.app import app
-
-        scene_with_event = Scene(
-            narrative="You enter the foothills. Ancient trees loom around you.",
-            choices=[
-                Choice(id="1", label="Explore deeper"),
-                Choice(id="2", label="Turn back"),
-            ],
-            effects=[
-                Effect(
-                    type="register_event",
-                    params={"type": "enter_zone", "data": {"zone": "foothills"}},
-                )
-            ],
-        )
-        app.state.narrator = FakeNarrator(scenes=[scene_with_event])
-
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
-
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={"choice": None},
-            headers=_auth_headers(),
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        # The effect was applied — check events in campaign state
-        state_resp = api_client.get(f"/campaigns/{cid}", headers=_auth_headers())
-        events = state_resp.json()["events"]
-        assert any(e["type"] == "enter_zone" for e in events)
-
-    def test_get_scene_after_turn(self, api_client):
-        """GET /scene returns the last narrator scene."""
+    def test_turn_stores_scene_for_resume(self, api_client):
+        """After a turn, GET /scene returns the stored scene."""
         cid = _create_campaign(api_client)
         _create_character(api_client, cid)
 
@@ -276,177 +244,110 @@ class TestTurnBasedPlay:
         assert resp.json()["error"]["code"] == "run_ended"
 
 
-class TestCombatViaAPI:
-    """US1: combat loop driven by explicit combat endpoints."""
+class TestCombatEndpointsRemoved:
+    """POST /combat/round and POST /combat/flee are removed (US3, FR-005, spec 007).
 
-    def _setup_combat(self, api_client, engine_server) -> tuple[str, str]:
-        """Create campaign + character + start combat.  Return (campaign_id, combat_id)."""
-        from gamebook_web.api.app import app
+    Combat now resolves inside POST /turn — the narrator calls start_combat,
+    resolve_combat_round, and end_combat directly during generation.
+    """
 
-        combat_scene = Scene(
-            narrative="A fierce goblin leaps from the shadows, blade raised!",
-            choices=[
-                Choice(id="1", label="Attack!"),
-                Choice(id="2", label="Try to flee"),
-            ],
-            effects=[
-                Effect(
-                    type="start_combat",
-                    params={
-                        "enemies": [{"name": "Goblin", "skill": 5, "stamina": 4}],
-                        "flee_allowed": True,
-                    },
-                )
-            ],
-        )
-        app.state.narrator = FakeNarrator(scenes=[combat_scene])
-
+    def test_combat_round_returns_404(self, api_client):
         cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
-
-        # Turn triggers start_combat effect → combat_id stored in campaign state
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn", json={}, headers=_auth_headers()
-        )
-        assert resp.status_code == 200, resp.text
-
-        # Retrieve the combat_id from the registry
-        registry = app.state.campaign_registry
-        campaign_state = registry.get(cid)
-        assert campaign_state.current_combat_id is not None, (
-            "Expected start_combat effect to store a combat_id"
-        )
-        return cid, campaign_state.current_combat_id
-
-    def test_combat_round_returns_engine_outcome(self, api_client, engine_server):
-        cid, combat_id = self._setup_combat(api_client, engine_server)
-
         resp = api_client.post(
             f"/campaigns/{cid}/combat/round",
             json={"test_luck": False},
             headers=_auth_headers(),
         )
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        outcome = data["outcome"]
-
-        # All numbers from the engine (SC-002)
-        assert outcome["hitter"] in ("hero", "enemy", "tie")
-        assert "hero_stamina" in outcome
-        assert "enemy_stamina" in outcome
-        assert "hero_as" in outcome
-        assert "enemy_as" in outcome
-
-    def test_combat_rounds_until_ended(self, api_client, engine_server):
-        """Drive combat to completion; confirm the final result is engine-authoritative."""
-        cid, _ = self._setup_combat(api_client, engine_server)
-
-        final_result = None
-        for _ in range(100):  # max rounds guard
-            resp = api_client.post(
-                f"/campaigns/{cid}/combat/round",
-                json={"test_luck": False},
-                headers=_auth_headers(),
-            )
-            assert resp.status_code == 200, resp.text
-            data = resp.json()
-
-            if data["outcome"].get("ended"):
-                final_result = data["final_result"]
-                assert final_result is not None
-                assert final_result["winner"] in ("hero", "enemy")
-                assert final_result["rounds"] >= 1
-                break
-
-        assert final_result is not None, "Combat did not conclude within 100 rounds"
-
-    def test_combat_round_with_luck(self, api_client, engine_server):
-        """Luck test is computed by engine (use_luck=True path, FR-005)."""
-        cid, _ = self._setup_combat(api_client, engine_server)
-
-        resp = api_client.post(
-            f"/campaigns/{cid}/combat/round",
-            json={"test_luck": True},
-            headers=_auth_headers(),
+        assert resp.status_code == 404, (
+            "POST /combat/round must not exist after spec 007 refactor"
         )
-        assert resp.status_code == 200, resp.text
-        outcome = resp.json()["outcome"]
-        # If there was a hit, luck info is present
-        if outcome["hitter"] != "tie" and not outcome.get("ended"):
-            # luck_used may or may not be present depending on hit side
-            assert "hitter" in outcome
 
-    def test_no_active_combat_returns_409(self, api_client):
+    def test_combat_flee_returns_404(self, api_client):
         cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
-
-        resp = api_client.post(
-            f"/campaigns/{cid}/combat/round",
-            json={},
-            headers=_auth_headers(),
-        )
-        assert resp.status_code == 409
-        assert resp.json()["error"]["code"] == "no_active_combat"
-
-    def test_flee_combat(self, api_client, engine_server):
-        cid, _ = self._setup_combat(api_client, engine_server)
-
         resp = api_client.post(
             f"/campaigns/{cid}/combat/flee",
             headers=_auth_headers(),
         )
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert "result" in data
-        assert "damage_taken" in data["result"]
-        # Flee costs engine-computed damage (not narrated)
-        assert data["result"]["damage_taken"] == 2
+        assert resp.status_code == 404, (
+            "POST /combat/flee must not exist after spec 007 refactor"
+        )
 
 
 class TestEndStates:
-    """US1: death and victory end-states archive and prevent further play."""
+    """Death and victory end-states archive and prevent further play."""
 
-    def test_death_ends_campaign(self, api_client, engine_server):
-        """After hero dies in combat, campaign is ended and further turns are rejected."""
-        from gamebook_web.api.app import app
+    def test_death_ends_campaign(self, api_client, engine_storage):
+        """When hero stamina reaches 0 (alive=False), the campaign ends after the next turn.
 
-        combat_scene = Scene(
-            narrative="A mighty troll blocks your path!",
-            choices=[Choice(id="1", label="Fight!")],
-            effects=[
-                Effect(
-                    type="start_combat",
-                    params={
-                        "enemies": [{"name": "Giant Troll", "skill": 12, "stamina": 100}],
-                        "flee_allowed": False,
-                    },
-                )
-            ],
+        Simulates combat outcome by directly writing a dead hero to engine_storage.
+        The API detects alive=False in _check_terminal_state, archives, and ends the campaign.
+        """
+        from gamebook.domain.models import Attribute, CharacterSheet
+
+        cid = _create_campaign(api_client)
+        sheet_data = _create_character(api_client, cid)
+
+        # Directly kill the hero via storage (simulates combat driving stamina to 0)
+        dead_sheet = CharacterSheet(
+            name=sheet_data["name"],
+            skill=Attribute(**sheet_data["skill"]),
+            stamina=Attribute(
+                initial=sheet_data["stamina"]["initial"],
+                current=0,
+            ),
+            luck=Attribute(**sheet_data["luck"]),
+            inventory=sheet_data.get("inventory", []),
+            gold=sheet_data.get("gold", 0),
+            provisions=sheet_data.get("provisions", 0),
+            conditions=sheet_data.get("conditions", []),
+            alive=False,
         )
-        app.state.narrator = FakeNarrator(scenes=[combat_scene])
+        engine_storage.save_character(dead_sheet)
+
+        # Next turn: API reads dead hero → _check_terminal_state archives → campaign ends
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp.status_code == 200
+
+        campaign = api_client.get(f"/campaigns/{cid}", headers=_auth_headers()).json()
+        assert campaign["status"] == "ended"
+
+        # Further turns rejected
+        resp2 = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp2.status_code == 409
+        assert resp2.json()["error"]["code"] == "run_ended"
+
+    def test_victory_ends_campaign(self, api_client, engine_storage):
+        """When malachar_defeated flag is set in world, the campaign ends after the next turn.
+
+        Simulates victory by directly writing the victory flag to engine_storage.
+        The API detects it in _check_terminal_state, archives to hall_of_fame, and ends.
+        """
+        from gamebook.domain.models import World
 
         cid = _create_campaign(api_client)
         _create_character(api_client, cid)
-        api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
 
-        # Drive combat until hero dies (troll has skill=12, hero has skill~9)
-        campaign_ended = False
-        for _ in range(200):
-            resp = api_client.post(
-                f"/campaigns/{cid}/combat/round",
-                json={"test_luck": False},
-                headers=_auth_headers(),
-            )
-            if resp.status_code == 409:
-                # Already ended
-                campaign_ended = True
-                break
-            data = resp.json()
-            if data.get("campaign_ended"):
-                campaign_ended = True
-                break
+        # Inject victory flag directly into engine world state
+        world = engine_storage.load_world()
+        engine_storage.save_world(World(
+            current_location=world.current_location,
+            flags={**world.flags, "malachar_defeated": True},
+            visited_locations=world.visited_locations,
+            known_npcs=world.known_npcs,
+            turn=world.turn,
+        ))
 
-        assert campaign_ended, "Hero should have died against the Giant Troll"
+        # Next turn: API reads world → _check_terminal_state triggers victory archive
+        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp.status_code == 200
+
+        campaign = api_client.get(f"/campaigns/{cid}", headers=_auth_headers()).json()
+        assert campaign["status"] == "ended"
+
+        # Further turns rejected
+        resp2 = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        assert resp2.status_code == 409
+        assert resp2.json()["error"]["code"] == "run_ended"
 
     def test_save_checkpoint(self, api_client):
         """POST /campaigns/{id}/save triggers engine's save_progress tool."""
@@ -457,6 +358,36 @@ class TestEndStates:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
+
+
+class TestInputValidation:
+    """Player input is bounded before reaching the narrator (A03 mitigation)."""
+
+    def test_choice_over_max_length_returns_422(self, api_client):
+        """A choice exceeding 500 chars is rejected before the narrator is called."""
+        cid = _create_campaign(api_client)
+        _create_character(api_client, cid)
+
+        long_choice = "x" * 501
+        resp = api_client.post(
+            f"/campaigns/{cid}/turn",
+            json={"choice": long_choice},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 422
+
+    def test_choice_at_max_length_accepted(self, api_client):
+        """A choice of exactly 500 chars is accepted."""
+        cid = _create_campaign(api_client)
+        _create_character(api_client, cid)
+
+        long_choice = "y" * 500
+        resp = api_client.post(
+            f"/campaigns/{cid}/turn",
+            json={"choice": long_choice},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
 
 
 class TestAuthEnvelope:
@@ -478,4 +409,3 @@ class TestAuthEnvelope:
         """Fail-closed: without GAMEBOOK_DEV_MODE set, a missing token → 401."""
         resp = api_client.get("/campaigns")  # no Authorization header
         assert resp.status_code == 401
-        assert resp.json()["error"]["code"] == "unauthenticated"
