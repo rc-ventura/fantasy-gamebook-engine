@@ -58,7 +58,20 @@ _JWKS_CACHE_TTL = 300  # 5 minutes
 # Serialises access to the module-level caches.  Async request handlers can
 # interleave at ``await`` points, so the caches are guarded by an asyncio.Lock
 # to prevent torn reads/writes and concurrent mutation during GC.
-_CACHE_LOCK = asyncio.Lock()
+#
+# Created lazily on first use rather than at import time: an ``asyncio.Lock``
+# binds to the running event loop on first acquire, so constructing it at import
+# (before any loop exists) risks a ``RuntimeError`` if the module is first used
+# from a different loop than the one that first acquired it (CWE-362).
+_CACHE_LOCK: asyncio.Lock | None = None
+
+
+def _get_cache_lock() -> asyncio.Lock:
+    """Return the module cache lock, creating it lazily on first use."""
+    global _CACHE_LOCK
+    if _CACHE_LOCK is None:
+        _CACHE_LOCK = asyncio.Lock()
+    return _CACHE_LOCK
 
 # Short-term validated-token cache for graceful degradation.
 # Key: (token-signature-hash, exp), Value: account_id.  An OrderedDict gives
@@ -110,17 +123,31 @@ async def _fetch_jwks(jwks_uri: str, force_refresh: bool = False) -> dict[str, A
     """
     global _JWKS_CACHE, _JWKS_CACHE_FETCHED_AT
 
-    async with _CACHE_LOCK:
+    lock = _get_cache_lock()
+
+    # 1. Fast path: serve a fresh cache entry under the lock, then release it.
+    async with lock:
         now = time.time()
         if not force_refresh and _JWKS_CACHE is not None and (now - _JWKS_CACHE_FETCHED_AT) < _JWKS_CACHE_TTL:
             return _JWKS_CACHE
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(jwks_uri)
-            response.raise_for_status()
-            _JWKS_CACHE = response.json()
-            _JWKS_CACHE_FETCHED_AT = time.time()
+    # 2. Cache miss: perform the network fetch WITHOUT holding the lock so that
+    #    a slow/unresponsive OIDC provider cannot serialise all concurrent
+    #    token validations behind the lock for up to the full timeout (CWE-400).
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get(jwks_uri)
+        response.raise_for_status()
+        fetched = response.json()
+
+    # 3. Re-acquire the lock only to publish the result.  Double-check that a
+    #    concurrent fetch has not already populated a fresher entry.
+    async with lock:
+        now = time.time()
+        if not force_refresh and _JWKS_CACHE is not None and (now - _JWKS_CACHE_FETCHED_AT) < _JWKS_CACHE_TTL:
             return _JWKS_CACHE
+        _JWKS_CACHE = fetched
+        _JWKS_CACHE_FETCHED_AT = time.time()
+        return _JWKS_CACHE
 
 
 async def _get_signing_key(jwks_uri: str, kid: str | None) -> Any:
@@ -206,7 +233,7 @@ async def get_current_account(
         _unauthenticated(f"Malformed token: {exc}")
 
     # Check validated-token cache (graceful degradation)
-    async with _CACHE_LOCK:
+    async with _get_cache_lock():
         cached_account_id = _lookup_validated_token(token, exp)
     if cached_account_id:
         return Account(account_id=cached_account_id)
@@ -260,7 +287,7 @@ async def get_current_account(
         )
 
     # Cache for graceful degradation
-    async with _CACHE_LOCK:
+    async with _get_cache_lock():
         _cache_validated_token(token, exp, account.account_id)
 
     return account

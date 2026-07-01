@@ -16,8 +16,9 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from gamebook_web.api.limiter import PRIVACY_RATE, limiter
 from gamebook_web.auth.dev_auth import Account, get_current_account
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,9 @@ async def get_me(
 
 
 @router.get("/me/export")
+@limiter.limit(PRIVACY_RATE)
 async def export_me(
+    request: Request,
     account: Account = Depends(get_current_account),
 ) -> dict[str, Any]:
     """Export all data owned by the caller (GDPR data portability)."""

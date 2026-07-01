@@ -220,17 +220,26 @@ class AccountRepository:
                 )
         return {"campaign_id": cid, "status": "active", "account_id": account_id}
 
-    async def set_campaign_status(self, campaign_id: str, status: str) -> None:
-        """Update campaign status (e.g. 'ended')."""
+    async def set_campaign_status(
+        self, account_id: str, campaign_id: str, status: str
+    ) -> bool:
+        """Update campaign status (e.g. 'ended'), ownership-checked.
+
+        The ``account_id`` filter makes cross-account status changes
+        structurally impossible (CWE-639): a caller can only mutate a campaign
+        it owns.  Returns True if a row was updated, False otherwise.
+        """
         async with self._session() as session:
             async with session.begin():
-                await session.execute(
+                result = await session.execute(
                     text(
                         "UPDATE campaign SET status = :status, updated_at = NOW() "
-                        "WHERE id = :cid"
+                        "WHERE id = :cid AND account_id = :account_id "
+                        "RETURNING id"
                     ),
-                    {"status": status, "cid": campaign_id},
+                    {"status": status, "cid": campaign_id, "account_id": account_id},
                 )
+                return result.fetchone() is not None
 
     async def delete_campaign(self, account_id: str, campaign_id: str) -> bool:
         """Delete a campaign (ownership-checked). Returns True if deleted."""
