@@ -76,7 +76,9 @@ async def export_me(
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(PRIVACY_RATE)
 async def delete_me(
+    request: Request,
     account: Account = Depends(get_current_account),
 ) -> None:
     """Cascade-delete the account and all owned campaigns and engine rows (GDPR erasure)."""

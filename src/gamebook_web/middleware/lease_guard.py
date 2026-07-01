@@ -83,7 +83,17 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
         # the environment, so caching it here would permanently disable lease
         # enforcement whenever the URL is set later at runtime (auth bypass).
         if not os.getenv("DATABASE_URL"):
-            # Skip if no DATABASE_URL (InMemoryStorage / test mode without Postgres)
+            # No DATABASE_URL means the in-memory backend is in use.  In a
+            # production deployment (signalled by an OIDC config being present)
+            # a missing DATABASE_URL is a misconfiguration, not a valid dev
+            # setup — fail closed so lease enforcement never silently vanishes
+            # (CWE-636).  Otherwise pass through for InMemoryStorage / tests.
+            if os.getenv("OIDC_JWKS_URI"):
+                return _error_response(
+                    "auth_unavailable",
+                    "Session enforcement is unavailable (database not configured).",
+                    status_code=503,
+                )
             return await call_next(request)
 
         # Skip non-mutating methods (GET, HEAD, OPTIONS, etc.) — only the

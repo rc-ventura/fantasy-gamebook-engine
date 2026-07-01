@@ -23,6 +23,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
+from gamebook_web.api.limiter import SESSION_RATE, limiter
 from gamebook_web.auth.dev_auth import Account, get_current_account
 
 logger = logging.getLogger(__name__)
@@ -92,9 +93,10 @@ async def _check_ownership(
 # ---------------------------------------------------------------------------
 
 @router.post("/campaigns/{campaign_id}/session", status_code=status.HTTP_201_CREATED)
+@limiter.limit(SESSION_RATE)
 async def acquire_session(
     campaign_id: str,
-    request: Request = None,
+    request: Request,
     account: Account = Depends(get_current_account),
 ) -> LeaseResponse:
     """Acquire (or renew) the session lease for this campaign.
@@ -117,10 +119,11 @@ async def acquire_session(
 
 
 @router.post("/campaigns/{campaign_id}/session/takeover")
+@limiter.limit(SESSION_RATE)
 async def takeover_session(
     campaign_id: str,
+    request: Request,
     body: TakeoverRequest | None = None,
-    request: Request = None,
     account: Account = Depends(get_current_account),
 ) -> LeaseResponse:
     """Take over the session lease from another session.
@@ -143,10 +146,11 @@ async def takeover_session(
 
 
 @router.delete("/campaigns/{campaign_id}/session", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(SESSION_RATE)
 async def release_session(
     campaign_id: str,
+    request: Request,
     x_session_lease: str | None = Header(default=None, alias="X-Session-Lease"),
-    request: Request = None,
     account: Account = Depends(get_current_account),
 ) -> None:
     """Release the session lease.
