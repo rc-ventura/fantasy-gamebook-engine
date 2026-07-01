@@ -37,8 +37,8 @@ Engine (unchanged): `src/gamebook/`. Backend (extended from `003`): `src/gameboo
 
 **Purpose**: Auth + observability dependencies and dev infrastructure.
 
-- [ ] T001 Add OIDC client library + `opentelemetry-*` dependencies via `uv` in `pyproject.toml`, recorded in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update). (Storage deps from `002`, web deps from `003` are already present.)
-- [ ] T002 [P] Add the OIDC provider + OTLP collector to `docker-compose.yml` at repo root (Postgres already added in `003`)
+- [X] T001 Add OIDC client library + `opentelemetry-*` dependencies via `uv` in `pyproject.toml`, recorded in `docs/CONTRACTS.md` (constitution: no `uv add` without a CONTRACTS update). (Storage deps from `002`, web deps from `003` are already present.)
+- [X] T002 [P] Add the OIDC provider + OTLP collector to `docker-compose.yml` at repo root (Postgres already added in `003`)
 
 ---
 
@@ -48,12 +48,12 @@ Engine (unchanged): `src/gamebook/`. Backend (extended from `003`): `src/gameboo
 
 **⚠️ CRITICAL**: No user-story work begins until this phase is complete.
 
-- [ ] T003 Real OIDC authentication: JWT validation (JWKS, aud/exp) + account resolution from `sub` + a per-account scoping dependency in `src/gamebook_web/auth/` — replacing `003`'s dev auth stub behind the same seam (epic T011; FR-001/002/003)
-- [ ] T004 Account + Campaign persistence and ownership/scoping helpers in `src/gamebook_web/` (data-model §C.1/C.2; epic T012; FR-004)
-- [ ] T005 Alembic migration adding `account`, `campaign.account_id`, and `session_lease` in `alembic/versions/` (data-model §B.1/C.3; the `account`/`session_lease` rows deferred from `002`)
-- [ ] T006 Session-lease enforcement (single active session per campaign; acquire/takeover/release logic) in `src/gamebook_web/sessions/` (FR-005; epic T026 core)
-- [ ] T007 Gate state-changing routes on lease ownership (`409 not_session_holder`; stale-lease writes rejected) in `src/gamebook_web/api/` (FR-006; epic T027; depends on T006)
-- [ ] T008 [P] Confirm/extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) to cover the new `auth/` and `observability/` modules — no module reaches past the MCP/HTTP API interface (Principle IV, merge gate)
+- [X] T003 Real OIDC authentication: JWT validation (JWKS, aud/exp) + account resolution from `sub` + a per-account scoping dependency in `src/gamebook_web/auth/` — replacing `003`'s dev auth stub behind the same seam (epic T011; FR-001/002/003)
+- [X] T004 Account + Campaign persistence and ownership/scoping helpers in `src/gamebook_web/` (data-model §C.1/C.2; epic T012; FR-004)
+- [X] T005 Alembic migration adding `account`, `campaign.account_id`, and `session_lease` in `alembic/versions/` (data-model §B.1/C.3; the `account`/`session_lease` rows deferred from `002`)
+- [X] T006 Session-lease enforcement (single active session per campaign; acquire/takeover/release logic) in `src/gamebook_web/sessions/` (FR-005; epic T026 core)
+- [X] T007 Gate state-changing routes on lease ownership (`409 not_session_holder`; stale-lease writes rejected) in `src/gamebook_web/api/` (FR-006; epic T027; depends on T006)
+- [X] T008 [P] Confirm/extend the plugability audit (`tests/qa/test_dependencies.py`, `tests/qa/test_isolation.py`) to cover the new `auth/` and `observability/` modules — no module reaches past the MCP/HTTP API interface (Principle IV, merge gate)
 
 **Checkpoint**: real auth, account ownership, and session-lease gating exist; the `003` play loop still works through the new auth seam.
 
@@ -70,11 +70,11 @@ first access, play several turns, end the session, re-authenticate on another se
 resume the exact recorded state; confirm a second session on the same campaign is read-only until
 takeover; confirm export returns the data and deletion cascades.
 
-- [ ] T009 [P] [US1] Session-lease endpoints `POST /campaigns/{id}/session`, `/session/takeover`, `DELETE /campaigns/{id}/session` in `src/gamebook_web/sessions/` + `api/` (FR-005; epic T026)
-- [ ] T010 [US1] Save/resume checkpoint `POST /campaigns/{id}/save` + resume from the exact recorded point via `GET /campaigns/{id}` in `src/gamebook_web/api/play.py` (FR-007/008; epic T028)
-- [ ] T011 [P] [US1] Privacy endpoints `GET /me`, `GET /me/export`, `DELETE /me` with cascade account → campaigns → engine rows in `src/gamebook_web/api/account.py` (FR-009; epic T029; research §8)
-- [ ] T012 [P] [US1] Test: resume across devices (sign out on A, re-authenticate on B, state intact; another account's data never visible) in `tests/server/test_session_resume.py` (SC-001/002/003, FR-003)
-- [ ] T013 [P] [US1] Test: a second concurrent session on the same campaign is read-only until takeover, then the prior session becomes read-only, in `tests/server/test_session_lease.py` (FR-005/006, SC-002)
+- [X] T009 [P] [US1] Session-lease endpoints `POST /campaigns/{id}/session`, `/session/takeover`, `DELETE /campaigns/{id}/session` in `src/gamebook_web/sessions/` + `api/` (FR-005; epic T026)
+- [X] T010 [US1] Save/resume checkpoint `POST /campaigns/{id}/save` + resume from the exact recorded point via `GET /campaigns/{id}` in `src/gamebook_web/api/play.py` (FR-007/008; epic T028)
+- [X] T011 [P] [US1] Privacy endpoints `GET /me`, `GET /me/export`, `DELETE /me` with cascade account → campaigns → engine rows in `src/gamebook_web/api/account.py` (FR-009; epic T029; research §8)
+- [X] T012 [P] [US1] Test: resume across devices (sign out on A, re-authenticate on B, state intact; another account's data never visible) in `tests/server/test_session_resume.py` (SC-001/002/003, FR-003)
+- [X] T013 [P] [US1] Test: a second concurrent session on the same campaign is read-only until takeover, then the prior session becomes read-only, in `tests/server/test_session_lease.py` (FR-005/006, SC-002)
 
 **Checkpoint**: US1 provable — accounts, ownership, resume, session lease, and privacy work independently.
 
@@ -89,11 +89,11 @@ leakage, graceful degradation when auth is down, and ended-run guarding with rec
 corruption and a clean resume; confirm isolation with no leakage; take auth down and confirm safe
 degradation; confirm acting on an ended run is rejected and recorded facts survive adventure changes.
 
-- [ ] T014 [US2] Harden the atomic-write boundary in `PostgresStorage` (all-or-nothing per state change) in `src/gamebook/storage/postgres.py` — extend `002`'s single-write case to the concurrency/multi-account setting (Principle V; epic T031; FR-010)
-- [ ] T015 [P] [US2] Test: induced mid-write failure at concurrency → no partial/corrupted save; campaign resumes at last consistent state, in `tests/server/test_atomic_writes_concurrency.py` (SC-004, FR-010; epic T032)
-- [ ] T016 [P] [US2] Test: concurrent campaigns across accounts stay isolated/consistent with no cross-account leakage, in `tests/server/test_isolation_concurrency.py` (SC-005, FR-011; epic T033)
-- [ ] T017 [US2] Graceful degradation when the OIDC service is unavailable (signed-in players continue read-only to token expiry; new sign-ins → `503 auth_unavailable`) in `src/gamebook_web/auth/` (FR-012; epic T034)
-- [ ] T018 [US2] Reject acting on an ended run (`409 run_ended`) and honor recorded facts when adventure content changed, in `src/gamebook_web/api/` (FR-013; epic T035)
+- [X] T014 [US2] Harden the atomic-write boundary in `PostgresStorage` (all-or-nothing per state change) in `src/gamebook/storage/postgres.py` — extend `002`'s single-write case to the concurrency/multi-account setting (Principle V; epic T031; FR-010)
+- [X] T015 [P] [US2] Test: induced mid-write failure at concurrency → no partial/corrupted save; campaign resumes at last consistent state, in `tests/server/test_atomic_writes_concurrency.py` (SC-004, FR-010; epic T032)
+- [X] T016 [P] [US2] Test: concurrent campaigns across accounts stay isolated/consistent with no cross-account leakage, in `tests/server/test_isolation_concurrency.py` (SC-005, FR-011; epic T033)
+- [X] T017 [US2] Graceful degradation when the OIDC service is unavailable (signed-in players continue read-only to token expiry; new sign-ins → `503 auth_unavailable`) in `src/gamebook_web/auth/` (FR-012; epic T034)
+- [X] T018 [US2] Reject acting on an ended run (`409 run_ended`) and honor recorded facts when adventure content changed, in `src/gamebook_web/api/` (FR-013; epic T035)
 
 **Checkpoint**: the P1 experience is safe under production conditions.
 
@@ -107,9 +107,9 @@ exposing corrupted state to the player.
 **Independent Test**: Trigger an induced error and a slow turn; confirm both surface in telemetry and
 a trace locates the cause.
 
-- [ ] T019 [US3] OpenTelemetry setup (traces/metrics/logs via OTLP) + health/error-rate/latency + basic play metrics in `src/gamebook_web/observability/` (FR-014; epic T039)
-- [ ] T020 [US3] Per-request traces that locate a failing turn without exposing corrupted state to the player, in `src/gamebook_web/observability/` + `api/` (FR-015; epic T040)
-- [ ] T021 [P] [US3] Test: an induced error + slow turn surface in telemetry and a trace locates the cause, in `tests/server/test_observability.py` (SC-008; epic T041)
+- [X] T019 [US3] OpenTelemetry setup (traces/metrics/logs via OTLP) + health/error-rate/latency + basic play metrics in `src/gamebook_web/observability/` (FR-014; epic T039)
+- [X] T020 [US3] Per-request traces that locate a failing turn without exposing corrupted state to the player, in `src/gamebook_web/observability/` + `api/` (FR-015; epic T040)
+- [X] T021 [P] [US3] Test: an induced error + slow turn surface in telemetry and a trace locates the cause, in `tests/server/test_observability.py` (SC-008; epic T041)
 
 **Checkpoint**: the service is operable in production.
 
@@ -117,8 +117,8 @@ a trace locates the cause.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] Finalize `docs/CONTRACTS.md` (account, session-lease, privacy `/me`, and observability sections; record the OIDC client + `opentelemetry-*` deps) and update `README`/`quickstart` (Principle III; FR-016; plan ACTION item)
-- [ ] T023 Run the full suite + plugability audit gate green, then the SDD review pipeline (`/sdd-qa` + `/sdd-security` → `/sdd-tech`) before merge (constitution Development Workflow)
+- [X] T022 [P] Finalize `docs/CONTRACTS.md` (account, session-lease, privacy `/me`, and observability sections; record the OIDC client + `opentelemetry-*` deps) and update `README`/`quickstart` (Principle III; FR-016; plan ACTION item)
+- [X] T023 Run the full suite + plugability audit gate green, then the SDD review pipeline (`/sdd-qa` + `/sdd-security` → `/sdd-tech`) before merge (constitution Development Workflow)
 
 ---
 

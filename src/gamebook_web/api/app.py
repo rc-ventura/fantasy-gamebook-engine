@@ -1,11 +1,20 @@
 """FastAPI application — skeleton, error envelope, /health, OpenAPI (T004).
 
 Lifespan:
-  1. Start the engine MCPToolset (subprocess or in-process via test override).
-  2. Instantiate the narrator (PydanticNarrator if ANTHROPIC_API_KEY is set,
+  1. Setup OpenTelemetry (OTLP if configured, in-memory otherwise).
+  2. Install OIDC auth dependency override (unless GAMEBOOK_DEV_MODE=1).
+  3. Start the engine MCPToolset (subprocess or in-process via test override).
+  4. Instantiate the narrator (PydanticNarrator if ANTHROPIC_API_KEY is set,
      else FakeNarrator as a dev fallback).
-  3. Create a fresh CampaignRegistry.
-  4. All three are stored in ``app.state``; routes read them via ``Request``.
+  5. Create a fresh CampaignRegistry.
+  6. All are stored in ``app.state``; routes read them via ``Request``.
+
+Auth seam (slice 004):
+  Routes in play.py/combat.py import ``get_current_account`` from
+  ``gamebook_web.auth.dev_auth``.  In production (GAMEBOOK_DEV_MODE != 1)
+  the lifespan installs a FastAPI dependency override so all those
+  ``Depends(dev_auth.get_current_account)`` transparently route to
+  ``oidc_auth.get_current_account`` — no route code changes needed.
 
 Error envelope (CONTRACTS.md §9):
   All HTTP errors use  ``{"error": {"code": "<code>", "message": "<msg>"}}``.
@@ -37,6 +46,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Start/stop the engine toolset and initialize shared app state."""
 
+    # 1. OpenTelemetry setup (idempotent; no-op if already done by tests)
+    _setup_telemetry()
+
+    # 2. Auth dependency override (prod: OIDC; dev/test: keep dev stub)
+    _install_auth_override(app)
+
     # Allow tests to pre-set app.state.engine_toolset (skips subprocess start)
     if getattr(app.state, "engine_toolset", None) is None:
         campaign_id = os.getenv("GAMEBOOK_CAMPAIGN_ID")
@@ -50,6 +65,30 @@ async def lifespan(app: FastAPI):
         # Test path: engine_toolset already injected by fixture
         _init_app_state(app)
         yield
+
+
+def _setup_telemetry() -> None:
+    """Initialize OTel (idempotent; safe to call multiple times)."""
+    try:
+        from gamebook_web.observability.setup import setup_telemetry
+        setup_telemetry()
+    except Exception as exc:
+        logger.warning("OTel setup failed (non-fatal): %s", exc)
+
+
+def _install_auth_override(app: FastAPI) -> None:
+    """Route dev_auth.get_current_account → oidc_auth.get_current_account in prod."""
+    dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0") in ("1", "true", "True")
+    oidc_uri = os.getenv("OIDC_JWKS_URI", "")
+
+    if not dev_mode and oidc_uri:
+        # Production: real OIDC
+        from gamebook_web.auth.dev_auth import get_current_account as _dev_dep
+        from gamebook_web.auth.oidc_auth import get_current_account as _oidc_dep
+        app.dependency_overrides[_dev_dep] = _oidc_dep
+        logger.info("Auth: OIDC enabled (JWKS=%s)", oidc_uri)
+    else:
+        logger.info("Auth: dev stub active (GAMEBOOK_DEV_MODE=1 or OIDC_JWKS_URI not set)")
 
 
 def _init_app_state(app: FastAPI) -> None:
@@ -117,9 +156,6 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 # ---------------------------------------------------------------------------
 # CORS — restrictive by default (CWE-942)
 # ---------------------------------------------------------------------------
-# The SPA frontend (slice 005) will need cross-origin access.  Configure the
-# allowed origins explicitly via ``GAMEBOOK_CORS_ORIGINS`` (comma-separated);
-# never use a wildcard.  Empty (the default) disables cross-origin requests.
 _cors_origins = [
     o.strip()
     for o in os.getenv("GAMEBOOK_CORS_ORIGINS", "").split(",")
@@ -135,12 +171,23 @@ if _cors_origins:
     )
 
 # ---------------------------------------------------------------------------
+# Session-lease guard middleware (T007)
+# ---------------------------------------------------------------------------
+from gamebook_web.middleware.lease_guard import LeaseGuardMiddleware  # noqa: E402
+
+app.add_middleware(LeaseGuardMiddleware)
+
+# ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
 
 from gamebook_web.api.play import router as play_router        # noqa: E402
+from gamebook_web.api.sessions import router as sessions_router  # noqa: E402
+from gamebook_web.api.account import router as account_router  # noqa: E402
 
 app.include_router(play_router)
+app.include_router(sessions_router)
+app.include_router(account_router)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +212,17 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    from opentelemetry import trace
+
+    from gamebook_web.observability.tracing import span_set_error
+
+    # Annotate the active request span (created by FastAPI auto-instrumentation)
+    # so the error correlates with the request trace, rather than creating a
+    # detached root span.  get_current_span() returns a no-op span if none is
+    # active, so this is always safe.
+    span = trace.get_current_span()
+    if span is not None and span.is_recording():
+        span_set_error(span, exc)
     logger.exception("Unhandled error on %s %s", request.method, request.url)
     return JSONResponse(
         status_code=500,

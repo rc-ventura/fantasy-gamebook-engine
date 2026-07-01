@@ -13,6 +13,13 @@
 > mapping) — folded from `specs/001-web-platform-migration/contracts/`.  Added
 > `fastapi`, `pydantic-ai[anthropic]` (resolved: 2.0.0), `anthropic`, `uvicorn` to
 > §0a (installed in pyproject.toml: 003-T001).  MCPToolset pattern: ADR-014.
+>
+> **Slice-004 amendment (2026-06-28, ADR-017/018/019):** Added §12 (Accounts & Identity),
+> §13 (Session Lease), §14 (Privacy/GDPR), §15 (Observability).  Added
+> `python-jose[cryptography]`, `httpx` (promoted to main), `opentelemetry-*` to §0a
+> (installed in pyproject.toml: 004-T001). Auth seam swap via FastAPI dependency override
+> (ADR-017). Session lease via `session_lease` table + `LeaseGuardMiddleware` (ADR-018).
+> OTel auto-instrumentation + no-PII-in-spans rule (ADR-019).
 
 ## 0. Global rules (every teammate)
 
@@ -45,15 +52,16 @@
 | `uvicorn` | `>=0.32.0` | ASGI server for `gamebook_web` (003-T001) |
 | `pydantic-ai[anthropic]` | `>=0.0.15` (resolved: **2.0.0**) | Agent-based narrator harness emitting `Scene` (ADR-011, ADR-014) — MCPToolset.direct_call_tool for routes; toolsets=[] for agent runs |
 | `anthropic` | `>=0.40.0` | Anthropic SDK; default model `claude-opus-4-8` (ADR-011) |
-| `opentelemetry-sdk` | `>=1.30.0` | Tracing/metrics/logs implementation (T039) |
-| `opentelemetry-api` | `>=1.30.0` | OTel API surface (T039) |
-| `opentelemetry-exporter-otlp` | `>=1.30.0` | OTLP exporter to operator-chosen backend (T039) |
-| `opentelemetry-instrumentation-fastapi` | `>=0.50b0` | Auto-instrumentation for FastAPI (T039) |
-| `opentelemetry-instrumentation-sqlalchemy` | `>=0.50b0` | Auto-instrumentation for SQLAlchemy (T039) |
+| `python-jose[cryptography]` | `>=3.3.0` | JWT decoding + JWKS key construction for OIDC auth (004-T003, ADR-017) |
+| `httpx` | `>=0.27.0` | JWKS endpoint fetching + FastAPI test client; promoted to main deps (004-T001) |
+| `opentelemetry-sdk` | `>=1.30.0` | Tracing/metrics/logs implementation (004-T019) |
+| `opentelemetry-api` | `>=1.30.0` | OTel API surface (004-T019) |
+| `opentelemetry-exporter-otlp-proto-grpc` | `>=1.30.0` | OTLP/gRPC exporter to operator-chosen backend (004-T019) |
+| `opentelemetry-instrumentation-fastapi` | `>=0.50b0` | Auto-instrumentation for FastAPI (004-T019, ADR-019) |
+| `opentelemetry-instrumentation-httpx` | `>=0.50b0` | Auto-instrumentation for httpx (JWKS calls visible in traces; 004-T019) |
 
 Dev-only:
 | `pytest-asyncio` | `>=0.24.0` | Async test support for FastAPI/SQLAlchemy tests |
-| `httpx` | `>=0.27.0` | HTTP client for FastAPI test client (`AsyncClient`) |
 
 ### Identifier mapping (PT spec → EN code)
 `Ficha`→`CharacterSheet` · `Mundo`→`World` · `Evento`→`Event` · `Combate`→`Combat` ·
@@ -571,3 +579,153 @@ commits.  Works from any calling context (sync or already-running event loop).
 - Migration: `alembic/versions/0001_initial_schema.py` — apply with
   `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head`.
 - Phase-2 MCP path: `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server`
+
+---
+
+## 12. Accounts & Identity (slice 004)
+
+**PII policy:** The engine DB stores only `sub` (opaque OIDC subject string) + `created_at`. No email, no display name. Account identity is owned by the OIDC provider.
+
+### DB table: `account`
+
+```sql
+account (
+  id         TEXT  PRIMARY KEY,      -- UUID string
+  sub        TEXT  NOT NULL UNIQUE,  -- OIDC subject claim
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+```
+
+### Auth seam
+
+Routes `Depends(gamebook_web.auth.dev_auth.get_current_account)`. In production the lifespan installs:
+```python
+app.dependency_overrides[dev_auth.get_current_account] = oidc_auth.get_current_account
+```
+The play loop routes (003) are unchanged. Tests set `GAMEBOOK_DEV_MODE=1` to keep the dev stub.
+
+### Account dataclass
+
+```python
+@dataclass(frozen=True)
+class Account:
+    account_id: str   # DB UUID (from account.id, NOT the OIDC sub)
+```
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/me` | required | Return `{account_id, sub, created_at}` |
+| `GET` | `/me/export` | required | Portable export of all owned game data (GDPR) |
+| `DELETE` | `/me` | required | Cascade-delete account → campaigns → engine rows; `204` |
+
+### GDPR cascade rules
+
+`DELETE /me` cascade order:
+1. `session_lease` rows for owned campaigns
+2. Engine rows via FK `ON DELETE CASCADE` (character_sheet, world, event, combat, archive_record, save_slot)
+3. `campaign` rows
+4. `account` row
+
+### JWT validation
+
+ENV: `OIDC_JWKS_URI`, `OIDC_AUDIENCE`, `OIDC_ISSUER`  
+Algorithms: RS256, ES256  
+Key cache TTL: 5 min; force-refresh on unknown `kid` (key rotation)  
+Validated-token cache: keyed on `sha256(token)[:16]+exp`; serves cached `account_id` when JWKS unreachable  
+
+---
+
+## 13. Session Lease (slice 004)
+
+### DB table: `session_lease`
+
+```sql
+session_lease (
+  campaign_id       TEXT  PRIMARY KEY REFERENCES campaign(id) ON DELETE CASCADE,
+  lease_token       TEXT  NOT NULL,   -- UUID string
+  acquired_at       TIMESTAMPTZ NOT NULL,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  holder_account_id TEXT  NOT NULL REFERENCES account(id)
+)
+```
+
+TTL: 30 minutes default; renewed on every successful state-changing request.
+
+### LeaseService API
+
+| Method | Raises | Description |
+|---|---|---|
+| `acquire(campaign_id, account_id)` | 409 `not_session_holder` | Create or renew lease; reject if another account holds unexpired lease |
+| `validate(campaign_id, lease_token)` | 409 `not_session_holder` / `lease_expired` | Assert token is the current unexpired holder |
+| `renew(campaign_id, lease_token)` | 409 `not_session_holder` | Extend TTL on success |
+| `release(campaign_id, lease_token)` | — | Delete lease row |
+| `takeover(campaign_id, account_id, current_token)` | — | Atomically replace holder (force-acquire) |
+
+### Lease endpoints
+
+| Method | Path | Header | Description |
+|---|---|---|---|
+| `POST` | `/campaigns/{id}/session` | — | Acquire lease → `{lease_token, expires_at}` |
+| `POST` | `/campaigns/{id}/session/takeover` | — | Take over → new `{lease_token, expires_at}` |
+| `DELETE` | `/campaigns/{id}/session` | `X-Session-Lease` | Release lease |
+
+### Lease enforcement (LeaseGuardMiddleware)
+
+All mutating requests (`POST`, `DELETE`, `PATCH`, `PUT`) to `/campaigns/{id}/**` require `X-Session-Lease` header (except exempt paths: session endpoints themselves, character creation, campaign DELETE, `/me/**`).
+
+On token mismatch → `409 not_session_holder`  
+On expiry → `409 lease_expired`  
+On success → lease TTL renewed automatically  
+
+---
+
+## 14. Privacy / GDPR (slice 004)
+
+Export (`GET /me/export`) returns:
+```json
+{
+  "account": { "account_id": "...", "sub": "...", "created_at": "..." },
+  "campaigns": [
+    {
+      "campaign_id": "...", "status": "...", "created_at": "...", "summary": "...",
+      "character": { ... },
+      "world": { ... },
+      "events": [ ... ],
+      "archive": [ { "destination": "...", "data": { ... }, "archived_at": "..." } ]
+    }
+  ]
+}
+```
+
+The export includes all engine data for the account. PII in the export is limited to `sub` (opaque OIDC subject).
+
+---
+
+## 15. Observability (slice 004)
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTLP_ENDPOINT` | (unset = InMemorySpanExporter) | OTLP gRPC endpoint, e.g. `http://localhost:4317` |
+| `OTEL_SERVICE_NAME` | `gamebook-web` | OTel resource service name |
+
+### Span attributes (no PII rule)
+
+Allowed in spans: `campaign_id`, `account_id`, `turn_number` (opaque IDs).  
+Forbidden: character name, inventory, narrative text, world flags, OIDC `sub` or email.
+
+### Metric instruments
+
+| Name | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | method, path, status | All HTTP requests |
+| `turn_duration_seconds` | Histogram | — | Duration of /turn requests |
+| `active_campaigns` | UpDownCounter | — | Currently active campaigns |
+| `combat_rounds_total` | Counter | — | Combat rounds resolved |
+
+### Error handling rule
+
+On unhandled exception: set span status `ERROR` with `exception.type` only (no message, no traceback). Return `{"error": {"code": "internal_error", "message": "An error occurred"}}` to the client — never the raw exception.

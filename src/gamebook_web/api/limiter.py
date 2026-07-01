@@ -24,3 +24,11 @@ limiter = Limiter(key_func=get_remote_address)
 
 TURN_RATE = os.getenv("GAMEBOOK_TURN_RATE", "30/minute")
 COMBAT_RATE = os.getenv("GAMEBOOK_COMBAT_RATE", "60/minute")
+
+# Session-lease lifecycle endpoints (acquire/takeover/release).  These perform
+# DB writes (SELECT ... FOR UPDATE) and should be bounded to prevent abuse.
+SESSION_RATE = os.getenv("GAMEBOOK_SESSION_RATE", "60/minute")
+
+# Privacy endpoints.  Export runs an N+1 read across all owned campaigns and
+# delete performs a cascade delete, so both get a strict limit (CWE-770).
+PRIVACY_RATE = os.getenv("GAMEBOOK_PRIVACY_RATE", "5/minute")

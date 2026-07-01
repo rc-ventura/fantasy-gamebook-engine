@@ -1,14 +1,22 @@
 ---
 # docker-compose.yml — local dev services for the gamebook web backend.
 #
-# Phase-2 MVP: PostgreSQL only.
-# OIDC provider (Keycloak/Dex) and OTLP collector are added in slice 004.
+# Default profile: PostgreSQL only (docker compose up -d)
+# OIDC + OTLP services: docker compose --profile gameobs up -d
 #
 # Usage:
 #   docker compose up -d
 #   DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost:5432/gamebook \
 #     uv run alembic upgrade head
 #   DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload
+#
+# With OIDC + OTel:
+#   docker compose --profile gameobs up -d
+#   OIDC_JWKS_URI=http://localhost:5556/dex/keys \
+#   OIDC_AUDIENCE=gamebook \
+#   OIDC_ISSUER=http://localhost:5556/dex \
+#   OTLP_ENDPOINT=http://localhost:4317 \
+#     uv run uvicorn gamebook_web.api.app:app --reload
 
 services:
   postgres:
@@ -27,6 +35,45 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ---------------------------------------------------------------------------
+  # OIDC provider — Dex (static config, issues JWTs for test clients)
+  # Profile: gameobs  (not started by default; slice 004 test infra)
+  # ---------------------------------------------------------------------------
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    profiles: ["gameobs"]
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./docker/dex/config.yaml:/etc/dex/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5556/dex/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # OTLP collector — receives traces/metrics/logs from the app
+  # Profile: gameobs  (not started by default)
+  # Ports:
+  #   4317 — OTLP/gRPC receiver
+  #   4318 — OTLP/HTTP receiver
+  #   8888 — Prometheus metrics scrape endpoint
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.105.0
+    profiles: ["gameobs"]
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    volumes:
+      - ./docker/otel/config.yaml:/etc/otel/config.yaml:ro
 
 volumes:
   postgres_data:
