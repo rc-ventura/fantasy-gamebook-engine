@@ -202,7 +202,7 @@ async def get_current_account(
         # Also get exp from unverified claims for cache lookup
         unverified_claims = jwt.get_unverified_claims(token)
         exp = int(unverified_claims.get("exp", 0))
-    except JWTError as exc:
+    except (JWTError, ValueError, TypeError) as exc:
         _unauthenticated(f"Malformed token: {exc}")
 
     # Check validated-token cache (graceful degradation)

@@ -86,7 +86,12 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
             # Skip if no DATABASE_URL (InMemoryStorage / test mode without Postgres)
             return await call_next(request)
 
-        # Skip non-mutating and exempt paths
+        # Skip non-mutating methods (GET, HEAD, OPTIONS, etc.) — only the
+        # state-changing methods require a lease.
+        if method not in _MUTATING_METHODS:
+            return await call_next(request)
+
+        # Skip exempt paths
         if _is_exempt(path, method):
             return await call_next(request)
 
