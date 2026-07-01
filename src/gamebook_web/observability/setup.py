@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 _SETUP_DONE = False
 _IN_MEMORY_EXPORTER: InMemorySpanExporter | None = None
+# References to the providers we create, kept so ``reset_telemetry`` can shut
+# them down (flushing/closing exporters) rather than orphaning them.
+_TRACER_PROVIDER: TracerProvider | None = None
+_METER_PROVIDER: MeterProvider | None = None
 
 
 def setup_telemetry(
@@ -51,7 +55,7 @@ def setup_telemetry(
         OTLP gRPC endpoint.  Defaults to ``OTLP_ENDPOINT`` env var.
         If neither is set, an in-memory exporter is used (dev/test).
     """
-    global _SETUP_DONE, _IN_MEMORY_EXPORTER
+    global _SETUP_DONE, _IN_MEMORY_EXPORTER, _TRACER_PROVIDER, _METER_PROVIDER
 
     if _SETUP_DONE:
         return _IN_MEMORY_EXPORTER
@@ -78,6 +82,7 @@ def setup_telemetry(
         _IN_MEMORY_EXPORTER = in_mem
 
     trace.set_tracer_provider(tracer_provider)
+    _TRACER_PROVIDER = tracer_provider
 
     # ---------------------------------------------------------------
     # Metrics
@@ -90,6 +95,7 @@ def setup_telemetry(
         meter_provider = MeterProvider(resource=resource)
 
     metrics.set_meter_provider(meter_provider)
+    _METER_PROVIDER = meter_provider
 
     # ---------------------------------------------------------------
     # FastAPI auto-instrumentation
@@ -116,7 +122,43 @@ def setup_telemetry(
 
 
 def reset_telemetry() -> None:
-    """Reset telemetry state (for testing only)."""
-    global _SETUP_DONE, _IN_MEMORY_EXPORTER
+    """Reset telemetry state (for testing only).
+
+    Shuts down the tracer/meter providers created by ``setup_telemetry`` and
+    uninstruments FastAPI/httpx so a subsequent ``setup_telemetry`` starts from
+    a clean slate.  Without this, repeated setup/reset cycles in tests leave the
+    old instrumentors active and orphan the previous InMemorySpanExporter,
+    producing unreliable span assertions (test pollution).
+    """
+    global _SETUP_DONE, _IN_MEMORY_EXPORTER, _TRACER_PROVIDER, _METER_PROVIDER
+
+    # Flush and close the providers we created.
+    if _TRACER_PROVIDER is not None:
+        try:
+            _TRACER_PROVIDER.shutdown()
+        except Exception:  # pragma: no cover — best-effort cleanup
+            pass
+    if _METER_PROVIDER is not None:
+        try:
+            _METER_PROVIDER.shutdown()
+        except Exception:  # pragma: no cover — best-effort cleanup
+            pass
+
+    # Uninstrument so a later setup can re-instrument without double-wrapping.
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor().uninstrument()
+    except Exception:  # pragma: no cover — not installed / not instrumented
+        pass
+    try:
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        HTTPXClientInstrumentor().uninstrument()
+    except Exception:  # pragma: no cover — not installed / not instrumented
+        pass
+
     _SETUP_DONE = False
     _IN_MEMORY_EXPORTER = None
+    _TRACER_PROVIDER = None
+    _METER_PROVIDER = None
