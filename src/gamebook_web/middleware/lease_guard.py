@@ -95,6 +95,11 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
         if _is_exempt(path, method):
             return await call_next(request)
 
+        # Only mutating methods require a lease (HEAD and other read-only or
+        # non-standard methods pass through untouched).
+        if method not in _MUTATING_METHODS:
+            return await call_next(request)
+
         # Extract campaign_id from path
         match = _CAMPAIGN_ID_RE.match(path)
         if not match:

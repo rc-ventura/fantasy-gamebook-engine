@@ -111,6 +111,20 @@ async def create_campaign(
     """Start a new campaign. Returns campaign_id for all subsequent calls."""
     registry: CampaignRegistry = get_campaign_registry(request)
     state = registry.create(account.account_id)
+
+    # Persist the campaign row with its owning account_id when a database is
+    # configured.  This must happen before any engine-side bootstrap so that
+    # ownership checks (e.g. the session-lease guard) resolve correctly; the
+    # engine's own campaign upsert uses ON CONFLICT (id) DO NOTHING and will
+    # not overwrite the account_id we set here.
+    import os
+
+    if os.getenv("DATABASE_URL"):
+        from gamebook_web.accounts import get_account_repository
+
+        repo = get_account_repository()
+        await repo.create_campaign(account.account_id, state.campaign_id)
+
     return CampaignResponse(campaign_id=state.campaign_id, status=state.status)
 
 
