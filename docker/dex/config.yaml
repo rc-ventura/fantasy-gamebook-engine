@@ -1,0 +1,40 @@
+# Dex OIDC provider config — local dev only
+# Issues RS256 JWTs for the gamebook test client.
+# DO NOT use these credentials in production.
+
+issuer: http://localhost:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+logger:
+  level: info
+
+# Static OAuth2 clients for development / testing
+staticClients:
+  - id: gamebook
+    secret: gamebook-secret-dev
+    name: "Gamebook Dev Client"
+    redirectURIs:
+      - http://localhost:3000/callback
+      - http://localhost:8000/callback
+
+# Static test passwords — for integration tests only
+enablePasswordDB: true
+staticPasswords:
+  - email: player1@example.com
+    hash: "$2y$12$EJbBgdVCUvB6Y3LV8cQJCeIbOq7RXMWFmqiD0Y.lKjW9rHAtGp9Hi"
+    username: player1
+    userID: "player1-uid"
+  - email: player2@example.com
+    hash: "$2y$12$EJbBgdVCUvB6Y3LV8cQJCeIbOq7RXMWFmqiD0Y.lKjW9rHAtGp9Hi"
+    username: player2
+    userID: "player2-uid"
+
+oauth2:
+  skipApprovalScreen: true
+  responseTypes:
+    - code

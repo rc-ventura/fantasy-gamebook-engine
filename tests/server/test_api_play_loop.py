@@ -384,7 +384,17 @@ class TestAuthEnvelope:
         resp = api_client.post("/me/game", json={})  # no Authorization header
         assert resp.status_code == 201
 
-    def test_no_token_fails_closed_by_default(self, api_client):
-        """Fail-closed: without GAMEBOOK_DEV_MODE set, a missing token → 401."""
-        resp = api_client.post("/me/game", json={})  # no Authorization header
-        assert resp.status_code == 401
+    def test_no_auth_configured_refuses_to_boot(self, monkeypatch):
+        """Fail-closed at boot (T030, ADR-022): with neither GAMEBOOK_DEV_MODE
+        nor OIDC configured, the app refuses to start rather than serving a
+        public API reachable with the well-known dev token."""
+        from starlette.testclient import TestClient
+
+        from gamebook_web.api.app import app
+
+        monkeypatch.delenv("GAMEBOOK_DEV_MODE", raising=False)
+        monkeypatch.delenv("OIDC_JWKS_URI", raising=False)
+        app.dependency_overrides.clear()
+        with pytest.raises(RuntimeError, match="no authentication configured"):
+            with TestClient(app):
+                pass

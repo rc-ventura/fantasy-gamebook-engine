@@ -80,8 +80,13 @@ class PostgresStorage:
         satisfied before any other method is called.
     """
 
-    def __init__(self, url: str, campaign_id: str) -> None:
+    def __init__(self, url: str, campaign_id: str, account_id: str | None = None) -> None:
         self._campaign_id = campaign_id
+        # Owning account for this campaign (FR-024).  When provided, the campaign
+        # row is created/healed with this account_id so the storage never leaves
+        # an orphan (NULL-owner) campaign that ownership checks would reject.
+        # Optional for pure-storage tests that don't exercise ownership.
+        self._account_id = account_id
 
         # TLS enforcement (ADR-026, T072): require SSL by default.
         # Set POSTGRES_SSL_MODE=disable for local dev/test without TLS.
@@ -155,19 +160,38 @@ class PostgresStorage:
     # ------------------------------------------------------------------
 
     async def _ensure_campaign(self) -> None:
-        """Upsert the campaign row so all FK references succeed."""
+        """Upsert the campaign row so all FK references succeed.
+
+        When an owning ``account_id`` is known (FR-024), the row is created with
+        it and — on an existing row — its owner is healed only if currently NULL
+        (``COALESCE`` never overwrites an established owner, so a mis-scoped
+        storage instance can't reassign someone else's campaign).
+        """
         async with self._session() as session:
             async with session.begin():
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO campaign (id, status, created_at, updated_at, summary_text)
-                        VALUES (:id, 'active', NOW(), NOW(), '')
-                        ON CONFLICT (id) DO NOTHING
-                        """
-                    ),
-                    {"id": self._campaign_id},
-                )
+                if self._account_id:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO campaign (id, account_id, status, created_at, updated_at, summary_text)
+                            VALUES (:id, :account_id, 'active', NOW(), NOW(), '')
+                            ON CONFLICT (id) DO UPDATE
+                              SET account_id = COALESCE(campaign.account_id, EXCLUDED.account_id)
+                            """
+                        ),
+                        {"id": self._campaign_id, "account_id": self._account_id},
+                    )
+                else:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO campaign (id, status, created_at, updated_at, summary_text)
+                            VALUES (:id, 'active', NOW(), NOW(), '')
+                            ON CONFLICT (id) DO NOTHING
+                            """
+                        ),
+                        {"id": self._campaign_id},
+                    )
 
     # ------------------------------------------------------------------
     # Character

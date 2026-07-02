@@ -219,18 +219,23 @@ class PydanticNarrator:
         (_NARRATOR_ALLOWED_TOOLS) so lifecycle tools cannot be called during
         narration. UsageLimits caps tool-call iterations to prevent runaway loops.
         """
+        from gamebook_web.observability.tracing import narrator_span
+
         prompt = self._build_prompt(context)
 
+        # Keep the ScopedMCPToolset campaign_id injection (006) AND wrap the LLM
+        # call in a narrator span (004, T047/FR-030) for latency visibility.
         if self._toolset:
             scoped = ScopedMCPToolset(wrapped=self._toolset, campaign_id=campaign_id)
             toolsets = [scoped.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
         else:
             toolsets = []
-        result = await self._agent.run(
-            prompt,
-            toolsets=toolsets,
-            usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
-        )
+        with narrator_span(campaign_id):
+            result = await self._agent.run(
+                prompt,
+                toolsets=toolsets,
+                usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
+            )
         return result.output
 
     # ------------------------------------------------------------------

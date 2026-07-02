@@ -32,6 +32,15 @@ from slowapi.util import get_remote_address
 TURN_RATE = os.getenv("GAMEBOOK_TURN_RATE", "30/minute")
 COMBAT_RATE = os.getenv("GAMEBOOK_COMBAT_RATE", "60/minute")
 
+# Session-lease lifecycle endpoints (acquire/takeover/release).  These perform
+# DB writes (SELECT ... FOR UPDATE) and should be bounded to prevent abuse.
+SESSION_RATE = os.getenv("GAMEBOOK_SESSION_RATE", "60/minute")
+
+# Privacy endpoints.  Export runs an N+1 read across all owned campaigns and
+# delete performs a cascade delete, so both get a strict limit (CWE-770).
+PRIVACY_RATE = os.getenv("GAMEBOOK_PRIVACY_RATE", "5/minute")
+
+
 def _trusted_proxy() -> bool:
     # Read lazily so tests (and container restarts) see the current env value.
     return os.getenv("GAMEBOOK_TRUSTED_PROXY", "0") in ("1", "true", "True")
@@ -40,19 +49,21 @@ def _trusted_proxy() -> bool:
 def rate_limit_key(request: Request) -> str:
     """Key authenticated traffic on the account; unauthenticated on the IP.
 
-    The dev auth stub maps the single valid token to the dev account; slice 004
-    (real OIDC) swaps this to key on the validated token's ``sub`` claim.  An
-    *invalid* bearer token must NOT get its own bucket (that would let an
-    attacker mint fresh buckets per request), so anything unverified falls
-    back to the IP key.
+    In dev mode the stub maps the single valid token to the dev account.  Under
+    real OIDC we cannot cheaply verify the token here (the limiter key runs
+    before auth), so anything that is not the recognised dev credential falls
+    back to the IP key — an *invalid* bearer token must NOT get its own bucket
+    (that would let an attacker mint fresh buckets per request).
     """
     # Import here (not module top) to keep the auth seam swappable without a
-    # circular import once oidc_auth replaces dev_auth in slice 004.
-    from gamebook_web.auth.dev_auth import DEV_ACCOUNT_ID, DEV_TOKEN
+    # circular import.  DEV_TOKEN only exists on dev_auth in dev mode (it is
+    # fail-closed in production), so read it defensively.
+    from gamebook_web.auth import dev_auth
 
+    dev_token = getattr(dev_auth, "DEV_TOKEN", None)
     authorization = request.headers.get("Authorization", "")
-    if authorization.startswith("Bearer ") and authorization[len("Bearer "):] == DEV_TOKEN:
-        return f"account:{DEV_ACCOUNT_ID}"
+    if dev_token and authorization.startswith("Bearer ") and authorization[len("Bearer "):] == dev_token:
+        return f"account:{dev_auth.DEV_ACCOUNT_ID}"
 
     if _trusted_proxy():
         forwarded = request.headers.get("X-Forwarded-For", "")
