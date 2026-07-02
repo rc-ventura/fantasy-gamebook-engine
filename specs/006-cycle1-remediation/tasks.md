@@ -142,6 +142,14 @@ logged with path and reason.
 
 ---
 
+> **Implementation note (Phases 4–6, 10 · T030–T060):** these tasks remediate
+> the slice-004 code (`auth/oidc_auth.py`, `accounts.py`, `sessions/lease.py`,
+> `observability/`), which lives on the `feat/004-auth-obs` branch per the
+> `006 → 004` dependency chain — not on `feat/006-remediation`. They were
+> implemented and verified in the `feat/004-auth-obs` worktree (commits
+> `fail-closed OIDC` / `DB-backed ownership` / `OTel observability` /
+> `live-Postgres suites`): 252 passed no-DB, +18 live-Postgres green.
+
 ## Phase 4: US4 — OIDC auth is fail-closed (Priority: P1)
 
 **Goal**: Remove the dev stub from the production path; require `OIDC_ISSUER` + `exp`
@@ -155,13 +163,13 @@ the auth seam must be fail-closed before campaign ownership can rely on real acc
 without `OIDC_JWKS_URI` (assert refusal); JWT without `exp` (assert `401`); JWT
 without `kid` (assert `401`); JWT with wrong `iss` (assert `401`).
 
-- [ ] T030 [US4] Remove the dev-stub fallback from `src/gamebook_web/api/app.py` lifespan: when `OIDC_JWKS_URI` is unset and `GAMEBOOK_DEV_MODE` is not explicitly enabled, raise `RuntimeError` (or install a dependency override returning `401` for every request). (ADR-022, FR-018)
-- [ ] T031 [P] [US4] Move `DEV_TOKEN = "dev-token"` out of `src/gamebook_web/auth/dev_auth.py` production code into a test-fixture-only location (`tests/server/conftest.py` or `tests/server/test_constants.py`). The `dev_auth` module only defines it when `GAMEBOOK_DEV_MODE=1` is explicitly set in a non-production environment. (ADR-022, FR-018)
-- [ ] T032 [US4] Make `OIDC_ISSUER` mandatory in `src/gamebook_web/auth/oidc_auth.py`: no empty-string default; if unset when OIDC is active, raise at startup. Set `verify_iss=True` always. (ADR-022, FR-019)
-- [ ] T033 [P] [US4] Require `exp` claim in JWT decode in `src/gamebook_web/auth/oidc_auth.py`: tokens without `exp` → `401`. (ADR-022, FR-019)
-- [ ] T034 [P] [US4] Reject tokens with missing `kid` in `src/gamebook_web/auth/oidc_auth.py`: no fallback to first JWKS key. (ADR-022, FR-020)
-- [ ] T035 [US4] Change validated-token cache key in `src/gamebook_web/auth/oidc_auth.py` from full SHA-256 to `sha256(token)[:16] + str(exp)`. (ADR-022, FR-021)
-- [ ] T036 [US4] Add `tests/server/test_oidc_fail_closed.py`: boot without `OIDC_JWKS_URI` (assert refusal); JWT without `exp` (assert `401`); JWT without `kid` (assert `401`); JWT with wrong `iss` (assert `401`); inspect cache key format. (SC-009)
+- [X] T030 [US4] Remove the dev-stub fallback from `src/gamebook_web/api/app.py` lifespan: when `OIDC_JWKS_URI` is unset and `GAMEBOOK_DEV_MODE` is not explicitly enabled, raise `RuntimeError` (or install a dependency override returning `401` for every request). (ADR-022, FR-018)
+- [X] T031 [P] [US4] Move `DEV_TOKEN = "dev-token"` out of `src/gamebook_web/auth/dev_auth.py` production code into a test-fixture-only location (`tests/server/conftest.py` or `tests/server/test_constants.py`). The `dev_auth` module only defines it when `GAMEBOOK_DEV_MODE=1` is explicitly set in a non-production environment. (ADR-022, FR-018)
+- [X] T032 [US4] Make `OIDC_ISSUER` mandatory in `src/gamebook_web/auth/oidc_auth.py`: no empty-string default; if unset when OIDC is active, raise at startup. Set `verify_iss=True` always. (ADR-022, FR-019)
+- [X] T033 [P] [US4] Require `exp` claim in JWT decode in `src/gamebook_web/auth/oidc_auth.py`: tokens without `exp` → `401`. (ADR-022, FR-019)
+- [X] T034 [P] [US4] Reject tokens with missing `kid` in `src/gamebook_web/auth/oidc_auth.py`: no fallback to first JWKS key. (ADR-022, FR-020)
+- [X] T035 [US4] Change validated-token cache key in `src/gamebook_web/auth/oidc_auth.py` from full SHA-256 to `sha256(token)[:16] + str(exp)`. (ADR-022, FR-021)
+- [X] T036 [US4] Add `tests/server/test_oidc_fail_closed.py`: boot without `OIDC_JWKS_URI` (assert refusal); JWT without `exp` (assert `401`); JWT without `kid` (assert `401`); JWT with wrong `iss` (assert `401`); inspect cache key format. (SC-009)
 
 **Checkpoint**: OIDC auth is fail-closed; dev stub is test-only; `OIDC_ISSUER` + `exp`
 mandatory; strict `kid` binding; cache key aligned.
@@ -182,14 +190,14 @@ Fixes HIGH (campaign ownership split) and MEDIUM (lease semantics / account fixe
 **Independent Test** (US6): Acquire lease, takeover with wrong `current_token` → `409`;
 wait until `expires_at == now()` → assert expired.
 
-- [ ] T037 [US5] Replace `CampaignRegistry` usage in `src/gamebook_web/api/play.py` with `AccountRepository` methods. `_get_active_campaign(account)` (from T113) calls `AccountRepository.get_active_campaign(account_id)` not `registry.get(...)`. Reduce the in-memory registry to transient-state cache only (current scene, session-lease token). (ADR-025, FR-022)
-- [ ] T038 [P] [US5] Fix `src/gamebook_web/accounts.py` `create_campaign`: raise `409` on duplicate `campaign_id`; always set `account_id` on the campaign row. (ADR-025, FR-023)
-- [ ] T039 [P] [US5] Fix `src/gamebook/storage/postgres.py` `_ensure_campaign`: insert campaign rows with the correct `account_id` (passed from the caller, not `NULL`). (ADR-025, FR-024)
-- [ ] T040 [P] [US5] Fix `src/gamebook_web/api/account.py` `DELETE /me`: return `404` if account does not exist (not `204`); require a `confirmation` field in the request body — without it → `400`. (ADR-025, FR-025)
-- [ ] T041 [P] [US5] Add `save_slot` snapshots to `src/gamebook_web/accounts.py` `export_account` payload. (ADR-025, FR-026)
-- [ ] T042 [P] [US6] Fix `src/gamebook_web/sessions/lease.py` `takeover`: validate `current_token` against the current holder before force-acquiring. Wrong or missing → `409`. (ADR-023, FR-027)
-- [ ] T043 [P] [US6] Fix `src/gamebook_web/sessions/lease.py` `acquire` and `validate`: change `<` to `<=` for expiry check (`expires_at <= now()` is expired). (ADR-023, FR-028)
-- [ ] T044 [US5] Add `tests/server/test_account_endpoints.py`: `DELETE /me` `404` for non-existent, `400` without confirmation, `204` with confirmation; `GET /me/export` includes `save_slot`. (SC-013, SC-014)
+- [X] T037 [US5] Replace `CampaignRegistry` usage in `src/gamebook_web/api/play.py` with `AccountRepository` methods. `_get_active_campaign(account)` (from T113) calls `AccountRepository.get_active_campaign(account_id)` not `registry.get(...)`. Reduce the in-memory registry to transient-state cache only (current scene, session-lease token). (ADR-025, FR-022)
+- [X] T038 [P] [US5] Fix `src/gamebook_web/accounts.py` `create_campaign`: raise `409` on duplicate `campaign_id`; always set `account_id` on the campaign row. (ADR-025, FR-023)
+- [X] T039 [P] [US5] Fix `src/gamebook/storage/postgres.py` `_ensure_campaign`: insert campaign rows with the correct `account_id` (passed from the caller, not `NULL`). (ADR-025, FR-024)
+- [X] T040 [P] [US5] Fix `src/gamebook_web/api/account.py` `DELETE /me`: return `404` if account does not exist (not `204`); require a `confirmation` field in the request body — without it → `400`. (ADR-025, FR-025)
+- [X] T041 [P] [US5] Add `save_slot` snapshots to `src/gamebook_web/accounts.py` `export_account` payload. (ADR-025, FR-026)
+- [X] T042 [P] [US6] Fix `src/gamebook_web/sessions/lease.py` `takeover`: validate `current_token` against the current holder before force-acquiring. Wrong or missing → `409`. (ADR-023, FR-027)
+- [X] T043 [P] [US6] Fix `src/gamebook_web/sessions/lease.py` `acquire` and `validate`: change `<` to `<=` for expiry check (`expires_at <= now()` is expired). (ADR-023, FR-028)
+- [X] T044 [US5] Add `tests/server/test_account_endpoints.py`: `DELETE /me` `404` for non-existent, `400` without confirmation, `204` with confirmation; `GET /me/export` includes `save_slot`. (SC-013, SC-014)
 
 **Checkpoint**: Campaign ownership is DB-backed; `create_campaign` rejects duplicates;
 `_ensure_campaign` sets `account_id`; `DELETE /me` requires confirmation; GDPR export
@@ -209,17 +217,17 @@ and MEDIUM (PII/traceback leak, no audit logs, OTLP insecure) from 004 review.
 tests/server/test_security_audit_logging.py -v` — span helpers exist with correct
 attributes, no PII, `http_requests_total` incremented, audit log lines present.
 
-- [ ] T045 [US7] Fix `src/gamebook_web/observability/setup.py`: change `FastAPIInstrumentor().instrument()` to `FastAPIInstrumentor.instrument_app(app)`. (ADR-024, FR-029)
-- [ ] T046 [US7] Wire `turn_span` in `src/gamebook_web/api/play.py` `/turn` route: wrap the handler body in `turn_span(campaign_id, account_id, turn_number)`. (ADR-024, FR-030)
-- [ ] T047 [P] [US7] Wire `narrator_span` in `src/gamebook_web/harness/agent.py` narrator call: wrap the LLM call in `narrator_span()`. (ADR-024, FR-030)
-- [ ] T048 [P] [US7] Emit metrics at call sites: `http_requests_total` (every HTTP request), `turn_duration_seconds` (after `/turn`), `active_campaigns` (on create/delete), `combat_rounds_total` (on combat round). (ADR-024, FR-030)
-- [ ] T049 [P] [US7] Fix `src/gamebook_web/observability/tracing.py` `span_set_error`: record only `type(exc).__name__` — no message, no traceback. Replace `record_exception(exc)` with a manual event or attribute override. (ADR-024, FR-031)
+- [X] T045 [US7] Fix `src/gamebook_web/observability/setup.py`: change `FastAPIInstrumentor().instrument()` to `FastAPIInstrumentor.instrument_app(app)`. (ADR-024, FR-029)
+- [X] T046 [US7] Wire `turn_span` in `src/gamebook_web/api/play.py` `/turn` route: wrap the handler body in `turn_span(campaign_id, account_id, turn_number)`. (ADR-024, FR-030)
+- [X] T047 [P] [US7] Wire `narrator_span` in `src/gamebook_web/harness/agent.py` narrator call: wrap the LLM call in `narrator_span()`. (ADR-024, FR-030)
+- [X] T048 [P] [US7] Emit metrics at call sites: `http_requests_total` (every HTTP request), `turn_duration_seconds` (after `/turn`), `active_campaigns` (on create/delete), `combat_rounds_total` (on combat round). (ADR-024, FR-030)
+- [X] T049 [P] [US7] Fix `src/gamebook_web/observability/tracing.py` `span_set_error`: record only `type(exc).__name__` — no message, no traceback. Replace `record_exception(exc)` with a manual event or attribute override. (ADR-024, FR-031)
 - [X] T050 [P] [US7] Fix `src/gamebook_web/api/app.py` generic exception handler: change `logger.exception(...)` to `logger.error("unhandled %s", type(exc).__name__)`. (ADR-024, FR-031)
-- [ ] T051 [P] [US7] Remove `insecure=True` from `src/gamebook_web/observability/setup.py` OTLP exporters; use TLS by default. Only set `insecure=True` when `OTLP_INSECURE=true` is explicitly set. (ADR-024, FR-032)
-- [ ] T052 [P] [US7] Add security audit logging in `src/gamebook_web/api/account.py` (sign-in/sign-out/failed auth/account deletion), `src/gamebook_web/api/sessions.py` (lease acquire/takeover/release), `src/gamebook_web/middleware/lease_guard.py` (lease validation failures), `src/gamebook_web/auth/oidc_auth.py` (JWKS fetch failures, token validation failures). Log at `INFO`/`WARNING` with opaque IDs only. (FR-033)
+- [X] T051 [P] [US7] Remove `insecure=True` from `src/gamebook_web/observability/setup.py` OTLP exporters; use TLS by default. Only set `insecure=True` when `OTLP_INSECURE=true` is explicitly set. (ADR-024, FR-032)
+- [X] T052 [P] [US7] Add security audit logging in `src/gamebook_web/api/account.py` (sign-in/sign-out/failed auth/account deletion), `src/gamebook_web/api/sessions.py` (lease acquire/takeover/release), `src/gamebook_web/middleware/lease_guard.py` (lease validation failures), `src/gamebook_web/auth/oidc_auth.py` (JWKS fetch failures, token validation failures). Log at `INFO`/`WARNING` with opaque IDs only. (FR-033)
 - [X] T053 [P] [US7] Reject `GAMEBOOK_CORS_ORIGINS=*` at startup in `src/gamebook_web/api/app.py` when `allow_credentials=True`. (FR-034)
-- [ ] T054 [US7] Add `tests/server/test_otel_instrumentation.py`: assert `turn_span`/`narrator_span` exist with correct attributes (no PII); assert `http_requests_total` incremented; assert `span_set_error` has no message/traceback; assert `instrument_app` was called. (SC-012)
-- [ ] T055 [US7] Add `tests/server/test_security_audit_logging.py`: assert log lines for sign-in/out, failed auth, lease acquire/takeover/release, account deletion. (SC-015)
+- [X] T054 [US7] Add `tests/server/test_otel_instrumentation.py`: assert `turn_span`/`narrator_span` exist with correct attributes (no PII); assert `http_requests_total` incremented; assert `span_set_error` has no message/traceback; assert `instrument_app` was called. (SC-012)
+- [X] T055 [US7] Add `tests/server/test_security_audit_logging.py`: assert log lines for sign-in/out, failed auth, lease acquire/takeover/release, account deletion. (SC-015)
 
 **Checkpoint**: OTel correctly instrumented; span helpers wired; metrics emitted;
 exceptions redacted in spans and logs; OTLP defaults to TLS; security audit logging
@@ -335,11 +343,11 @@ headers set, vitest upgraded.
 
 **Dependency**: Requires Phases 5, 6, 7 (the code under test must be fixed first).
 
-- [ ] T056 [P] Add `tests/server/test_postgres_accounts.py`: account upsert (`get_or_create`), account resolution from OIDC `sub`, account deletion with cascade. (SC-017, FR-035)
-- [ ] T057 [P] Add `tests/server/test_postgres_campaign_ownership.py`: create campaign (assert `account_id` not `NULL`); duplicate ID → `409`; list campaigns (assert from Postgres, not in-memory); delete campaign (assert row removed). (SC-010, SC-017, FR-035)
-- [ ] T058 [P] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
-- [ ] T059 [P] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
-- [ ] T060 [P] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
+- [X] T056 [P] Add `tests/server/test_postgres_accounts.py`: account upsert (`get_or_create`), account resolution from OIDC `sub`, account deletion with cascade. (SC-017, FR-035)
+- [X] T057 [P] Add `tests/server/test_postgres_campaign_ownership.py`: create campaign (assert `account_id` not `NULL`); duplicate ID → `409`; list campaigns (assert from Postgres, not in-memory); delete campaign (assert row removed). (SC-010, SC-017, FR-035)
+- [X] T058 [P] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
+- [X] T059 [P] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
+- [X] T060 [P] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
 - [X] T080 [P] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
 - [X] T081 [P] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
 - [X] T082 [P] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
