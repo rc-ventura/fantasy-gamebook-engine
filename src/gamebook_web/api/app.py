@@ -77,18 +77,41 @@ def _setup_telemetry() -> None:
 
 
 def _install_auth_override(app: FastAPI) -> None:
-    """Route dev_auth.get_current_account → oidc_auth.get_current_account in prod."""
+    """Wire the auth dependency, failing closed (T030, ADR-022, FR-018).
+
+    Three cases:
+      - ``GAMEBOOK_DEV_MODE`` enabled → keep the dev stub (local dev / tests).
+      - OIDC configured (``OIDC_JWKS_URI`` set) → override to real OIDC.
+      - Neither → refuse to start.  Booting with no configured authentication
+        would leave a public API reachable with the well-known dev credential,
+        so we raise rather than silently serve.
+    """
     dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0") in ("1", "true", "True")
     oidc_uri = os.getenv("OIDC_JWKS_URI", "")
 
-    if not dev_mode and oidc_uri:
-        # Production: real OIDC
-        from gamebook_web.auth.dev_auth import get_current_account as _dev_dep
-        from gamebook_web.auth.oidc_auth import get_current_account as _oidc_dep
-        app.dependency_overrides[_dev_dep] = _oidc_dep
-        logger.info("Auth: OIDC enabled (JWKS=%s)", oidc_uri)
-    else:
-        logger.info("Auth: dev stub active (GAMEBOOK_DEV_MODE=1 or OIDC_JWKS_URI not set)")
+    if dev_mode:
+        logger.info("Auth: dev stub active (GAMEBOOK_DEV_MODE enabled)")
+        return
+
+    if not oidc_uri:
+        raise RuntimeError(
+            "Refusing to start: no authentication configured. "
+            "Set OIDC_JWKS_URI to enable production OIDC, or GAMEBOOK_DEV_MODE=1 "
+            "for local development."
+        )
+
+    # T032 (FR-019): 'iss' is always verified, so OIDC_ISSUER must be configured.
+    if not os.getenv("OIDC_ISSUER", ""):
+        raise RuntimeError(
+            "Refusing to start: OIDC is enabled but OIDC_ISSUER is not set. "
+            "Configure the expected token issuer (iss)."
+        )
+
+    # Production: real OIDC
+    from gamebook_web.auth.dev_auth import get_current_account as _dev_dep
+    from gamebook_web.auth.oidc_auth import get_current_account as _oidc_dep
+    app.dependency_overrides[_dev_dep] = _oidc_dep
+    logger.info("Auth: OIDC enabled (JWKS=%s)", oidc_uri)
 
 
 def _init_app_state(app: FastAPI) -> None:

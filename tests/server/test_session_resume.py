@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
-from gamebook_web.auth.dev_auth import DEV_TOKEN, Account
+from gamebook_web.auth.dev_auth import Account
 
 # ---------------------------------------------------------------------------
 # Two-account fixture (A + B with different account_id / dev tokens)

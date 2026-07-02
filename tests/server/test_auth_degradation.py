@@ -128,6 +128,7 @@ async def test_cached_token_accepted_when_jwks_unreachable():
             {
                 "OIDC_JWKS_URI": "http://unreachable-oidc:5556/keys",
                 "OIDC_AUDIENCE": "gamebook",
+                "OIDC_ISSUER": "http://unreachable-oidc:5556",
                 "GAMEBOOK_DEV_MODE": "0",
             },
         ),

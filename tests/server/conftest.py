@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import random
 from typing import Any
 
 import pytest
+
+# The web API auth seam is fail-closed by default (T030/T031, ADR-022): without
+# GAMEBOOK_DEV_MODE the dev stub rejects every request and the app refuses to
+# start.  The server test-suite runs against the dev stub, so enable dev mode for
+# the whole suite here (before any test imports the app).  Tests that exercise
+# production/fail-closed behaviour override this explicitly via monkeypatch.
+os.environ.setdefault("GAMEBOOK_DEV_MODE", "1")
 
 from gamebook.domain.models import (
     ArchiveRecord,
