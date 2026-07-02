@@ -1,8 +1,13 @@
-"""Campaign registry — in-memory dev stub (persistence + lease enforcement in 004).
+"""Campaign registry — transient per-session cache (DB is authoritative in 004).
 
-Tracks which campaigns exist, their status (active/ended), and transient
-per-campaign state (active combat id, latest scene).  Slice 004 replaces this
-with a database-backed store without touching the play loop.
+When a database is configured, ``AccountRepository`` is the source of truth for
+campaign existence, ownership, and status (FR-022, ADR-025): those survive a
+restart.  This registry then only caches transient per-session state that need
+not be durable — the latest narrator scene (for ``GET /scene``) and a cached
+copy of status.  ``adopt()`` re-hydrates a transient shell for a DB-known
+campaign that isn't cached yet (e.g. after a process restart).
+
+Without a database (dev/test), the registry is authoritative on its own.
 
 The registry is stored in ``app.state.campaign_registry`` so it is:
   - Isolated per app instance (each TestClient call gets its own registry via
@@ -45,6 +50,25 @@ class CampaignRegistry:
 
     def get(self, campaign_id: str) -> CampaignState | None:
         return self._campaigns.get(campaign_id)
+
+    def adopt(
+        self,
+        campaign_id: str,
+        account_id: str,
+        status: str = "active",
+    ) -> CampaignState:
+        """Cache a transient shell for a DB-known campaign (FR-022).
+
+        Used when the DB confirms a campaign exists/owned but the in-memory
+        cache has no entry (e.g. after a restart).  Status comes from the DB.
+        """
+        state = CampaignState(
+            campaign_id=campaign_id,
+            account_id=account_id,
+            status="ended" if status == "ended" else "active",
+        )
+        self._campaigns[campaign_id] = state
+        return state
 
     def list_for_account(self, account_id: str) -> list[CampaignState]:
         return [c for c in self._campaigns.values() if c.account_id == account_id]

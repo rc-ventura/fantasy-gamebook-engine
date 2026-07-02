@@ -17,6 +17,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
 from gamebook_web.api.limiter import PRIVACY_RATE, limiter
 from gamebook_web.auth.dev_auth import Account, get_current_account
@@ -24,6 +25,13 @@ from gamebook_web.auth.dev_auth import Account, get_current_account
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["account"])
+
+
+class DeleteAccountRequest(BaseModel):
+    """Erasure is irreversible, so it requires an explicit confirmation flag
+    (FR-025): a request without ``confirmation: true`` is rejected 400."""
+
+    confirmation: bool = False
 
 
 def _has_database() -> bool:
@@ -79,13 +87,35 @@ async def export_me(
 @limiter.limit(PRIVACY_RATE)
 async def delete_me(
     request: Request,
+    body: DeleteAccountRequest | None = None,
     account: Account = Depends(get_current_account),
 ) -> None:
-    """Cascade-delete the account and all owned campaigns and engine rows (GDPR erasure)."""
+    """Cascade-delete the account and all owned campaigns and engine rows (GDPR erasure).
+
+    Requires ``{"confirmation": true}`` (FR-025); returns 404 if the account
+    does not exist rather than a misleading 204.
+    """
+    if body is None or not body.confirmation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "confirmation_required",
+                    "message": "Account deletion is irreversible; send {\"confirmation\": true}.",
+                }
+            },
+        )
+
     if not _has_database():
         logger.info("DEV MODE: delete_me called for %s (no-op)", account.account_id)
         return
 
     from gamebook_web.accounts import get_account_repository
     repo = get_account_repository()
+    acc = await repo.get_account_by_id(account.account_id)
+    if acc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "not_found", "message": "Account not found"}},
+        )
     await repo.delete_account(account.account_id)

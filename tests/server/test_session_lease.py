@@ -107,8 +107,9 @@ def test_second_session_cannot_write_without_lease(two_account_client: TestClien
     ), resp_turn.json()
 
 
-def test_takeover_invalidates_previous_token(two_account_client: TestClient) -> None:
-    """After takeover, the prior token is rejected."""
+def test_takeover_with_current_token_rotates_and_invalidates_old(two_account_client: TestClient) -> None:
+    """The same owner's second session rotates the lease by presenting the
+    current token (FR-027); the prior token is then rejected."""
     if not os.getenv("DATABASE_URL"):
         pytest.skip("Requires DATABASE_URL for Postgres-backed lease enforcement")
 
@@ -117,34 +118,53 @@ def test_takeover_invalidates_previous_token(two_account_client: TestClient) -> 
     assert resp.status_code == 201
     cid = resp.json()["campaign_id"]
 
-    # Session A acquires lease
-    lease_a = client.post(f"/campaigns/{cid}/session", headers=_headers(ACCOUNT_A)).json()["lease_token"]
+    # First session acquires the lease.
+    lease_1 = client.post(f"/campaigns/{cid}/session", headers=_headers(ACCOUNT_A)).json()["lease_token"]
 
-    # Session B takes over
+    # Second session (same owner) takes over by presenting the current token.
     resp_takeover = client.post(
         f"/campaigns/{cid}/session/takeover",
-        headers=_headers(ACCOUNT_B),
-        json={},
+        headers=_headers(ACCOUNT_A),
+        json={"current_token": lease_1},
     )
     assert resp_takeover.status_code == 200, resp_takeover.json()
-    lease_b = resp_takeover.json()["lease_token"]
+    lease_2 = resp_takeover.json()["lease_token"]
+    assert lease_2 != lease_1
 
-    # Old token A is rejected
+    # Old token is now rejected.
     resp_old = client.post(
         f"/campaigns/{cid}/turn",
-        headers={**_headers(ACCOUNT_A), "X-Session-Lease": lease_a},
+        headers={**_headers(ACCOUNT_A), "X-Session-Lease": lease_1},
         json={"choice": "go north"},
     )
     assert resp_old.status_code == 409, f"Old token should be rejected: {resp_old.json()}"
 
-    # New token B works (campaign must have character for turn to succeed)
+    # New token works (campaign must have a character for the turn to succeed).
     client.post(f"/campaigns/{cid}/character", headers=_headers(ACCOUNT_A))
     resp_new = client.post(
         f"/campaigns/{cid}/turn",
-        headers={**_headers(ACCOUNT_B), "X-Session-Lease": lease_b},
+        headers={**_headers(ACCOUNT_A), "X-Session-Lease": lease_2},
         json={"choice": "go north"},
     )
     assert resp_new.status_code in (200, 409), resp_new.json()  # 409 if campaign already ended
+
+
+def test_takeover_with_wrong_current_token_is_rejected(two_account_client: TestClient) -> None:
+    """Takeover with a wrong/missing current token → 409 (FR-027)."""
+    if not os.getenv("DATABASE_URL"):
+        pytest.skip("Requires DATABASE_URL for Postgres-backed lease enforcement")
+
+    client = two_account_client
+    cid = client.post("/campaigns", headers=_headers(ACCOUNT_A)).json()["campaign_id"]
+    client.post(f"/campaigns/{cid}/session", headers=_headers(ACCOUNT_A))
+
+    resp = client.post(
+        f"/campaigns/{cid}/session/takeover",
+        headers=_headers(ACCOUNT_A),
+        json={"current_token": "not-the-real-token"},
+    )
+    assert resp.status_code == 409, resp.json()
+    assert resp.json()["error"]["code"] == "not_session_holder"
 
 
 def test_acquire_session_dev_mode(two_account_client: TestClient) -> None:

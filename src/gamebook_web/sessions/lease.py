@@ -111,7 +111,8 @@ class LeaseService:
 
                 if existing is not None:
                     db_token, db_holder, db_expires_at = existing
-                    is_expired = db_expires_at < now
+                    # A lease whose expiry is exactly now() is already expired (T043/FR-028).
+                    is_expired = db_expires_at <= now
                     is_same_holder = db_holder == account_id
 
                     if not is_expired and not is_same_holder and not force_takeover:
@@ -211,7 +212,7 @@ class LeaseService:
                     },
                 )
 
-            if db_expires_at < now:
+            if db_expires_at <= now:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
@@ -286,11 +287,71 @@ class LeaseService:
     async def takeover(
         self, campaign_id: str, account_id: str, current_token: str
     ) -> dict[str, Any]:
-        """Atomically replace the lease holder; old token is invalidated.
+        """Atomically rotate the lease, validating ``current_token`` first (FR-027).
 
-        Returns new ``{"lease_token": ..., "expires_at": ...}``.
+        The caller MUST present the currently-held token.  A wrong or missing
+        ``current_token`` is rejected ``409 not_session_holder`` — an active
+        lease cannot be stolen by a session that never held it; the claimant
+        must present the current token or wait for the lease to expire (after
+        which ``acquire`` succeeds).  On a valid token the lease is replaced
+        with a fresh token/holder in the same transaction, invalidating the old.
+
+        If no lease exists yet there is nothing to take over → treated as a
+        fresh acquire.
         """
-        return await self.acquire(campaign_id, account_id, force_takeover=True)
+        async with self._session() as session:
+            async with session.begin():
+                existing = await self._get_lease_for_update(session, campaign_id)
+                new_token = str(uuid.uuid4())
+                new_expires = self._new_expiry()
+
+                if existing is None:
+                    # No current holder to validate against — create the lease.
+                    await session.execute(
+                        text(
+                            "INSERT INTO session_lease "
+                            "(campaign_id, lease_token, holder_account_id, acquired_at, expires_at) "
+                            "VALUES (:cid, :token, :holder, NOW(), :expires)"
+                        ),
+                        {
+                            "cid": campaign_id,
+                            "token": new_token,
+                            "holder": account_id,
+                            "expires": new_expires,
+                        },
+                    )
+                    return {"lease_token": new_token, "expires_at": new_expires.isoformat()}
+
+                db_token, _db_holder, _db_expires_at = existing
+                if not current_token or current_token != db_token:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "not_session_holder",
+                                "message": (
+                                    "Takeover requires the current session token. Present the "
+                                    "active token, or wait for the lease to expire."
+                                ),
+                            }
+                        },
+                    )
+
+                await session.execute(
+                    text(
+                        "UPDATE session_lease "
+                        "SET lease_token = :token, holder_account_id = :holder, "
+                        "    acquired_at = NOW(), expires_at = :expires "
+                        "WHERE campaign_id = :cid"
+                    ),
+                    {
+                        "token": new_token,
+                        "holder": account_id,
+                        "expires": new_expires,
+                        "cid": campaign_id,
+                    },
+                )
+                return {"lease_token": new_token, "expires_at": new_expires.isoformat()}
 
     # ------------------------------------------------------------------
     # Helpers
@@ -338,5 +399,5 @@ class LeaseService:
                 "holder_account_id": db_holder,
                 "expires_at": db_expires_at.isoformat(),
                 "acquired_at": db_acquired_at.isoformat() if db_acquired_at else None,
-                "is_expired": db_expires_at < datetime.now(tz=timezone.utc),
+                "is_expired": db_expires_at <= datetime.now(tz=timezone.utc),
             }

@@ -75,7 +75,43 @@ class SaveResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _campaign_or_404(registry: CampaignRegistry, campaign_id: str, account: Account) -> Any:
+def _db_enabled() -> bool:
+    import os
+
+    return bool(os.getenv("DATABASE_URL"))
+
+
+def _get_repo() -> Any:
+    from gamebook_web.accounts import get_account_repository
+
+    return get_account_repository()
+
+
+async def _campaign_or_404(registry: CampaignRegistry, campaign_id: str, account: Account) -> Any:
+    """Resolve a campaign for the caller.
+
+    DB-authoritative when a database is configured (FR-022, ADR-025): existence,
+    ownership, and status come from ``AccountRepository`` so they survive a
+    restart; the in-memory registry only caches transient per-session state.
+    In dev mode (no DB) the registry is authoritative on its own.
+    """
+    if _db_enabled():
+        camp = await _get_repo().get_campaign(account.account_id, campaign_id)
+        if camp is None:
+            # Not found OR not owned — a single 404 avoids leaking existence of
+            # another account's campaign.
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "not_found", "message": f"Campaign {campaign_id!r} not found"}},
+            )
+        state = registry.get(campaign_id)
+        if state is None:
+            state = registry.adopt(campaign_id, account.account_id, status=camp["status"])
+        elif state.status != camp["status"]:
+            # DB is the source of truth for status.
+            state.status = "ended" if camp["status"] == "ended" else "active"
+        return state
+
     state = registry.get(campaign_id)
     if state is None:
         raise HTTPException(
@@ -134,6 +170,12 @@ async def list_campaigns(
     account: Account = Depends(get_current_account),
 ) -> list[CampaignResponse]:
     """List all campaigns belonging to the caller."""
+    if _db_enabled():
+        # DB is authoritative (FR-022): list survives restart, not tied to the
+        # in-memory cache.
+        rows = await _get_repo().get_campaigns(account.account_id)
+        return [CampaignResponse(campaign_id=r["campaign_id"], status=r["status"]) for r in rows]
+
     registry: CampaignRegistry = get_campaign_registry(request)
     campaigns = registry.list_for_account(account.account_id)
     return [CampaignResponse(campaign_id=c.campaign_id, status=c.status) for c in campaigns]
@@ -151,7 +193,7 @@ async def get_campaign(
     narrating so the narrator can resume from the exact recorded point.
     """
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
     toolset: MCPToolset = get_engine_toolset(request)
 
     character = None
@@ -183,8 +225,11 @@ async def delete_campaign(
 ) -> None:
     """Delete a campaign and its data."""
     registry: CampaignRegistry = get_campaign_registry(request)
-    _campaign_or_404(registry, campaign_id, account)
+    await _campaign_or_404(registry, campaign_id, account)
     registry.delete(campaign_id)
+    if _db_enabled():
+        # DB is authoritative — remove the row (cascades to engine rows).
+        await _get_repo().delete_campaign(account.account_id, campaign_id)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +249,7 @@ async def create_character(
     No client-supplied stat values are accepted (CONTRACTS.md §6).
     """
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
     _assert_not_ended(state)
 
     toolset: MCPToolset = get_engine_toolset(request)
@@ -235,7 +280,7 @@ async def read_character(
 ) -> dict[str, Any]:
     """Read the character sheet — real engine state (FR-021)."""
     registry: CampaignRegistry = get_campaign_registry(request)
-    _campaign_or_404(registry, campaign_id, account)
+    await _campaign_or_404(registry, campaign_id, account)
     toolset: MCPToolset = get_engine_toolset(request)
 
     character = await call_engine(toolset, "read_character_sheet")
@@ -271,7 +316,7 @@ async def take_turn(
     6. Store scene and return TurnResponse.
     """
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
     _assert_not_ended(state)
 
     toolset: MCPToolset = get_engine_toolset(request)
@@ -326,7 +371,7 @@ async def take_turn(
         pass
 
     # 5. Check terminal conditions against the post-turn state
-    await _check_terminal_state(campaign_id, character, world, toolset, registry)
+    await _check_terminal_state(campaign_id, account.account_id, character, world, toolset, registry)
 
     # 6. Store scene and return (status reflects any end-state set in step 5)
     scene_dict = scene.model_dump()
@@ -342,6 +387,7 @@ async def take_turn(
 
 async def _check_terminal_state(
     campaign_id: str,
+    account_id: str,
     character: dict | None,
     world: dict | None,
     toolset: MCPToolset,
@@ -353,7 +399,7 @@ async def _check_terminal_state(
             await call_engine(toolset, "archive_character", destination="graveyard")
         except Exception as exc:
             logger.warning("archive_character failed: %s", exc)
-        registry.set_ended(campaign_id)
+        await _mark_ended(campaign_id, account_id, registry)
         return
 
     if world:
@@ -363,7 +409,15 @@ async def _check_terminal_state(
                 await call_engine(toolset, "archive_character", destination="hall_of_fame")
             except Exception as exc:
                 logger.warning("archive_character (victory) failed: %s", exc)
-            registry.set_ended(campaign_id)
+            await _mark_ended(campaign_id, account_id, registry)
+
+
+async def _mark_ended(campaign_id: str, account_id: str, registry: CampaignRegistry) -> None:
+    """End a campaign in the transient cache and persist the status when a DB
+    is configured (FR-022) so the end-state survives a restart."""
+    registry.set_ended(campaign_id)
+    if _db_enabled():
+        await _get_repo().set_campaign_status(account_id, campaign_id, "ended")
 
 
 @router.get("/campaigns/{campaign_id}/scene")
@@ -374,7 +428,7 @@ async def get_scene(
 ) -> dict[str, Any]:
     """Re-fetch the current scene (resume/refresh).  Returns null if no turn yet."""
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
     return {"scene": state.current_scene}
 
 
@@ -390,7 +444,7 @@ async def save_campaign(
 ) -> SaveResponse:
     """Checkpoint progress (durable, atomic — Principle V)."""
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
     _assert_not_ended(state)
     toolset: MCPToolset = get_engine_toolset(request)
 

@@ -43,7 +43,10 @@ class LeaseResponse(BaseModel):
 
 
 class TakeoverRequest(BaseModel):
-    current_token: str | None = None  # optional — takeover always replaces
+    # Required in the Postgres path (FR-027): takeover validates this against the
+    # current holder's token; a wrong/missing token → 409.  Optional-typed so the
+    # dev fallback (no DB, non-enforcing) still accepts an empty body.
+    current_token: str | None = None
 
 
 # ---------------------------------------------------------------------------

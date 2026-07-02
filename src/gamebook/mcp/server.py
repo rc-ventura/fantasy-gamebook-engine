@@ -330,13 +330,15 @@ def main() -> None:
 
     database_url = os.environ.get("DATABASE_URL", "")
     campaign_id = os.environ.get("GAMEBOOK_CAMPAIGN_ID", "")
+    account_id = os.environ.get("GAMEBOOK_ACCOUNT_ID", "") or None
 
     if database_url and campaign_id:
-        # Phase-2: PostgresStorage scoped to the given campaign.
+        # Phase-2: PostgresStorage scoped to the given campaign (and owner, if
+        # provided — FR-024, so _ensure_campaign never creates an orphan row).
         # Local import keeps the module's top-level footprint clean (ADR-009).
         from gamebook.storage.postgres import PostgresStorage  # composition root only
 
-        storage = PostgresStorage(database_url, campaign_id)
+        storage = PostgresStorage(database_url, campaign_id, account_id)
     else:
         from gamebook.storage.json_storage import JSONStorage
 
