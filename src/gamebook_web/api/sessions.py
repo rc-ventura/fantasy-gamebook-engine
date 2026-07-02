@@ -109,15 +109,19 @@ async def acquire_session(
     """
     await _check_ownership(campaign_id, account, request)
 
+    from gamebook_web.observability.audit import audit_event
+
     if not _has_database():
         # Dev/test fallback — return a static token
         from datetime import datetime, timedelta, timezone
         expires = (datetime.now(tz=timezone.utc) + timedelta(minutes=30)).isoformat()
+        audit_event("session.acquired", account_id=account.account_id, campaign_id=campaign_id)
         return LeaseResponse(lease_token=_DEV_FALLBACK_TOKEN, expires_at=expires)
 
     from gamebook_web.sessions.lease import get_lease_service
     svc = get_lease_service()
     result = await svc.acquire(campaign_id, account.account_id)
+    audit_event("session.acquired", account_id=account.account_id, campaign_id=campaign_id)
     return LeaseResponse(**result)
 
 
@@ -135,16 +139,20 @@ async def takeover_session(
     """
     await _check_ownership(campaign_id, account, request)
 
+    from gamebook_web.observability.audit import audit_event
+
     if not _has_database():
         from datetime import datetime, timedelta, timezone
         new_token = str(uuid.uuid4())
         expires = (datetime.now(tz=timezone.utc) + timedelta(minutes=30)).isoformat()
+        audit_event("session.takeover", account_id=account.account_id, campaign_id=campaign_id)
         return LeaseResponse(lease_token=new_token, expires_at=expires)
 
     from gamebook_web.sessions.lease import get_lease_service
     svc = get_lease_service()
     current_token = body.current_token if body else None
     result = await svc.takeover(campaign_id, account.account_id, current_token or "")
+    audit_event("session.takeover", account_id=account.account_id, campaign_id=campaign_id)
     return LeaseResponse(**result)
 
 
@@ -162,7 +170,10 @@ async def release_session(
     """
     await _check_ownership(campaign_id, account, request)
 
+    from gamebook_web.observability.audit import audit_event
+
     if not _has_database():
+        audit_event("session.released", account_id=account.account_id, campaign_id=campaign_id)
         return  # no-op in dev mode
 
     if not x_session_lease:
@@ -174,3 +185,4 @@ async def release_session(
     from gamebook_web.sessions.lease import get_lease_service
     svc = get_lease_service()
     await svc.release(campaign_id, x_session_lease)
+    audit_event("session.released", account_id=account.account_id, campaign_id=campaign_id)

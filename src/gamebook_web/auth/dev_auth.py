@@ -89,6 +89,11 @@ async def get_current_account(
 
 
 def _unauthenticated(message: str) -> None:
+    import logging
+
+    from gamebook_web.observability.audit import audit_event
+
+    audit_event("auth.failed", level=logging.WARNING, reason=message.replace(" ", "_"))
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": {"code": "unauthenticated", "message": message}},

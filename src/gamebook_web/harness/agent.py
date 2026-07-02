@@ -172,17 +172,22 @@ class PydanticNarrator:
         (_NARRATOR_ALLOWED_TOOLS) so lifecycle tools cannot be called during
         narration. UsageLimits caps tool-call iterations to prevent runaway loops.
         """
+        from gamebook_web.observability.tracing import narrator_span
+
         prompt = self._build_prompt(context)
 
         toolsets = (
             [self._toolset.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
             if self._toolset else []
         )
-        result = await self._agent.run(
-            prompt,
-            toolsets=toolsets,
-            usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
-        )
+        # T047 (FR-030): the LLM call is the slow part of a turn — give it its own
+        # child span so latency is visible in traces.
+        with narrator_span(campaign_id):
+            result = await self._agent.run(
+                prompt,
+                toolsets=toolsets,
+                usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
+            )
         return result.output
 
     # ------------------------------------------------------------------

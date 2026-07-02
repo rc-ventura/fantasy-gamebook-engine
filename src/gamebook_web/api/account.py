@@ -106,8 +106,11 @@ async def delete_me(
             },
         )
 
+    from gamebook_web.observability.audit import audit_event
+
     if not _has_database():
         logger.info("DEV MODE: delete_me called for %s (no-op)", account.account_id)
+        audit_event("account.deleted", account_id=account.account_id)
         return
 
     from gamebook_web.accounts import get_account_repository
@@ -119,3 +122,4 @@ async def delete_me(
             detail={"error": {"code": "not_found", "message": "Account not found"}},
         )
     await repo.delete_account(account.account_id)
+    audit_event("account.deleted", account_id=account.account_id)

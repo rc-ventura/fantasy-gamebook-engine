@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     """Start/stop the engine toolset and initialize shared app state."""
 
     # 1. OpenTelemetry setup (idempotent; no-op if already done by tests)
-    _setup_telemetry()
+    _setup_telemetry(app)
 
     # 2. Auth dependency override (prod: OIDC; dev/test: keep dev stub)
     _install_auth_override(app)
@@ -67,11 +67,11 @@ async def lifespan(app: FastAPI):
         yield
 
 
-def _setup_telemetry() -> None:
+def _setup_telemetry(app: FastAPI) -> None:
     """Initialize OTel (idempotent; safe to call multiple times)."""
     try:
         from gamebook_web.observability.setup import setup_telemetry
-        setup_telemetry()
+        setup_telemetry(app=app)
     except Exception as exc:
         logger.warning("OTel setup failed (non-fatal): %s", exc)
 
@@ -192,6 +192,32 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# ---------------------------------------------------------------------------
+# HTTP request metrics (T048/FR-030) — count every request by method/status.
+# No PII: only the route template (not the concrete path) and method/status.
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def http_metrics_middleware(request: Request, call_next):
+    from gamebook_web.observability.tracing import get_metrics
+
+    response = await call_next(request)
+    try:
+        route = request.scope.get("route")
+        path_template = getattr(route, "path", request.url.path)
+        get_metrics().http_requests_total.add(
+            1,
+            attributes={
+                "method": request.method,
+                "path": path_template,
+                "status": str(response.status_code),
+            },
+        )
+    except Exception:  # pragma: no cover — metrics must never break a request
+        pass
+    return response
+
 
 # ---------------------------------------------------------------------------
 # Session-lease guard middleware (T007)

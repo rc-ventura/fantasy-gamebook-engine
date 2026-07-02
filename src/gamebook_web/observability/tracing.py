@@ -43,10 +43,16 @@ def get_tracer() -> trace.Tracer:
 
 
 def span_set_error(span: Span, exc: Exception) -> None:
-    """Mark span as ERROR and record the exception type (no raw message/traceback)."""
-    span.set_status(StatusCode.ERROR, description=type(exc).__name__)
-    # Record just the exception class — no message, no traceback (PII/security)
-    span.record_exception(exc, attributes={"exception.escaped": True})
+    """Mark span as ERROR recording ONLY the exception class name (FR-031).
+
+    Deliberately does NOT call ``span.record_exception(exc)``: that captures
+    ``exception.message`` and ``exception.stacktrace`` as span-event attributes,
+    which can echo player input (PII) or internal paths (traceback).  We record
+    the type name via ``set_status`` description and a single attribute instead.
+    """
+    type_name = type(exc).__name__
+    span.set_status(StatusCode.ERROR, description=type_name)
+    span.set_attribute("exception.type", type_name)
 
 
 @contextmanager
@@ -130,3 +136,10 @@ def get_metrics() -> GamebookMetrics:
     if _METRICS is None:
         _METRICS = GamebookMetrics()
     return _METRICS
+
+
+def reset_metrics() -> None:
+    """Drop the metrics singleton so instruments rebind to the current
+    MeterProvider (tests install an in-memory reader before asserting)."""
+    global _METRICS
+    _METRICS = None

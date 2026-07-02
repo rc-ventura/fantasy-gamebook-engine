@@ -126,6 +126,24 @@ async def _campaign_or_404(registry: CampaignRegistry, campaign_id: str, account
     return state
 
 
+def _count_new_combat_events(events: Any, before_count: int) -> int:
+    """Count combat-typed events appended since ``before_count`` (T048).
+
+    Combat resolves inside the narrator's tool loop (ADR-029); the narrator
+    registers combat events, so newly-added events whose ``type`` starts with
+    ``combat`` approximate the rounds resolved this turn.  Returns 0 if events
+    are unavailable — the metric must never fabricate a count.
+    """
+    if not isinstance(events, list) or len(events) <= before_count:
+        return 0
+    new = events[before_count:]
+    return sum(
+        1
+        for e in new
+        if isinstance(e, dict) and str(e.get("type", "")).startswith("combat")
+    )
+
+
 def _assert_not_ended(state: Any) -> None:
     if state.status == "ended":
         raise HTTPException(
@@ -160,6 +178,9 @@ async def create_campaign(
 
         repo = get_account_repository()
         await repo.create_campaign(account.account_id, state.campaign_id)
+
+    from gamebook_web.observability.tracing import get_metrics
+    get_metrics().active_campaigns.add(1)
 
     return CampaignResponse(campaign_id=state.campaign_id, status=state.status)
 
@@ -225,11 +246,17 @@ async def delete_campaign(
 ) -> None:
     """Delete a campaign and its data."""
     registry: CampaignRegistry = get_campaign_registry(request)
-    await _campaign_or_404(registry, campaign_id, account)
+    state = await _campaign_or_404(registry, campaign_id, account)
+    was_active = state.status != "ended"
     registry.delete(campaign_id)
     if _db_enabled():
         # DB is authoritative — remove the row (cascades to engine rows).
         await _get_repo().delete_campaign(account.account_id, campaign_id)
+    if was_active:
+        # Deleting a still-active campaign lowers the active gauge (an ended one
+        # was already decremented when it ended).
+        from gamebook_web.observability.tracing import get_metrics
+        get_metrics().active_campaigns.add(-1)
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +342,10 @@ async def take_turn(
     5. Check terminal conditions (death / victory).
     6. Store scene and return TurnResponse.
     """
+    import time
+
+    from gamebook_web.observability.tracing import get_metrics, turn_span
+
     registry: CampaignRegistry = get_campaign_registry(request)
     state = await _campaign_or_404(registry, campaign_id, account)
     _assert_not_ended(state)
@@ -323,66 +354,91 @@ async def take_turn(
     narrator: NarratorBackend = get_narrator(request)
     choice = (body.choice if body else None)
 
-    # 1. Read engine state (session-opening read per FR-003)
-    character = None
-    try:
-        character = await call_engine(toolset, "read_character_sheet")
-    except Exception:
-        pass
+    metrics = get_metrics()
+    started = time.perf_counter()
 
-    world = await call_engine(toolset, "read_world")
-    summary = await call_engine(toolset, "read_summary")
-    events = await call_engine(toolset, "read_events")
-    recent_events = events[-10:] if events else []
+    # T046 (FR-030): wrap the whole turn in a span (campaign_id/account_id only,
+    # no PII); marks ERROR on exception via turn_span.
+    with turn_span(campaign_id, account.account_id) as span:
+        # 1. Read engine state (session-opening read per FR-003)
+        character = None
+        try:
+            character = await call_engine(toolset, "read_character_sheet")
+        except Exception:
+            pass
 
-    ctx = NarratorContext(
-        character=character,
-        world=world,
-        summary=summary,
-        recent_events=recent_events,
-        choice=choice,
-    )
+        world = await call_engine(toolset, "read_world")
+        summary = await call_engine(toolset, "read_summary")
+        events = await call_engine(toolset, "read_events")
+        recent_events = events[-10:] if events else []
+        events_before = len(events) if events else 0
+        if isinstance(world, dict) and world.get("turn") is not None:
+            span.set_attribute("turn_number", world["turn"])
 
-    # 2. Narrator → Scene (narrator calls MCP tools during generation)
-    try:
-        scene: Scene = await narrator.narrate(campaign_id, ctx)
-    except Exception as exc:
-        logger.exception("Narrator failed for campaign %s", campaign_id)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},
-        ) from exc
-
-    # 3. Structural validation (belt-and-suspenders; Scene model validates on construction)
-    if not scene.narrative.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"error": {"code": "invalid_scene", "message": "Scene narrative is empty"}},
+        ctx = NarratorContext(
+            character=character,
+            world=world,
+            summary=summary,
+            recent_events=recent_events,
+            choice=choice,
         )
 
-    # 4. Re-read state (narrator may have called tools that changed character/world)
-    try:
-        character = await call_engine(toolset, "read_character_sheet")
-    except Exception:
-        pass
-    try:
-        world = await call_engine(toolset, "read_world")
-    except Exception:
-        pass
+        # 2. Narrator → Scene (narrator calls MCP tools during generation)
+        try:
+            scene: Scene = await narrator.narrate(campaign_id, ctx)
+        except Exception as exc:
+            # No traceback in logs (FR-031): the message can echo player input.
+            logger.error("Narrator failed for campaign %s: %s", campaign_id, type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},
+            ) from exc
 
-    # 5. Check terminal conditions against the post-turn state
-    await _check_terminal_state(campaign_id, account.account_id, character, world, toolset, registry)
+        # 3. Structural validation (belt-and-suspenders; Scene model validates on construction)
+        if not scene.narrative.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"error": {"code": "invalid_scene", "message": "Scene narrative is empty"}},
+            )
 
-    # 6. Store scene and return (status reflects any end-state set in step 5)
-    scene_dict = scene.model_dump()
-    registry.set_scene(campaign_id, scene_dict)
+        # 4. Re-read state (narrator may have called tools that changed character/world)
+        try:
+            character = await call_engine(toolset, "read_character_sheet")
+        except Exception:
+            pass
+        try:
+            world = await call_engine(toolset, "read_world")
+        except Exception:
+            pass
 
-    return TurnResponse(
-        scene=scene_dict,
-        status=state.status,
-        character=character,
-        world=world,
+        # combat_rounds_total (FR-030): combat resolves inside the narrator tool
+        # loop (ADR-029), so count the combat-typed events it registered this turn.
+        try:
+            post_events = await call_engine(toolset, "read_events")
+            rounds = _count_new_combat_events(post_events, events_before)
+            if rounds:
+                metrics.combat_rounds_total.add(rounds, attributes={"campaign_id": campaign_id})
+        except Exception:  # pragma: no cover — metrics must not break a turn
+            pass
+
+        # 5. Check terminal conditions against the post-turn state
+        await _check_terminal_state(campaign_id, account.account_id, character, world, toolset, registry)
+
+        # 6. Store scene (status reflects any end-state set in step 5)
+        scene_dict = scene.model_dump()
+        registry.set_scene(campaign_id, scene_dict)
+
+        response = TurnResponse(
+            scene=scene_dict,
+            status=state.status,
+            character=character,
+            world=world,
+        )
+
+    metrics.turn_duration.record(
+        time.perf_counter() - started, attributes={"campaign_id": campaign_id}
     )
+    return response
 
 
 async def _check_terminal_state(
@@ -415,9 +471,14 @@ async def _check_terminal_state(
 async def _mark_ended(campaign_id: str, account_id: str, registry: CampaignRegistry) -> None:
     """End a campaign in the transient cache and persist the status when a DB
     is configured (FR-022) so the end-state survives a restart."""
+    state = registry.get(campaign_id)
+    already_ended = state is not None and state.status == "ended"
     registry.set_ended(campaign_id)
     if _db_enabled():
         await _get_repo().set_campaign_status(account_id, campaign_id, "ended")
+    if not already_ended:
+        from gamebook_web.observability.tracing import get_metrics
+        get_metrics().active_campaigns.add(-1)
 
 
 @router.get("/campaigns/{campaign_id}/scene")

@@ -117,9 +117,12 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
 
         campaign_id = match.group(1)
 
+        from gamebook_web.observability.audit import audit_event
+
         # Read the lease token header
         lease_token = request.headers.get("X-Session-Lease")
         if not lease_token:
+            audit_event("lease.denied", level=logging.WARNING, campaign_id=campaign_id, reason="missing_token")
             return _error_response(
                 "not_session_holder",
                 "X-Session-Lease header is required for state-changing operations.",
@@ -135,11 +138,13 @@ class LeaseGuardMiddleware(BaseHTTPMiddleware):
             # HTTPException from validate() carries the right status/body
             from fastapi import HTTPException
             if isinstance(exc, HTTPException):
+                audit_event("lease.denied", level=logging.WARNING, campaign_id=campaign_id, reason="validate_failed")
                 detail = exc.detail
                 if isinstance(detail, dict):
                     return JSONResponse(status_code=exc.status_code, content=detail)
                 return _error_response("not_session_holder", str(detail), status_code=exc.status_code)
-            logger.exception("Lease validation error for campaign %s: %s", campaign_id, exc)
+            # No traceback in logs (FR-031) — log only the exception type.
+            logger.error("Lease validation error for campaign %s: %s", campaign_id, type(exc).__name__)
             return _error_response("internal_error", "Session validation failed.", status_code=500)
 
         response = await call_next(request)

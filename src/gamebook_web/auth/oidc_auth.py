@@ -266,7 +266,10 @@ async def get_current_account(
     try:
         signing_key = await _get_signing_key(jwks_uri, kid)
     except httpx.RequestError as exc:
-        logger.warning("OIDC JWKS fetch failed — provider unreachable: %s", exc)
+        from gamebook_web.observability.audit import audit_event
+
+        logger.warning("OIDC JWKS fetch failed — provider unreachable: %s", type(exc).__name__)
+        audit_event("auth.jwks_unavailable", level=logging.WARNING)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": {"code": "auth_unavailable", "message": "Authentication service temporarily unavailable"}},
@@ -322,10 +325,16 @@ async def get_current_account(
     async with _get_cache_lock():
         _cache_validated_token(token, exp, account.account_id)
 
+    from gamebook_web.observability.audit import audit_event
+
+    audit_event("auth.signin", account_id=account.account_id)
     return account
 
 
 def _unauthenticated(message: str) -> None:
+    from gamebook_web.observability.audit import audit_event
+
+    audit_event("auth.failed", level=logging.WARNING, reason=message.replace(" ", "_")[:60])
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": {"code": "unauthenticated", "message": message}},
