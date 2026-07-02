@@ -24,17 +24,39 @@ correct value **before** the call reaches the MCP server. The LLM is removed fro
 security-critical path entirely.
 
 ```python
-class ScopedMCPToolset:
-    """Wraps an MCPToolset, injecting campaign_id on every call."""
+from dataclasses import dataclass
+from pydantic_ai.toolsets import WrapperToolset
 
-    def __init__(self, base: MCPToolset, campaign_id: str):
-        self._base = base
-        self._campaign_id = campaign_id
+@dataclass
+class ScopedMCPToolset(WrapperToolset):
+    """WrapperToolset that injects campaign_id on every call."""
 
-    async def call_tool(self, name: str, arguments: dict, **kw):
-        arguments = {**arguments, "campaign_id": self._campaign_id}  # always override
-        return await self._base.call_tool(name, arguments, **kw)
+    campaign_id: str = ""
+
+    async def call_tool(self, name, tool_args, ctx, tool):
+        merged = {**tool_args, "campaign_id": self.campaign_id}  # always override
+        return await self.wrapped.call_tool(name, merged, ctx, tool)
 ```
+
+## Trap (found 2026-07-02): the wrapper MUST subclass `WrapperToolset`
+
+A duck-typed wrapper (`__getattr__` delegation to the base toolset) **silently loses
+the override**. pydantic-ai rebuilds the toolset tree at run start via
+`for_run()`/`visit_and_replace()`; delegating those calls returns the *base*
+toolset's rebuilt tree — without the wrapper — so `call_tool` injection never runs
+and the MCP server sees the raw (unscoped) arguments. There is no error at the
+wrapper layer: the failure shows up as the engine rejecting a missing/wrong
+`campaign_id`, or worse, as silent cross-scope access if the parameter is optional.
+
+Only a real `WrapperToolset` dataclass subclass survives the rebuild:
+`for_run` uses `dataclasses.replace(self, wrapped=...)`, which preserves the
+subclass and its extra fields. Also note the exact `call_tool` signature is
+`(name, tool_args, ctx, tool)` — patching `args[-1]` corrupts the `ToolsetTool`
+object, not the args dict.
+
+This was caught by `tests/server/test_narrator_integration.py`, which drives the
+real `PydanticNarrator` with a mocked LLM (`FunctionModel`) that omits
+`campaign_id` and asserts the engine still receives it.
 
 With this pattern:
 - The LLM can include `campaign_id` in its call (it learns it from the system prompt)

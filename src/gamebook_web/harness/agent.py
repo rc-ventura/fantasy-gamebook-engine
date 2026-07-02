@@ -19,13 +19,52 @@ system prompt addition so the narrator has access to static adventure content
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+from dataclasses import dataclass
 
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai import UsageLimits
+from pydantic_ai.toolsets import WrapperToolset
 
 from gamebook_web.harness.base import NarratorContext
 from gamebook_web.harness.scene import Scene
+
+
+# ---------------------------------------------------------------------------
+# ScopedMCPToolset — campaign_id injection (ADR-018 D2, T006b)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScopedMCPToolset(WrapperToolset):
+    """WrapperToolset that forces campaign_id on every engine tool call.
+
+    Prevents the narrator LLM from passing a wrong campaign_id to engine tools.
+    Overrides at the call layer (prevention, not detection) so even a
+    prompt-injected or hallucinated campaign_id cannot reach the engine.
+
+    Must be a real ``WrapperToolset`` subclass (not duck-typed delegation):
+    pydantic-ai rebuilds the toolset tree via ``for_run``/``visit_and_replace``
+    at run start, and only a dataclass WrapperToolset survives that rebuild
+    with its override intact — a ``__getattr__`` delegate gets silently
+    dropped from the tree and the injection never happens.
+    """
+
+    # Required (no default): campaign_id is the security scope. Omitting it is a
+    # TypeError; passing an empty value fails loud below — never silently unscoped.
+    campaign_id: str
+
+    def __post_init__(self) -> None:
+        if not self.campaign_id:
+            raise ValueError("ScopedMCPToolset requires a non-empty campaign_id")
+
+    async def call_tool(
+        self, name: str, tool_args: dict[str, Any], ctx: Any, tool: Any
+    ) -> Any:
+        """Inject campaign_id, discarding anything the model supplied."""
+        merged = {**tool_args, "campaign_id": self.campaign_id}
+        return await self.wrapped.call_tool(name, merged, ctx, tool)
 
 # ---------------------------------------------------------------------------
 # Default model and adventure-module lore path
@@ -174,10 +213,11 @@ class PydanticNarrator:
         """
         prompt = self._build_prompt(context)
 
-        toolsets = (
-            [self._toolset.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
-            if self._toolset else []
-        )
+        if self._toolset:
+            scoped = ScopedMCPToolset(wrapped=self._toolset, campaign_id=campaign_id)
+            toolsets = [scoped.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
+        else:
+            toolsets = []
         result = await self._agent.run(
             prompt,
             toolsets=toolsets,
