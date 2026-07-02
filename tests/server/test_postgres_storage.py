@@ -58,10 +58,15 @@ def campaign_id() -> str:
 
 @pytest.fixture
 def pg_storage(campaign_id: str):
-    """A ``PostgresStorage`` instance scoped to a fresh campaign."""
+    """A ``PostgresStorage`` instance scoped to a fresh campaign.
+
+    Closed on teardown (T074 / ADR-027 — deterministic lifecycle).
+    """
     from gamebook.storage.postgres import PostgresStorage
 
-    return PostgresStorage(DATABASE_URL, campaign_id)
+    storage = PostgresStorage(DATABASE_URL, campaign_id)
+    yield storage
+    storage.close()
 
 
 @pytest.fixture
@@ -438,3 +443,128 @@ def test_load_slot_resets_world_when_snapshot_had_no_world(pg_storage, sample_wo
     assert restored.current_location == ""
     assert restored.turn == 0
     assert restored.visited_locations == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 006 hardening (T080): TLS wiring, concurrency, lifecycle, snapshot,
+# identifier validation (FR-037..FR-041, SC-018..SC-022)
+# ---------------------------------------------------------------------------
+
+
+def test_tls_ssl_mode_wiring(monkeypatch, campaign_id: str) -> None:
+    """TLS by default (ADR-026): ssl=require reaches the driver unless the
+    explicit dev override POSTGRES_SSL_MODE=disable is set."""
+    import gamebook.storage.postgres as pg_mod
+
+    captured: dict = {}
+    real_create = pg_mod.create_async_engine
+
+    def spy(url, **kwargs):
+        captured.clear()
+        captured.update(kwargs.get("connect_args", {}))
+        return real_create(url, **kwargs)
+
+    monkeypatch.setattr(pg_mod, "create_async_engine", spy)
+
+    # Default (env unset): ssl=require is passed to asyncpg. Construction may
+    # fail against a non-TLS local server — the wiring is what we assert.
+    monkeypatch.delenv("POSTGRES_SSL_MODE", raising=False)
+    try:
+        storage = pg_mod.PostgresStorage(DATABASE_URL, campaign_id)
+        storage.close()
+    except Exception:
+        pass
+    assert captured.get("ssl") == "require"
+
+    # Explicit dev override: plaintext allowed, no ssl arg.
+    monkeypatch.setenv("POSTGRES_SSL_MODE", "disable")
+    storage = pg_mod.PostgresStorage(DATABASE_URL, str(uuid.uuid4()))
+    try:
+        assert "ssl" not in captured
+    finally:
+        storage.close()
+
+
+def test_concurrent_append_event_unique_seq(pg_storage, campaign_id: str) -> None:
+    """Concurrent appends from two connections produce unique seq values
+    (ADR-027: advisory-lock serialization; UNIQUE(campaign_id, seq) backstop)."""
+    import concurrent.futures
+
+    from gamebook.storage.postgres import PostgresStorage
+
+    other = PostgresStorage(DATABASE_URL, campaign_id)
+    try:
+
+        def append(args) -> None:
+            storage, i = args
+            storage.append_event(
+                Event(turn=i, type="stress", data={"i": i}, timestamp="2026-07-02T00:00:00Z")
+            )
+
+        jobs = [(pg_storage if i % 2 else other, i) for i in range(16)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(append, jobs))
+
+        # A duplicate seq would have violated UNIQUE(campaign_id, seq) and raised;
+        # all 16 events committed proves the allocation was race-free.
+        events = pg_storage.load_events()
+        assert len(events) == 16
+    finally:
+        other.close()
+
+
+def test_close_stops_loop_and_thread(campaign_id: str, sample_character) -> None:
+    """close() disposes the engine and stops the daemon loop (T074 / ADR-027)."""
+    from gamebook.storage.postgres import PostgresStorage
+
+    storage = PostgresStorage(DATABASE_URL, campaign_id)
+    storage.save_character(sample_character)
+
+    storage.close()
+    assert not storage._loop.is_running()
+    assert not storage._thread.is_alive()
+
+    # Safe to call more than once.
+    storage.close()
+
+
+def test_snapshot_captures_all_entities_consistently(
+    pg_storage, sample_character, sample_world, sample_events, sample_combat
+) -> None:
+    """save_slot captures character/world/events/summary/combat as one snapshot
+    (T075 / ADR-027: read-only transaction) and load_slot restores all of it."""
+    pg_storage.save_character(sample_character)
+    pg_storage.save_world(sample_world)
+    for event in sample_events:
+        pg_storage.append_event(event)
+    pg_storage.save_summary("chapter 1")
+    pg_storage.save_combat(sample_combat)
+
+    pg_storage.save_slot("full")
+
+    # Mutate everything post-snapshot.
+    pg_storage.save_character(sample_character.model_copy(update={"gold": 0}))
+    pg_storage.save_summary("chapter 2")
+    pg_storage.remove_combat(sample_combat.combat_id)
+
+    pg_storage.load_slot("full")
+
+    assert pg_storage.load_character() == sample_character
+    assert pg_storage.load_world() == sample_world
+    assert pg_storage.load_events() == sample_events
+    assert pg_storage.load_summary() == "chapter 1"
+    assert pg_storage.load_combat(sample_combat.combat_id) == sample_combat
+
+
+@pytest.mark.parametrize("bad", ["", ".", "..", "a/b", "a\\b"])
+def test_identifier_validation_matches_json_storage(pg_storage, bad: str) -> None:
+    """save_slot/load_slot/load_combat/remove_combat reject path-like ids
+    (T076 / ADR-027 — parity with JSONStorage)."""
+    with pytest.raises(ValueError):
+        pg_storage.save_slot(bad)
+    with pytest.raises(ValueError):
+        pg_storage.load_slot(bad)
+    with pytest.raises(ValueError):
+        pg_storage.load_combat(bad)
+    with pytest.raises(ValueError):
+        pg_storage.remove_combat(bad)

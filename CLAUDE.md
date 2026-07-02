@@ -163,15 +163,16 @@ principles; when in conflict, the constitution wins.
 | [ADR-018](./docs/adrs/ADR-018-multi-tenant-engine-per-call-campaign-id.md) | Multi-tenant engine via per-call campaign_id | Accepted | 2026-06-28 |
 | [ADR-019](./docs/adrs/ADR-019-allowlist-for-fabricated-number-detection.md) | Allowlist for fabricated-number detection | Accepted | 2026-06-28 |
 | [ADR-020](./docs/adrs/ADR-020-resolve-duplicate-adr-numbering.md) | Resolve duplicate ADR numbering (ADR-014/015) | Accepted | 2026-06-28 |
-| [ADR-021](./docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents (renumbered from ADR-014 by ADR-020; file rename pending in `006`) | Accepted | 2026-06-27 |
+| [ADR-021](./docs/adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md) | pydantic-ai 2.0 MCPToolset — `direct_call_tool` for routes, `toolsets=[]` for agents (renumbered from ADR-014 by ADR-020) | Accepted | 2026-06-27 |
 | [ADR-022](./docs/adrs/ADR-022-oidc-jwt-jwks-validation-pattern.md) | OIDC JWT/JWKS validation + fail-closed auth (renumbered from 004's ADR-017 in `006`) | Accepted | 2026-06-28 |
 | [ADR-023](./docs/adrs/ADR-023-session-lease-acquire-takeover-semantics.md) | Session lease semantics — `takeover` validates `current_token` (renumbered from 004's ADR-018 in `006`) | Accepted | 2026-06-28 |
 | [ADR-024](./docs/adrs/ADR-024-opentelemetry-auto-instrumentation.md) | OTel auto-instrumentation + no-PII-in-spans (renumbered from 004's ADR-019 in `006`) | Accepted | 2026-06-28 |
 | [ADR-025](./docs/adrs/ADR-025-db-backed-campaign-registry.md) | DB-backed campaign registry (new in `006`) | Accepted | 2026-06-28 |
 | [ADR-026](./docs/adrs/ADR-026-postgres-tls-policy.md) | PostgreSQL TLS policy (new in `006`, closes 002 HIGH TLS finding) | Accepted | 2026-06-28 |
 | [ADR-027](./docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md) | PostgresStorage concurrency-safe seq allocation + deterministic lifecycle (new in `006`, closes 002 MEDIUM findings) | Accepted | 2026-06-28 |
-| [ADR-028](./docs/adrs/ADR-028-combat-resolution-via-agent-tool-sse-stream.md) | Combat terminal-state unification — unify `_check_terminal_state` into shared helper (reserved for spec 006; file is currently a redirect stub) | Proposed | 2026-06-28 |
+| [ADR-028](./docs/adrs/ADR-028-combat-terminal-state-unification.md) | Combat terminal-state check — single entry point after `take_turn` (combat_round deleted by spec 007; victory flag from adventure-module config) | Accepted | 2026-07-02 |
 | [ADR-029](./docs/adrs/ADR-029-narrator-as-tool-use-agent-eliminate-effects.md) | Narrator as tool-use agent — eliminate `effects[]` pattern, restore Phase 1 interaction model (post-006, slice 007) | Accepted | 2026-06-30 |
+| [ADR-030](./docs/adrs/ADR-030-observability-and-evals-otel-stack.md) | Observability & evals — OTel stack + Pydantic Evals (spec 006 planning) | Accepted | 2026-07-01 |
 
 ## Learning Lessons
 

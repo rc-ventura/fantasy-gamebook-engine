@@ -63,18 +63,6 @@ describe('ChoicesPanel', () => {
     expect(screen.getByText(/adventure has concluded/i)).toBeInTheDocument()
   })
 
-  it('shows combat message when inCombat=true', () => {
-    render(
-      <ChoicesPanel
-        choices={[]}
-        inCombat={true}
-        onChoose={vi.fn()}
-        onFreeText={vi.fn()}
-      />
-    )
-    expect(screen.getByText(/combat in progress/i)).toBeInTheDocument()
-  })
-
   it('disables choices when actionPending=true', () => {
     render(
       <ChoicesPanel

@@ -17,10 +17,14 @@ The seam:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+from typing import NoReturn
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Account type — shared between auth impls (004 uses the same dataclass)
@@ -44,6 +48,7 @@ DEV_CAMPAIGN_ID = "dev-campaign"   # default campaign for dev/test
 # ---------------------------------------------------------------------------
 
 async def get_current_account(
+    request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> Account:
     """Dev auth stub: authenticate the caller and return an Account.
@@ -56,19 +61,21 @@ async def get_current_account(
     if authorization is None:
         if dev_mode:
             return Account(account_id=DEV_ACCOUNT_ID)
-        _unauthenticated("Missing Authorization header")
+        _unauthenticated("Missing Authorization header", request)
 
     if not authorization.startswith("Bearer "):
-        _unauthenticated("Authorization header must be 'Bearer <token>'")
+        _unauthenticated("Authorization header must be 'Bearer <token>'", request)
 
     token = authorization[len("Bearer "):]
     if token != DEV_TOKEN:
-        _unauthenticated("Invalid token")
+        _unauthenticated("Invalid token", request)
 
     return Account(account_id=DEV_ACCOUNT_ID)
 
 
-def _unauthenticated(message: str) -> None:
+def _unauthenticated(message: str, request: Request | None = None) -> NoReturn:
+    path = request.url.path if request is not None else "unknown"
+    logger.warning("auth failed: reason=%s path=%s", message, path)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": {"code": "unauthenticated", "message": message}},

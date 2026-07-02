@@ -117,6 +117,14 @@ How to handle common scenarios:
 - Dice roll: call roll_dice → see the result → narrate that exact result.
 - Luck test: call test_luck → see success/failure + luck decrement → narrate it.
 - Character stat change: call update_character_sheet → see new values → narrate them.
+- Moving to a new area: call update_world → set current_location to the new zone,
+  append that zone to visited_locations (if not already there), and increment turn.
+  ALWAYS record the move. The player's MAP and turn counter are read directly from
+  world state — if you don't call update_world, the map stays blank and the turn
+  counter never advances, even though the story moved on.
+- Finding or spending items / gold / provisions: call update_character_sheet with the
+  updated inventory / gold / provisions → narrate it. The player's BACKPACK is read
+  from the character sheet, so an unrecorded item never appears there.
 - Combat: call start_combat → call resolve_combat_round (repeat until ended) →
   call end_combat → narrate the actual outcome with real round counts and damage.
 

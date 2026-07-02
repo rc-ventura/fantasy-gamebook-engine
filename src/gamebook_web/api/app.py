@@ -37,10 +37,15 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Start/stop the engine toolset and initialize shared app state."""
 
+    # Production safety guard (FR-008): refuse to start if dev mode is
+    # explicitly enabled in a production environment — avoids a "dev door left
+    # open" incident.  Both env vars must be checked at startup so the error
+    # appears immediately in the process log, not on the first request.
+    _check_production_dev_mode_clash()
+
     # Allow tests to pre-set app.state.engine_toolset (skips subprocess start)
     if getattr(app.state, "engine_toolset", None) is None:
-        campaign_id = os.getenv("GAMEBOOK_CAMPAIGN_ID")
-        async with engine_toolset_lifespan(campaign_id) as toolset:
+        async with engine_toolset_lifespan() as toolset:
             app.state.engine_toolset = toolset
             _init_app_state(app)
             yield
@@ -50,6 +55,21 @@ async def lifespan(app: FastAPI):
         # Test path: engine_toolset already injected by fixture
         _init_app_state(app)
         yield
+
+
+def _check_production_dev_mode_clash() -> None:
+    """Raise RuntimeError if ENV=production and GAMEBOOK_DEV_MODE=1.
+
+    Guards against accidental deployment of a dev-only auth bypass
+    in a production environment (FR-008).
+    """
+    env = os.getenv("ENV", "")
+    dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0")
+    if env == "production" and dev_mode in ("1", "true", "True"):
+        raise RuntimeError(
+            "Refusing to start: ENV=production but GAMEBOOK_DEV_MODE is enabled. "
+            "Unset GAMEBOOK_DEV_MODE before deploying to production."
+        )
 
 
 def _init_app_state(app: FastAPI) -> None:
@@ -85,6 +105,8 @@ def _configure_narrator(app: FastAPI) -> None:
 # App
 # ---------------------------------------------------------------------------
 
+_is_production = os.getenv("ENV") == "production"
+
 app = FastAPI(
     title="Gamebook Web API",
     version="0.1.0",
@@ -93,9 +115,10 @@ app = FastAPI(
         "with engine-authoritative numbers (no narrator-fabricated values)."
     ),
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # Disable interactive docs in production (FR-009 — no discovery surface)
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # ---------------------------------------------------------------------------
@@ -126,21 +149,51 @@ _cors_origins = [
     if o.strip()
 ]
 if _cors_origins:
+    # Reject wildcard origins when credentials are required — CORS spec forbids
+    # allow_credentials=True with allow_origins=["*"] (T053, FR-034).
+    if "*" in _cors_origins:
+        raise RuntimeError(
+            "GAMEBOOK_CORS_ORIGINS=* is not allowed with allow_credentials=True. "
+            "Specify explicit origins instead."
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
     )
+
+# ---------------------------------------------------------------------------
+# Security headers (FR-060) — set on every response, including errors.
+# ---------------------------------------------------------------------------
+
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
 
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
 
-from gamebook_web.api.play import router as play_router        # noqa: E402
+from gamebook_web.api.account import router as account_router        # noqa: E402
+from gamebook_web.api.play import router as play_router              # noqa: E402
+from gamebook_web.api.sessions import router as sessions_router      # noqa: E402
 
+app.include_router(account_router)
 app.include_router(play_router)
+app.include_router(sessions_router)
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +218,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled error on %s %s", request.method, request.url)
+    logger.error("unhandled %s on %s %s", type(exc).__name__, request.method, request.url)
     return JSONResponse(
         status_code=500,
         content=_error_body("internal_error", "An internal server error occurred."),

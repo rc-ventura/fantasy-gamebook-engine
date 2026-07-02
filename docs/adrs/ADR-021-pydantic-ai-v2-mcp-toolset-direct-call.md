@@ -1,4 +1,4 @@
-# ADR-014: pydantic-ai 2.0 MCPToolset pattern — `direct_call_tool` for routes, `toolsets=[]` for agents
+# ADR-021: pydantic-ai 2.0 MCPToolset pattern — `direct_call_tool` for routes, `toolsets=[]` for agents
 
 **Status**: Accepted  
 **Date**: 2026-06-27  

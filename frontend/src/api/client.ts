@@ -1,17 +1,18 @@
 /**
  * Typed API client — all HTTP calls to the backend go through this module.
  *
- * Auth seam: the token provider function is swappable. Until slice 004 delivers
- * real OIDC, the dev stub reads from sessionStorage or VITE_DEV_TOKEN env var.
- * When 004 lands, only setTokenProvider() changes — zero component changes.
+ * Routes follow D1 backend-scoped design (spec 006, ADR-017):
+ *   /me/game/...     — active game operations (no campaign_id in URL)
+ *   /me/graveyard    — ended campaigns
+ * The frontend never manages campaign_id; the backend resolves it from the
+ * authenticated account.
  *
- * Mock mode: when VITE_USE_MOCK=true (in .env.local), all calls dispatch to the
- * deterministic mock handlers in mock.ts instead of the real HTTP backend.
+ * Auth seam: setTokenProvider() is the only change needed when slice 004
+ * delivers real OIDC — zero component changes required.
  *
- * Base URL: defaults to /api (proxied by Vite to localhost:8000 in dev).
- * Configure via VITE_API_BASE_URL in .env.local if needed.
+ * Mock mode: VITE_USE_MOCK=true routes all calls to mock.ts handlers.
  *
- * Contract: specs/001-web-platform-migration/contracts/http-api.md
+ * Contract: specs/006-cycle1-remediation/contracts/http-api.md
  */
 
 import type {
@@ -19,8 +20,9 @@ import type {
   ApiErrorBody,
   ApiErrorCode,
   CampaignState,
-  CampaignSummary,
   CharacterSheet,
+  CreateGameResponse,
+  GraveyardEntry,
   Scene,
   SessionLease,
   TurnRequest,
@@ -126,90 +128,91 @@ export async function getAccount(): Promise<Account> {
   return request<Account>('GET', '/me')
 }
 
-// ── Campaigns ─────────────────────────────────────────────────────────────────
+// ── Game (one active game per account, D1 backend-scoped) ────────────────────
 
-/** GET /campaigns — list the caller's campaigns. */
-export async function listCampaigns(): Promise<CampaignSummary[]> {
-  if (USE_MOCK) return mockApi.listCampaigns()
-  return request<CampaignSummary[]>('GET', '/campaigns')
+/** POST /me/game — start a new game. Returns status + campaign_id (for debug only). */
+export async function createGame(name?: string): Promise<CreateGameResponse> {
+  if (USE_MOCK) return mockApi.createGame(name)
+  return request<CreateGameResponse>('POST', '/me/game', { name: name ?? null })
 }
 
-/** POST /campaigns — start a new campaign. */
-export async function createCampaign(): Promise<CampaignSummary> {
-  if (USE_MOCK) return mockApi.createCampaign()
-  return request<CampaignSummary>('POST', '/campaigns', {})
+/** GET /me/game — full game state (character + world + scene + summary + events). */
+export async function getGame(): Promise<CampaignState> {
+  if (USE_MOCK) return mockApi.getGame()
+  return request<CampaignState>('GET', '/me/game')
 }
 
-/** GET /campaigns/{id} — full campaign state (character + world + scene). */
-export async function getCampaign(id: string): Promise<CampaignState> {
-  if (USE_MOCK) return mockApi.getCampaign(id)
-  return request<CampaignState>('GET', `/campaigns/${id}`)
-}
-
-/** DELETE /campaigns/{id} — delete a campaign. */
-export async function deleteCampaign(id: string): Promise<void> {
-  if (USE_MOCK) return mockApi.deleteCampaign(id)
-  return request<void>('DELETE', `/campaigns/${id}`)
-}
-
-// ── Session lease (FR-025) ────────────────────────────────────────────────────
-
-/** POST /campaigns/{id}/session — acquire or refresh the play-session lease. */
-export async function acquireSession(id: string): Promise<SessionLease> {
-  if (USE_MOCK) return mockApi.acquireSession(id)
-  return request<SessionLease>('POST', `/campaigns/${id}/session`)
-}
-
-/** POST /campaigns/{id}/session/takeover — forcibly take over the lease. */
-export async function takeoverSession(id: string): Promise<SessionLease> {
-  if (USE_MOCK) return mockApi.takeoverSession(id)
-  return request<SessionLease>('POST', `/campaigns/${id}/session/takeover`)
-}
-
-/** DELETE /campaigns/{id}/session — release the lease. */
-export async function releaseSession(id: string): Promise<void> {
-  if (USE_MOCK) return mockApi.releaseSession(id)
-  return request<void>('DELETE', `/campaigns/${id}/session`)
+/** DELETE /me/game — abandon the current game. */
+export async function deleteGame(): Promise<void> {
+  if (USE_MOCK) return mockApi.deleteGame()
+  return request<void>('DELETE', '/me/game')
 }
 
 // ── Character ─────────────────────────────────────────────────────────────────
 
-/** POST /campaigns/{id}/character — create the hero (attributes rolled by engine). */
-export async function createCharacter(id: string, name?: string): Promise<CharacterSheet> {
-  if (USE_MOCK) return mockApi.createCharacter(id, name)
-  return request<CharacterSheet>('POST', `/campaigns/${id}/character`, { name })
+/** POST /me/game/character — create the hero (attributes rolled by engine). */
+export async function createCharacter(name?: string): Promise<CharacterSheet> {
+  if (USE_MOCK) return mockApi.createCharacter(name)
+  return request<CharacterSheet>('POST', '/me/game/character', { name })
 }
 
-/** GET /campaigns/{id}/character — read the character sheet (real engine state). */
-export async function getCharacter(id: string): Promise<CharacterSheet> {
+/** GET /me/game/character — read the character sheet (real engine state). */
+export async function getCharacter(): Promise<CharacterSheet> {
   if (USE_MOCK) {
-    const campaign = await mockApi.getCampaign(id)
-    if (!campaign.character) throw new ApiError(404, 'not_found', 'No character found')
-    return campaign.character
+    const game = await mockApi.getGame()
+    if (!game.character) throw new ApiError(404, 'not_found', 'No character found')
+    return game.character
   }
-  return request<CharacterSheet>('GET', `/campaigns/${id}/character`)
+  return request<CharacterSheet>('GET', '/me/game/character')
 }
 
 // ── Play loop ─────────────────────────────────────────────────────────────────
 
-/** POST /campaigns/{id}/turn — take a turn; returns validated Scene + updated campaign. */
-export async function takeTurn(id: string, turnReq: TurnRequest): Promise<TurnResponse> {
-  if (USE_MOCK) {
-    return mockApi.takeTurn(id, turnReq.choice_id, turnReq.free_text)
-  }
-  return request<TurnResponse>('POST', `/campaigns/${id}/turn`, turnReq)
+/** POST /me/game/turn — take a turn; returns validated Scene + updated game state. */
+export async function takeTurn(turnReq: TurnRequest): Promise<TurnResponse> {
+  if (USE_MOCK) return mockApi.takeTurn(turnReq.choice)
+  return request<TurnResponse>('POST', '/me/game/turn', turnReq)
 }
 
-/** GET /campaigns/{id}/scene — re-fetch the current scene (for resume/refresh). */
-export async function getCurrentScene(id: string): Promise<Scene> {
-  if (USE_MOCK) return mockApi.getScene(id)
-  return request<Scene>('GET', `/campaigns/${id}/scene`)
+/** GET /me/game/scene — re-fetch the current scene (for resume/refresh). */
+export async function getCurrentScene(): Promise<{ scene: Scene | null }> {
+  if (USE_MOCK) return { scene: await mockApi.getScene() }
+  return request<{ scene: Scene | null }>('GET', '/me/game/scene')
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
-/** POST /campaigns/{id}/save — checkpoint progress (durable, atomic). */
-export async function saveCampaign(id: string): Promise<void> {
-  if (USE_MOCK) return mockApi.saveCampaign(id)
-  return request<void>('POST', `/campaigns/${id}/save`, {})
+/** POST /me/game/save — checkpoint progress (durable, atomic). */
+export async function saveGame(): Promise<{ ok: boolean; slot?: string }> {
+  if (USE_MOCK) { await mockApi.saveGame(); return { ok: true } }
+  return request<{ ok: boolean; slot?: string }>('POST', '/me/game/save', {})
+}
+
+// ── Graveyard ─────────────────────────────────────────────────────────────────
+
+/** GET /me/graveyard — list ended campaigns (death + victory). */
+export async function getGraveyard(): Promise<GraveyardEntry[]> {
+  if (USE_MOCK) return mockApi.getGraveyard()
+  return request<GraveyardEntry[]>('GET', '/me/graveyard')
+}
+
+// ── Session lease (stub — real impl in slice 004) ─────────────────────────────
+
+/** POST /me/game/session — acquire the play-session lease (slice 004). */
+export async function acquireSession(): Promise<SessionLease> {
+  if (USE_MOCK) return mockApi.acquireSession()
+  // Slice 004 will replace with: request<SessionLease>('POST', '/me/game/session')
+  return { session_token: 'stub', expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
+}
+
+/** POST /me/game/session/takeover — forcibly take over the lease (slice 004). */
+export async function takeoverSession(): Promise<SessionLease> {
+  if (USE_MOCK) return mockApi.takeoverSession()
+  return { session_token: 'stub-takeover', expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
+}
+
+/** DELETE /me/game/session — release the lease (slice 004). */
+export async function releaseSession(): Promise<void> {
+  if (USE_MOCK) { await mockApi.releaseSession(); return }
+  // Best-effort release — no-op until slice 004 implements real sessions
 }

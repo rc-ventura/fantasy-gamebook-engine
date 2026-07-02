@@ -128,17 +128,14 @@ def engine_storage() -> InMemoryStorage:
 def engine_server(engine_storage: InMemoryStorage) -> Any:
     """In-process FastMCP server backed by ``InMemoryStorage``.
 
-    Tests import ``gamebook.mcp.server`` (engine internals are allowed in
-    tests — ``tests/`` is not ``gamebook_web/``).  This server is injected
-    into the FastAPI app via ``mcp_host.set_engine_toolset_factory`` so no
-    subprocess is started during API tests.
+    Uses a storage_factory that always returns the same InMemoryStorage instance,
+    so all tool calls within a test share the same in-memory state regardless of
+    the campaign_id passed (ADR-018: factory-based multi-tenancy).
     """
-    from gamebook.combat.implementation import CombatService
     from gamebook.mcp.server import build_server
 
     rng = random.Random(SEED)
-    combat = CombatService(engine_storage, rng)
-    return build_server(storage=engine_storage, combat=combat, rng=rng)
+    return build_server(storage_factory=lambda _cid: engine_storage, rng=rng)
 
 
 @pytest.fixture

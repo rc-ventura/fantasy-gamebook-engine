@@ -5,6 +5,9 @@ end-state — using ONLY the HTTP API (FastAPI TestClient) with:
   - FakeNarrator (no LLM — deterministic)
   - In-process engine (InMemoryStorage + seeded RNG — fast and isolated)
 
+After the backend-scoped route redesign (spec 006, ADR-017, D1), routes are
+``/me/game/...`` — the frontend never manages campaign_id.
+
 After the narrator tool-use refactor (spec 007, ADR-029), the narrator calls
 MCP tools directly during generation. The explicit combat endpoints
 (POST /combat/round, POST /combat/flee) are removed; combat resolves inside
@@ -26,9 +29,9 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer dev-token"}
 
 
-def _create_campaign(client) -> str:
-    """POST /campaigns and return the campaign_id."""
-    resp = client.post("/campaigns", headers=_auth_headers())
+def _create_game(client) -> str:
+    """POST /me/game and return the campaign_id (for test reference only)."""
+    resp = client.post("/me/game", headers=_auth_headers())
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert "campaign_id" in data
@@ -36,13 +39,9 @@ def _create_campaign(client) -> str:
     return data["campaign_id"]
 
 
-def _create_character(client, cid: str, name: str = "TestHero") -> dict:
-    """POST /campaigns/{id}/character and return the character sheet."""
-    resp = client.post(
-        f"/campaigns/{cid}/character",
-        json={"name": name},
-        headers=_auth_headers(),
-    )
+def _create_character(client, name: str = "TestHero") -> dict:
+    """POST /me/game/character and return the character sheet."""
+    resp = client.post("/me/game/character", json={"name": name}, headers=_auth_headers())
     assert resp.status_code == 201, resp.text
     sheet = resp.json()
     assert sheet["name"] == name
@@ -77,105 +76,110 @@ class TestHealthAndOpenAPI:
         assert resp.status_code == 200
 
 
-class TestCampaignCRUD:
-    def test_create_campaign(self, api_client):
-        cid = _create_campaign(api_client)
+class TestGameCRUD:
+    def test_create_game(self, api_client):
+        cid = _create_game(api_client)
         assert cid  # non-empty UUID-like string
 
-    def test_list_campaigns(self, api_client):
-        cid = _create_campaign(api_client)
-        resp = api_client.get("/campaigns", headers=_auth_headers())
-        assert resp.status_code == 200
-        campaigns = resp.json()
-        assert any(c["campaign_id"] == cid for c in campaigns)
+    def test_create_game_returns_status(self, api_client):
+        resp = api_client.post("/me/game", headers=_auth_headers())
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["status"] == "active"
+        assert "campaign_id" in data
 
-    def test_get_campaign_state(self, api_client):
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+    def test_get_game_state(self, api_client):
+        _create_game(api_client)
+        _create_character(api_client)
 
-        resp = api_client.get(f"/campaigns/{cid}", headers=_auth_headers())
+        resp = api_client.get("/me/game", headers=_auth_headers())
         assert resp.status_code == 200
         data = resp.json()
-        assert data["campaign_id"] == cid
         assert data["status"] == "active"
         assert data["character"] is not None
         assert data["character"]["name"] == "TestHero"
         assert isinstance(data["summary"], str)
         assert isinstance(data["events"], list)
 
-    def test_get_unknown_campaign_returns_404(self, api_client):
-        resp = api_client.get(
-            "/campaigns/nonexistent-id", headers=_auth_headers()
-        )
+    def test_get_game_without_active_campaign_returns_404(self, api_client):
+        """GET /me/game with no active campaign returns 404 no_active_campaign."""
+        resp = api_client.get("/me/game", headers=_auth_headers())
         assert resp.status_code == 404
-        assert resp.json()["error"]["code"] == "not_found"
+        assert resp.json()["error"]["code"] == "no_active_campaign"
 
-    def test_delete_campaign(self, api_client):
-        cid = _create_campaign(api_client)
-        resp = api_client.delete(f"/campaigns/{cid}", headers=_auth_headers())
+    def test_delete_game(self, api_client):
+        _create_game(api_client)
+        resp = api_client.delete("/me/game", headers=_auth_headers())
         assert resp.status_code == 204
-        # Confirm deleted
-        resp2 = api_client.get(f"/campaigns/{cid}", headers=_auth_headers())
+        # Confirm deleted — no active campaign
+        resp2 = api_client.get("/me/game", headers=_auth_headers())
         assert resp2.status_code == 404
+        assert resp2.json()["error"]["code"] == "no_active_campaign"
+
+    def test_graveyard_lists_ended_campaigns(self, api_client):
+        """GET /me/graveyard lists campaigns ended via DELETE /me/game."""
+        _create_game(api_client)
+        api_client.delete("/me/game", headers=_auth_headers())
+
+        resp = api_client.get("/me/graveyard", headers=_auth_headers())
+        assert resp.status_code == 200
+        graveyard = resp.json()
+        assert isinstance(graveyard, list)
+        assert len(graveyard) == 1
+        entry = graveyard[0]
+        assert entry["status"] == "ended"
+        assert "campaign_id" in entry
 
 
 class TestCharacterCreation:
     def test_create_character_engine_rolls_stats(self, api_client):
         """Engine rolls attributes — client never supplies numbers (FR-001)."""
-        cid = _create_campaign(api_client)
-        sheet = _create_character(api_client, cid, name="Aldric")
+        _create_game(api_client)
+        sheet = _create_character(api_client, name="Aldric")
 
         # All numbers from the engine
         for attr in ("skill", "stamina", "luck"):
             assert sheet[attr]["initial"] == sheet[attr]["current"]
 
     def test_read_character_reflects_engine_state(self, api_client):
-        cid = _create_campaign(api_client)
-        created = _create_character(api_client, cid)
+        _create_game(api_client)
+        created = _create_character(api_client)
 
-        resp = api_client.get(f"/campaigns/{cid}/character", headers=_auth_headers())
+        resp = api_client.get("/me/game/character", headers=_auth_headers())
         assert resp.status_code == 200
         assert resp.json() == created  # exact same engine state
 
     def test_duplicate_character_creation_rejected(self, api_client):
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
         # Second attempt — engine must reject it
         resp = api_client.post(
-            f"/campaigns/{cid}/character",
+            "/me/game/character",
             json={"name": "Duplicate"},
             headers=_auth_headers(),
         )
         assert resp.status_code in (409, 422, 500)  # engine raises on duplicate living hero
 
-    def test_character_on_ended_campaign_rejected(self, api_client, engine_server):
-        """Creating a character on an ended campaign returns 409."""
-        from gamebook_web.api.app import app
-        cid = _create_campaign(api_client)
-        app.state.campaign_registry.set_ended(cid)
-
+    def test_character_with_no_active_game_returns_404(self, api_client):
+        """Creating a character when no active game exists returns 404 no_active_campaign."""
         resp = api_client.post(
-            f"/campaigns/{cid}/character",
+            "/me/game/character",
             json={"name": "Ghost"},
             headers=_auth_headers(),
         )
-        assert resp.status_code == 409
-        assert resp.json()["error"]["code"] == "run_ended"
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "no_active_campaign"
 
 
 class TestTurnBasedPlay:
     """Play loop — exploration turns via FakeNarrator (US1, US2)."""
 
     def test_first_turn_returns_scene(self, api_client):
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={"choice": None},
-            headers=_auth_headers(),
-        )
+        resp = api_client.post("/me/game/turn", json={"choice": None}, headers=_auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         scene = data["scene"]
@@ -188,14 +192,10 @@ class TestTurnBasedPlay:
 
     def test_turn_returns_engine_state(self, api_client):
         """After a turn the response includes real engine state (not narrated numbers)."""
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={"choice": "1"},
-            headers=_auth_headers(),
-        )
+        resp = api_client.post("/me/game/turn", json={"choice": "1"}, headers=_auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         char = data["character"]
@@ -204,72 +204,57 @@ class TestTurnBasedPlay:
         assert "stamina" in char
 
     def test_multiple_turns_advance_story(self, api_client):
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
         for choice in ["1", "2", "1"]:
-            resp = api_client.post(
-                f"/campaigns/{cid}/turn",
-                json={"choice": choice},
-                headers=_auth_headers(),
-            )
+            resp = api_client.post("/me/game/turn", json={"choice": choice}, headers=_auth_headers())
             assert resp.status_code == 200
 
     def test_turn_stores_scene_for_resume(self, api_client):
-        """After a turn, GET /scene returns the stored scene."""
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        """After a turn, GET /me/game/scene returns the stored scene."""
+        _create_game(api_client)
+        _create_character(api_client)
 
         # Before any turn
-        resp = api_client.get(f"/campaigns/{cid}/scene", headers=_auth_headers())
+        resp = api_client.get("/me/game/scene", headers=_auth_headers())
         assert resp.status_code == 200
         assert resp.json()["scene"] is None
 
         # After a turn
-        api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
-        resp = api_client.get(f"/campaigns/{cid}/scene", headers=_auth_headers())
+        api_client.post("/me/game/turn", json={}, headers=_auth_headers())
+        resp = api_client.get("/me/game/scene", headers=_auth_headers())
         assert resp.status_code == 200
         assert resp.json()["scene"] is not None
 
-    def test_turn_on_ended_campaign_returns_409(self, api_client):
-        from gamebook_web.api.app import app
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
-        app.state.campaign_registry.set_ended(cid)
-
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn", json={}, headers=_auth_headers()
-        )
-        assert resp.status_code == 409
-        assert resp.json()["error"]["code"] == "run_ended"
+    def test_turn_with_no_active_game_returns_404(self, api_client):
+        """POST /me/game/turn when no active game returns 404 no_active_campaign."""
+        resp = api_client.post("/me/game/turn", json={}, headers=_auth_headers())
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "no_active_campaign"
 
 
 class TestCombatEndpointsRemoved:
-    """POST /combat/round and POST /combat/flee are removed (US3, FR-005, spec 007).
+    """Combat-round and flee endpoints are removed (US3, FR-005, spec 007).
 
     Combat now resolves inside POST /turn — the narrator calls start_combat,
     resolve_combat_round, and end_combat directly during generation.
     """
 
     def test_combat_round_returns_404(self, api_client):
-        cid = _create_campaign(api_client)
         resp = api_client.post(
-            f"/campaigns/{cid}/combat/round",
+            "/me/game/combat/round",
             json={"test_luck": False},
             headers=_auth_headers(),
         )
         assert resp.status_code == 404, (
-            "POST /combat/round must not exist after spec 007 refactor"
+            "POST /me/game/combat/round must not exist after spec 007 refactor"
         )
 
     def test_combat_flee_returns_404(self, api_client):
-        cid = _create_campaign(api_client)
-        resp = api_client.post(
-            f"/campaigns/{cid}/combat/flee",
-            headers=_auth_headers(),
-        )
+        resp = api_client.post("/me/game/combat/flee", headers=_auth_headers())
         assert resp.status_code == 404, (
-            "POST /combat/flee must not exist after spec 007 refactor"
+            "POST /me/game/combat/flee must not exist after spec 007 refactor"
         )
 
 
@@ -284,17 +269,14 @@ class TestEndStates:
         """
         from gamebook.domain.models import Attribute, CharacterSheet
 
-        cid = _create_campaign(api_client)
-        sheet_data = _create_character(api_client, cid)
+        _create_game(api_client)
+        sheet_data = _create_character(api_client)
 
         # Directly kill the hero via storage (simulates combat driving stamina to 0)
         dead_sheet = CharacterSheet(
             name=sheet_data["name"],
             skill=Attribute(**sheet_data["skill"]),
-            stamina=Attribute(
-                initial=sheet_data["stamina"]["initial"],
-                current=0,
-            ),
+            stamina=Attribute(initial=sheet_data["stamina"]["initial"], current=0),
             luck=Attribute(**sheet_data["luck"]),
             inventory=sheet_data.get("inventory", []),
             gold=sheet_data.get("gold", 0),
@@ -305,27 +287,30 @@ class TestEndStates:
         engine_storage.save_character(dead_sheet)
 
         # Next turn: API reads dead hero → _check_terminal_state archives → campaign ends
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        resp = api_client.post("/me/game/turn", json={}, headers=_auth_headers())
         assert resp.status_code == 200
 
-        campaign = api_client.get(f"/campaigns/{cid}", headers=_auth_headers()).json()
-        assert campaign["status"] == "ended"
+        # Game is now ended — no active campaign
+        game = api_client.get("/me/game", headers=_auth_headers())
+        assert game.status_code == 404
+        assert game.json()["error"]["code"] == "no_active_campaign"
 
-        # Further turns rejected
-        resp2 = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
-        assert resp2.status_code == 409
-        assert resp2.json()["error"]["code"] == "run_ended"
+        # Further turns rejected — no active campaign
+        resp2 = api_client.post("/me/game/turn", json={}, headers=_auth_headers())
+        assert resp2.status_code == 404
+        assert resp2.json()["error"]["code"] == "no_active_campaign"
+
+        # Game appears in graveyard
+        grave = api_client.get("/me/graveyard", headers=_auth_headers()).json()
+        assert len(grave) >= 1
+        assert any(e["ended_reason"] == "death" for e in grave)
 
     def test_victory_ends_campaign(self, api_client, engine_storage):
-        """When malachar_defeated flag is set in world, the campaign ends after the next turn.
-
-        Simulates victory by directly writing the victory flag to engine_storage.
-        The API detects it in _check_terminal_state, archives to hall_of_fame, and ends.
-        """
+        """When malachar_defeated flag is set in world, the campaign ends after the next turn."""
         from gamebook.domain.models import World
 
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
         # Inject victory flag directly into engine world state
         world = engine_storage.load_world()
@@ -338,23 +323,24 @@ class TestEndStates:
         ))
 
         # Next turn: API reads world → _check_terminal_state triggers victory archive
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
+        resp = api_client.post("/me/game/turn", json={}, headers=_auth_headers())
         assert resp.status_code == 200
 
-        campaign = api_client.get(f"/campaigns/{cid}", headers=_auth_headers()).json()
-        assert campaign["status"] == "ended"
+        # Game ended — no active campaign
+        game = api_client.get("/me/game", headers=_auth_headers())
+        assert game.status_code == 404
+        assert game.json()["error"]["code"] == "no_active_campaign"
 
-        # Further turns rejected
-        resp2 = api_client.post(f"/campaigns/{cid}/turn", json={}, headers=_auth_headers())
-        assert resp2.status_code == 409
-        assert resp2.json()["error"]["code"] == "run_ended"
+        # Appears in graveyard
+        grave = api_client.get("/me/graveyard", headers=_auth_headers()).json()
+        assert any(e["ended_reason"] == "victory" for e in grave)
 
     def test_save_checkpoint(self, api_client):
-        """POST /campaigns/{id}/save triggers engine's save_progress tool."""
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        """POST /me/game/save triggers engine's save_progress tool."""
+        _create_game(api_client)
+        _create_character(api_client)
 
-        resp = api_client.post(f"/campaigns/{cid}/save", headers=_auth_headers())
+        resp = api_client.post("/me/game/save", headers=_auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
@@ -365,35 +351,28 @@ class TestInputValidation:
 
     def test_choice_over_max_length_returns_422(self, api_client):
         """A choice exceeding 500 chars is rejected before the narrator is called."""
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
         long_choice = "x" * 501
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={"choice": long_choice},
-            headers=_auth_headers(),
-        )
+        resp = api_client.post("/me/game/turn", json={"choice": long_choice}, headers=_auth_headers())
         assert resp.status_code == 422
 
     def test_choice_at_max_length_accepted(self, api_client):
         """A choice of exactly 500 chars is accepted."""
-        cid = _create_campaign(api_client)
-        _create_character(api_client, cid)
+        _create_game(api_client)
+        _create_character(api_client)
 
         long_choice = "y" * 500
-        resp = api_client.post(
-            f"/campaigns/{cid}/turn",
-            json={"choice": long_choice},
-            headers=_auth_headers(),
-        )
+        resp = api_client.post("/me/game/turn", json={"choice": long_choice}, headers=_auth_headers())
         assert resp.status_code == 200
 
 
 class TestAuthEnvelope:
     def test_invalid_token_returns_401(self, api_client):
-        resp = api_client.get(
-            "/campaigns",
+        resp = api_client.post(
+            "/me/game",
+            json={},
             headers={"Authorization": "Bearer bad-token"},
         )
         assert resp.status_code == 401
@@ -402,10 +381,10 @@ class TestAuthEnvelope:
     def test_no_token_dev_mode_allowed(self, api_client, monkeypatch):
         """With dev mode explicitly enabled, no auth token is accepted."""
         monkeypatch.setenv("GAMEBOOK_DEV_MODE", "1")
-        resp = api_client.get("/campaigns")  # no Authorization header
-        assert resp.status_code == 200
+        resp = api_client.post("/me/game", json={})  # no Authorization header
+        assert resp.status_code == 201
 
     def test_no_token_fails_closed_by_default(self, api_client):
         """Fail-closed: without GAMEBOOK_DEV_MODE set, a missing token → 401."""
-        resp = api_client.get("/campaigns")  # no Authorization header
+        resp = api_client.post("/me/game", json={})  # no Authorization header
         assert resp.status_code == 401

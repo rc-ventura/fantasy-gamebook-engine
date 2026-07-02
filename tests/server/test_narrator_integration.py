@@ -201,3 +201,27 @@ class TestScopedMCPToolset:
 
         with pytest.raises(TypeError):
             ScopedMCPToolset(wrapped=object())  # type: ignore[call-arg]
+
+
+class TestNarratorWorldTrackingInstructions:
+    """The narrator prompt must instruct world + inventory tracking, or the
+    Map/Backpack tabs stay empty even with a real LLM (they read world/character
+    state, which only updates when the narrator calls update_world /
+    update_character_sheet)."""
+
+    def test_prompt_instructs_update_world_for_movement(self):
+        from gamebook_web.harness.agent import _NUMBERS_NEVER_IN_PROSE_RULE
+
+        rule = _NUMBERS_NEVER_IN_PROSE_RULE
+        assert "update_world" in rule
+        # Must tell the narrator to record location, visited zones, and turn.
+        assert "current_location" in rule
+        assert "visited_locations" in rule
+        assert "turn" in rule.lower()
+
+    def test_prompt_instructs_inventory_tracking(self):
+        from gamebook_web.harness.agent import _NUMBERS_NEVER_IN_PROSE_RULE
+
+        rule = _NUMBERS_NEVER_IN_PROSE_RULE.lower()
+        assert "inventory" in rule
+        assert "gold" in rule

@@ -14,7 +14,7 @@ import { useAuth } from './hooks/useAuth'
  *   /           → Landing / Marketing
  *   /auth       → Sign-in / Register
  *   /dashboard  → Campaign list / Dashboard
- *   /play/:id   → Play loop (narrator + choices + character sheet + combat)
+ *   /play       → Play loop (narrator + choices + character sheet; no id needed, D1)
  */
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -39,7 +39,7 @@ export default function App() {
         }
       />
       <Route
-        path="/play/:id"
+        path="/play"
         element={
           <ProtectedRoute>
             <PlayPage />

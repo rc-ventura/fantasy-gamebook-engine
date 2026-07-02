@@ -513,7 +513,7 @@ the engine-authoritative values in `character` and `world`.
 
 ---
 
-## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26; updated 2026-06-27)
+## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26; updated 2026-07-02 by spec 006)
 
 > Folded from `specs/001-web-platform-migration/data-model.md` §B per Principle III.
 > **Implementation delivered by slice 002-persistence-foundation.**
@@ -565,11 +565,41 @@ asyncio event loop in a daemon thread bridges the two.  Each storage method call
 `asyncio.run_coroutine_threadsafe(coro, self._loop).result()`, blocking until the coroutine
 commits.  Works from any calling context (sync or already-running event loop).
 
+**TLS policy (ADR-026, FR-037 — spec 006):**
+- Connections require TLS **by default** (`ssl=require`).  Plaintext is allowed only with
+  the explicit dev override `POSTGRES_SSL_MODE=disable`, which is **refused in production**
+  (`ENV=production`).  Every deployment URL is therefore TLS-protected unless a developer
+  deliberately opts out locally.
+
+**Concurrency-safe event sequence (ADR-027, FR-038 — spec 006):**
+- `append_event` serializes concurrent appends per campaign with a transaction-scoped
+  advisory lock (`pg_advisory_xact_lock(hashtext(campaign_id))`) before computing
+  `MAX(seq)+1`.  The prior unserialized `MAX(seq)+1` had a race: two concurrent
+  transactions could compute the same seq.  `UNIQUE(campaign_id, seq)` remains the backstop.
+
+**Deterministic lifecycle (ADR-027, FR-039 — spec 006):**
+- `PostgresStorage.close()` disposes the async engine and stops the daemon event loop
+  (thread joined).  It MUST be called on MCP server graceful shutdown and in live-Postgres
+  test teardown.  Safe to call more than once.
+
+**Consistent snapshots (ADR-027, FR-040 — spec 006):**
+- `save_slot` builds its snapshot inside an explicit **read-only transaction**, so the
+  captured character/world/events/summary/combat all belong to one consistent point in time.
+
+**Identifier validation (ADR-027, FR-041 — spec 006):**
+- `save_slot`, `load_slot`, `load_combat`, and `remove_combat` reject empty/`None`/`/`/`\`/
+  `..` identifiers — parity with `JSONStorage` (no path-like identifiers reach SQL).
+
 **Other notes:**
 - `data JSONB` on `character_sheet` / `world` stores `model_dump(mode="json")` for exact
   round-trip (Principle V).  Attribute bounds stay enforced in `domain`, not the DB.
-- `event.seq` is computed as `MAX(seq)+1` within the INSERT transaction — no race condition.
 - Reads/writes are filtered by `campaign_id` (and `account_id` at the API layer in slice 004).
 - Migration: `alembic/versions/0001_initial_schema.py` — apply with
   `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head`.
-- Phase-2 MCP path: `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server`
+- Phase-2 MCP path (ADR-018 Option A): `DATABASE_URL=... uv run python -m gamebook.mcp.server`
+  — one shared engine process; every tool takes `campaign_id` as its first parameter
+  (the legacy `GAMEBOOK_CAMPAIGN_ID` boot-time scoping is retired).
+- Test coverage: `tests/server/test_postgres_storage.py` (TLS, concurrency, lifecycle,
+  snapshot, identifiers), `tests/server/test_atomic_writes.py` (crash **after** a real
+  `execute()` → rollback, incl. multi-statement restore), `tests/qa/test_storage_swap.py`
+  (consumer-level swap proof across memory/json/mock/**postgres**).

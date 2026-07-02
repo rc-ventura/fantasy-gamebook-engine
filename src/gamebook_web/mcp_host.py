@@ -42,21 +42,23 @@ def set_engine_toolset_factory(factory: Callable[[], MCPToolset] | None) -> None
     _TOOLSET_FACTORY = factory
 
 
-def _default_toolset_factory(campaign_id: str | None = None) -> MCPToolset:
-    """Production toolset: engine subprocess over stdio (ADR-007)."""
-    env = {**os.environ}
-    if campaign_id:
-        env["GAMEBOOK_CAMPAIGN_ID"] = campaign_id
+def _default_toolset_factory() -> MCPToolset:
+    """Production toolset: engine subprocess over stdio (ADR-007).
+
+    campaign_id is no longer passed via env var. Every MCP tool now takes
+    campaign_id as its first parameter (ADR-018 Option A); the caller passes
+    it in the tool arguments on each call.
+    """
     return MCPToolset(
         StdioTransport(
             command=sys.executable,
             args=["-m", "gamebook.mcp.server"],
-            env=env,
+            env={**os.environ},
         )
     )
 
 
-def make_toolset(campaign_id: str | None = None) -> MCPToolset:
+def make_toolset() -> MCPToolset:
     """Create an MCPToolset using the active factory (production or test).
 
     In production the factory is ``None`` so the default subprocess path is
@@ -65,7 +67,7 @@ def make_toolset(campaign_id: str | None = None) -> MCPToolset:
     """
     if _TOOLSET_FACTORY is not None:
         return _TOOLSET_FACTORY()
-    return _default_toolset_factory(campaign_id)
+    return _default_toolset_factory()
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +75,7 @@ def make_toolset(campaign_id: str | None = None) -> MCPToolset:
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
-async def engine_toolset_lifespan(
-    campaign_id: str | None = None,
-) -> AsyncGenerator[MCPToolset, None]:
+async def engine_toolset_lifespan() -> AsyncGenerator[MCPToolset, None]:
     """Async context manager: enter the MCPToolset and yield it.
 
     The toolset is entered ONCE at app startup and kept alive until shutdown.
@@ -83,7 +83,7 @@ async def engine_toolset_lifespan(
     connection.  The lifespan in ``api/app.py`` stores the entered toolset in
     ``app.state.engine_toolset``.
     """
-    toolset = make_toolset(campaign_id)
+    toolset = make_toolset()
     async with toolset:
         yield toolset
 

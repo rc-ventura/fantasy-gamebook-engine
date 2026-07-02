@@ -19,7 +19,7 @@ type TabId = 'signin' | 'register'
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 const DEV_TOKEN = (() => {
   const t = import.meta.env.VITE_DEV_TOKEN
-  return typeof t === 'string' && t.length > 0 ? t : 'dev-token-grimoire'
+  return typeof t === 'string' && t.length > 0 ? t : 'dev-token'
 })()
 
 export default function AuthPage() {

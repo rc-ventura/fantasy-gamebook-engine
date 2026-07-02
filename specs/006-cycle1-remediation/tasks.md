@@ -102,7 +102,7 @@ live backend with no `undefined` fields.
 - [X] T113 [US1] Add `_get_active_campaign(account: Account, registry: CampaignRegistry) -> CampaignState` helper in `src/gamebook_web/api/play.py`: looks up the one active campaign for `account.account_id`. When no active campaign exists: raise `404` with `{ "error": { "code": "no_active_campaign", "message": "...", "hint": "POST /me/game to start a new game" } }` — never a generic 404. The SPA intercepts this specific code to route the player to the start screen. The `campaign_id` extracted here is passed to all `call_engine(...)` calls inside each handler. (ADR-017, D1, FR-002)
 - [X] T114 [P] [US1] Add `GET /me/graveyard` endpoint in `src/gamebook_web/api/play.py` returning the list of `ended` campaigns for the caller's account. Response: `[{ campaign_id, status, name?, created_at?, ended_at?, ended_reason? }]`. (ADR-017, D1, FR-003)
 - [X] T115 [P] [US1] Update `specs/001-web-platform-migration/contracts/http-api.md` to reflect the backend-scoped route table above. Remove old `GET /campaigns`, `GET /campaigns/{id}` etc. Add new `/me/game/...` routes and graveyard endpoint. (ADR-017, Principle III)
-- [ ] T116 [US1] Update session-lease routes in `src/gamebook_web/api/sessions.py`: rename `POST /campaigns/{id}/session` → `POST /me/game/session`, `POST /campaigns/{id}/session/takeover` → `POST /me/game/session/takeover`, `DELETE /campaigns/{id}/session` → `DELETE /me/game/session`. (ADR-017, ADR-023, D1)
+- [X] T116 [US1] Update session-lease routes in `src/gamebook_web/api/sessions.py`: rename `POST /campaigns/{id}/session` → `POST /me/game/session`, `POST /campaigns/{id}/session/takeover` → `POST /me/game/session/takeover`, `DELETE /campaigns/{id}/session` → `DELETE /me/game/session`. (ADR-017, ADR-023, D1)
 
 ### Phase 2b: Frontend contract alignment
 
@@ -110,7 +110,7 @@ live backend with no `undefined` fields.
 - [X] T011 [US1] Refactor `frontend/src/hooks/useGame.ts` to `useGame()` — remove `campaignId` parameter. Remove all references to `campaignId` in the hook body; calls become `getActiveGame()`, `takeTurn(choice)`, `acquireSession()` etc. (no `campaign_id` in any call). `applyTurnResponse` assembles `GameState` from `{ character: res.character, world: res.world, current_scene: res.scene }`. Remove `applyCombatResponse`. (ADR-017, D1, FR-003)
 - [X] T012 [US1] Rewrite `frontend/src/api/client.ts`: replace all `/campaigns/${id}/...` endpoints with `/me/game/...` (no `id` parameter). Methods: `createGame()`, `getGame()`, `deleteGame()`, `createCharacter()`, `readCharacter()`, `takeTurn(choice)`, `getScene()`, `saveGame()`, `getGraveyard()`. (ADR-017, D1, FR-004)
 - [X] T013 [P] [US1] Update `frontend/src/api/mock.ts` to return the new response shapes under the new route keys. No `effects_applied` in `TurnResponse`; no combat round/flee mock handlers; new `/me/game/...` key names. Mock stays in sync with the canonical contract per ADR-016/ADR-017. (ADR-017)
-- [ ] T014 [US1] Add `frontend/tests/e2e/live-play-loop.spec.ts`: Playwright suite against the live FastAPI backend (started in global setup) with `VITE_USE_MOCK=false`. Flow: `POST /me/game` → `POST /me/game/character` → `POST /me/game/turn` × 2 → turn that auto-resolves combat → `GET /me/game/scene` (resume). Asserts no `undefined` fields in any response. (SC-001, FR-015)
+- [X] T014 [US1] Add `frontend/tests/e2e/live-play-loop.spec.ts`: Playwright suite against the live FastAPI backend (started in global setup) with `VITE_USE_MOCK=false`. Flow: `POST /me/game` → `POST /me/game/character` → `POST /me/game/turn` × 2 → turn that auto-resolves combat → `GET /me/game/scene` (resume). Asserts no `undefined` fields in any response. (SC-001, FR-015)
 - [X] T015 [US1] Run `npm test` and fix any type errors / test failures from the type and route changes. (SC-007)
 
 **Checkpoint**: Backend routes are `/me/game/...`; graveyard endpoint exists;
@@ -214,10 +214,10 @@ attributes, no PII, `http_requests_total` incremented, audit log lines present.
 - [ ] T047 [P] [US7] Wire `narrator_span` in `src/gamebook_web/harness/agent.py` narrator call: wrap the LLM call in `narrator_span()`. (ADR-024, FR-030)
 - [ ] T048 [P] [US7] Emit metrics at call sites: `http_requests_total` (every HTTP request), `turn_duration_seconds` (after `/turn`), `active_campaigns` (on create/delete), `combat_rounds_total` (on combat round). (ADR-024, FR-030)
 - [ ] T049 [P] [US7] Fix `src/gamebook_web/observability/tracing.py` `span_set_error`: record only `type(exc).__name__` — no message, no traceback. Replace `record_exception(exc)` with a manual event or attribute override. (ADR-024, FR-031)
-- [ ] T050 [P] [US7] Fix `src/gamebook_web/api/app.py` generic exception handler: change `logger.exception(...)` to `logger.error("unhandled %s", type(exc).__name__)`. (ADR-024, FR-031)
+- [X] T050 [P] [US7] Fix `src/gamebook_web/api/app.py` generic exception handler: change `logger.exception(...)` to `logger.error("unhandled %s", type(exc).__name__)`. (ADR-024, FR-031)
 - [ ] T051 [P] [US7] Remove `insecure=True` from `src/gamebook_web/observability/setup.py` OTLP exporters; use TLS by default. Only set `insecure=True` when `OTLP_INSECURE=true` is explicitly set. (ADR-024, FR-032)
 - [ ] T052 [P] [US7] Add security audit logging in `src/gamebook_web/api/account.py` (sign-in/sign-out/failed auth/account deletion), `src/gamebook_web/api/sessions.py` (lease acquire/takeover/release), `src/gamebook_web/middleware/lease_guard.py` (lease validation failures), `src/gamebook_web/auth/oidc_auth.py` (JWKS fetch failures, token validation failures). Log at `INFO`/`WARNING` with opaque IDs only. (FR-033)
-- [ ] T053 [P] [US7] Reject `GAMEBOOK_CORS_ORIGINS=*` at startup in `src/gamebook_web/api/app.py` when `allow_credentials=True`. (FR-034)
+- [X] T053 [P] [US7] Reject `GAMEBOOK_CORS_ORIGINS=*` at startup in `src/gamebook_web/api/app.py` when `allow_credentials=True`. (FR-034)
 - [ ] T054 [US7] Add `tests/server/test_otel_instrumentation.py`: assert `turn_span`/`narrator_span` exist with correct attributes (no PII); assert `http_requests_total` incremented; assert `span_set_error` has no message/traceback; assert `instrument_app` was called. (SC-012)
 - [ ] T055 [US7] Add `tests/server/test_security_audit_logging.py`: assert log lines for sign-in/out, failed auth, lease acquire/takeover/release, account deletion. (SC-015)
 
@@ -241,14 +241,14 @@ and its tests). Requires Phase 1.
 tests/server/test_atomic_writes.py tests/qa/test_storage_swap.py -v` — TLS enforced,
 concurrent appends produce unique `seq`, `close()` is clean, snapshot is consistent.
 
-- [ ] T072 [US8] Enforce TLS in `src/gamebook/storage/postgres.py`: create the async engine with `sslmode=require` (or `ssl=True`) by default; add non-production override env var `POSTGRES_SSL_MODE=disable` for local development; refuse plaintext URLs in production. (ADR-026, FR-037, SC-018)
-- [ ] T073 [US8] Make `src/gamebook/storage/postgres.py` `append_event` concurrency-safe: lock the sequence range or use a DB-generated sequence; remove/correct the misleading inline comment at `src/gamebook/storage/postgres.py:230-232`. (ADR-027, FR-038, SC-019)
-- [ ] T074 [P] [US8] Add `close()` to `src/gamebook/storage/postgres.py`: dispose the async engine and stop the daemon event loop; call it in live-Postgres test teardown and on MCP server graceful shutdown. (ADR-027, FR-039, SC-020)
-- [ ] T075 [P] [US8] Wrap `src/gamebook/storage/postgres.py` `_build_snapshot` in an explicit read-only transaction (`async with session.begin()`) so `save_slot` captures a consistent snapshot. (ADR-027, FR-040, SC-021)
-- [ ] T076 [P] [US8] Add identifier validation to `src/gamebook/storage/postgres.py` `save_slot`, `load_slot`, `load_combat`, and `remove_combat`: reject empty/`None`/`/`/`\`/`..` to match `JSONStorage` parity. (ADR-027, FR-041, SC-022)
-- [ ] T077 [P] [US8] Extend `tests/qa/test_storage_swap.py` to include `PostgresStorage` when `DATABASE_URL` is present; prove the consumer-level swap boundary for every backend. (ADR-009, FR-042, SC-023)
-- [ ] T078 [P] [US8] Rewrite `tests/server/test_atomic_writes.py` to simulate a failure after at least one `session.execute()` has run, proving no partial data is committed. (FR-043, SC-024)
-- [ ] T079 [P] [US8] Update `docs/CONTRACTS.md` §11 (storage contract) to document TLS-by-default, concurrency-safe sequence allocation, and deterministic storage lifecycle. (ADR-026, ADR-027, Principle III)
+- [X] T072 [US8] Enforce TLS in `src/gamebook/storage/postgres.py`: create the async engine with `sslmode=require` (or `ssl=True`) by default; add non-production override env var `POSTGRES_SSL_MODE=disable` for local development; refuse plaintext URLs in production. (ADR-026, FR-037, SC-018)
+- [X] T073 [US8] Make `src/gamebook/storage/postgres.py` `append_event` concurrency-safe: lock the sequence range or use a DB-generated sequence; remove/correct the misleading inline comment at `src/gamebook/storage/postgres.py:230-232`. (ADR-027, FR-038, SC-019)
+- [X] T074 [P] [US8] Add `close()` to `src/gamebook/storage/postgres.py`: dispose the async engine and stop the daemon event loop; call it in live-Postgres test teardown and on MCP server graceful shutdown. (ADR-027, FR-039, SC-020)
+- [X] T075 [P] [US8] Wrap `src/gamebook/storage/postgres.py` `_build_snapshot` in an explicit read-only transaction (`async with session.begin()`) so `save_slot` captures a consistent snapshot. (ADR-027, FR-040, SC-021)
+- [X] T076 [P] [US8] Add identifier validation to `src/gamebook/storage/postgres.py` `save_slot`, `load_slot`, `load_combat`, and `remove_combat`: reject empty/`None`/`/`/`\`/`..` to match `JSONStorage` parity. (ADR-027, FR-041, SC-022)
+- [X] T077 [P] [US8] Extend `tests/qa/test_storage_swap.py` to include `PostgresStorage` when `DATABASE_URL` is present; prove the consumer-level swap boundary for every backend. (ADR-009, FR-042, SC-023)
+- [X] T078 [P] [US8] Rewrite `tests/server/test_atomic_writes.py` to simulate a failure after at least one `session.execute()` has run, proving no partial data is committed. (FR-043, SC-024)
+- [X] T079 [P] [US8] Update `docs/CONTRACTS.md` §11 (storage contract) to document TLS-by-default, concurrency-safe sequence allocation, and deterministic storage lifecycle. (ADR-026, ADR-027, Principle III)
 
 **Checkpoint**: Postgres is TLS-hardened by default; `append_event` is concurrency-safe;
 `PostgresStorage` has deterministic cleanup; snapshots are consistent; identifier
@@ -272,17 +272,17 @@ tests/server/test_narrator_integration.py tests/server/test_rate_limiter.py -v` 
 narrator produces valid `Scene` with no `effects_applied`; combat victory archived;
 rate limiter keys on `account_id`.
 
-- [ ] T085 [P] [US10] Ensure `_check_terminal_state` in `src/gamebook_web/api/play.py` handles both victory (adventure module's `victory_flag`) and death correctly after `take_turn`. (`combat.py` was deleted in spec 007 — `_check_terminal_state` is only called from `take_turn`. No unification needed.) (ADR-028, FR-044)
-- [ ] T086 [P] [US10] Remove `= None` default from `request: Request` parameter on all rate-limited routes in `src/gamebook_web/api/play.py`. (`combat.py` was deleted in spec 007 — only `play.py` routes remain.) (FR-045)
-- [ ] T087 [P] [US10] Key the rate limiter on `account_id` when authenticated in `src/gamebook_web/limiter.py`; fall back to IP only when unauthenticated. Configure trusted proxy headers (`X-Forwarded-For`). (FR-046)
-- [ ] T088 [P] [US10] Update `GET /me/graveyard` in `src/gamebook_web/api/play.py` (added in T114) to include `name`, `created_at`, `ended_at`, and `ended_reason` (`death` | `victory`) in each `GraveyardEntry`. (FR-048)
-- [ ] T089 [P] [US10] Add upper bounds to floating `>=` ranges in `pyproject.toml` (e.g. `fastapi>=0.115.0,<1.0`). (FR-049)
-- [ ] T090 [P] [US10] Create `docs/learning-lessons/contract_drift_requires_live_integration_test.md` — API/frontend contract drift requires a live integration test, not eyeballing field names. (FR-050)
-- [ ] T091 [P] [US10] Create `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md` — booting a single shared engine subprocess scoped to an env var is a multi-tenancy anti-pattern. (FR-050)
-- [ ] T092 [US10] Add `tests/server/test_combat_victory.py`: win via `POST /me/game/turn` that triggers combat (auto-resolved inside the turn) → campaign ended + archived; assert `_check_terminal_state` was called; assert further turns → `409`. (No `POST /combat/round` — combat resolves inside `POST /turn` per spec 007.) (SC-025, FR-044)
-- [ ] T093 [P] [US10] Add `tests/server/test_narrator_integration.py`: mocked LLM producing a valid `Scene` (narrator calls MCP tools during generation, narrates real results) → validation → response; assert no `effects` field in `Scene` and no `effects_applied` in `TurnResponse`. (SC-026, FR-047)
+- [X] T085 [P] [US10] Ensure `_check_terminal_state` in `src/gamebook_web/api/play.py` handles both victory (adventure module's `victory_flag`) and death correctly after `take_turn`. (`combat.py` was deleted in spec 007 — `_check_terminal_state` is only called from `take_turn`. No unification needed.) (ADR-028, FR-044)
+- [X] T086 [P] [US10] Remove `= None` default from `request: Request` parameter on all rate-limited routes in `src/gamebook_web/api/play.py`. (`combat.py` was deleted in spec 007 — only `play.py` routes remain.) (FR-045)
+- [X] T087 [P] [US10] Key the rate limiter on `account_id` when authenticated in `src/gamebook_web/limiter.py`; fall back to IP only when unauthenticated. Configure trusted proxy headers (`X-Forwarded-For`). (FR-046)
+- [X] T088 [P] [US10] Update `GET /me/graveyard` in `src/gamebook_web/api/play.py` (added in T114) to include `name`, `created_at`, `ended_at`, and `ended_reason` (`death` | `victory`) in each `GraveyardEntry`. (FR-048)
+- [X] T089 [P] [US10] Add upper bounds to floating `>=` ranges in `pyproject.toml` (e.g. `fastapi>=0.115.0,<1.0`). (FR-049)
+- [X] T090 [P] [US10] Create `docs/learning-lessons/contract_drift_requires_live_integration_test.md` — API/frontend contract drift requires a live integration test, not eyeballing field names. (FR-050)
+- [X] T091 [P] [US10] Create `docs/learning-lessons/single_shared_engine_subprocess_antipattern.md` — booting a single shared engine subprocess scoped to an env var is a multi-tenancy anti-pattern. (FR-050)
+- [X] T092 [US10] Add `tests/server/test_combat_victory.py`: win via `POST /me/game/turn` that triggers combat (auto-resolved inside the turn) → campaign ended + archived; assert `_check_terminal_state` was called; assert further turns → `409`. (No `POST /combat/round` — combat resolves inside `POST /turn` per spec 007.) (SC-025, FR-044)
+- [X] T093 [P] [US10] Add `tests/server/test_narrator_integration.py`: mocked LLM producing a valid `Scene` (narrator calls MCP tools during generation, narrates real results) → validation → response; assert no `effects` field in `Scene` and no `effects_applied` in `TurnResponse`. (SC-026, FR-047)
 - [x] T094 **OBSOLETE — superseded by spec 007.** `combat_subagent.py` was deleted in spec 007 (ADR-029). No subagent to test.
-- [ ] T095 [P] [US10] Add `tests/server/test_rate_limiter.py`: assert rate limiter keys on `account_id` when authenticated; falls back to IP when unauthenticated. (SC-028, FR-046)
+- [X] T095 [P] [US10] Add `tests/server/test_rate_limiter.py`: assert rate limiter keys on `account_id` when authenticated; falls back to IP when unauthenticated. (SC-028, FR-046)
 
 **Checkpoint**: Combat victory works inside `POST /me/game/turn`; narrator tool-use
 tested with no `effects_applied`; rate limiter keyed on `account_id`; graveyard entries
@@ -304,21 +304,21 @@ Fixes 005 HIGH/MEDIUM/LOW blocking findings.
 **Independent Test**: `npm run build && ls dist/assets/*.map` — assert no source maps.
 `npm test -- --run` — all unit tests pass. `npx playwright test` — e2e passes.
 
-- [ ] T097 [P] [US11] Disable source maps in production: change `sourcemap: true` to `sourcemap: false` (or `sourcemap: import.meta.env.DEV`) in `frontend/vite.config.ts`. (FR-051, SC-031)
-- [ ] T098 [P] [US11] Add Content-Security-Policy meta tag to `frontend/index.html`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'`. (FR-052, SC-032)
-- [ ] T099 [P] [US11] Create `frontend/src/components/ErrorBoundary.tsx` (class component catching render errors, fallback UI with "reload" button); wrap App root in `frontend/src/App.tsx`. (FR-053, SC-033)
-- [ ] T100 [P] [US11] Handle dead-code combat UI in `frontend/src/components/CombatPanel.tsx`: combat is auto-resolved inside the turn — no separate per-round combat UI. If keeping `CombatPanel` as narrative-only display, validate `combat` is non-null before rendering. If removing: delete `CombatPanel.tsx` and the `inCombat` branch in `PlayPage.tsx`. (FR-054, SC-034)
-- [ ] T101 [P] [US11] Add 401/403 handling in `frontend/src/hooks/useGame.ts`: intercept `err.code === 'unauthenticated'` or `err.code === 'forbidden'` and redirect to `/auth`. (FR-055, SC-035)
-- [ ] T102 [P] [US11] Add token expiration checking in `frontend/src/hooks/useGame.ts` (or `frontend/src/hooks/useAuth.ts`): parse `expires_at` from session lease and redirect to `/auth` if expired. (FR-056, SC-036)
-- [ ] T103 [P] [US11] Fix useEffect stale closure in `frontend/src/hooks/useGame.ts` and `frontend/src/hooks/useCampaign.ts`: remove `load` from dependency array or wrap in `useCallback`. (FR-057)
-- [ ] T104 [P] [US11] Add free-text input validation in `frontend/src/components/ChoicesPanel.tsx`: reject empty submissions (after trim), enforce max length (1000 chars), disable submit button when empty. (FR-058)
-- [ ] T105 [P] [US11] Sanitize error messages in `frontend/src/hooks/useGame.ts`: show generic "Something went wrong" to users; log details to `console.error` only in dev mode. (FR-059)
-- [ ] T106 [P] [US11] Add security headers to the backend response or reverse proxy config: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. (FR-060)
-- [ ] T107 [P] [US11] Pin `vitest >= 3.2.6` in `frontend/package.json` (GHSA-5xrq-8626-4rwp); run `npm install` to refresh lockfile. (FR-061)
-- [ ] T108 [US11] Add `frontend/src/components/__tests__/test_error_boundary.test.tsx`: throw in child component → assert fallback UI renders (not blank screen). (SC-033)
-- [ ] T109 [US11] Add `frontend/src/components/__tests__/test_combat_panel_validation.test.tsx`: if `CombatPanel` is kept, assert it renders gracefully when `combat` is null/undefined. If removed, this test is not needed. (SC-034)
-- [ ] T110 [US11] Add `frontend/src/hooks/__tests__/test_auth_redirect.test.tsx`: mock 401 response → assert redirect to `/auth`; mock expired `expires_at` → assert redirect. (SC-035, SC-036)
-- [ ] T111 [US11] Add `frontend/src/components/__tests__/test_choices_validation.test.tsx`: empty input → submit button disabled; max length enforced. (FR-058)
+- [X] T097 [P] [US11] Disable source maps in production: change `sourcemap: true` to `sourcemap: false` (or `sourcemap: import.meta.env.DEV`) in `frontend/vite.config.ts`. (FR-051, SC-031)
+- [X] T098 [P] [US11] Add Content-Security-Policy meta tag to `frontend/index.html`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'`. (FR-052, SC-032)
+- [X] T099 [P] [US11] Create `frontend/src/components/ErrorBoundary.tsx` (class component catching render errors, fallback UI with "reload" button); wrap App root in `frontend/src/App.tsx`. (FR-053, SC-033)
+- [X] T100 [P] [US11] Handle dead-code combat UI in `frontend/src/components/CombatPanel.tsx`: combat is auto-resolved inside the turn — no separate per-round combat UI. If keeping `CombatPanel` as narrative-only display, validate `combat` is non-null before rendering. If removing: delete `CombatPanel.tsx` and the `inCombat` branch in `PlayPage.tsx`. (FR-054, SC-034)
+- [X] T101 [P] [US11] Add 401/403 handling in `frontend/src/hooks/useGame.ts`: intercept `err.code === 'unauthenticated'` or `err.code === 'forbidden'` and redirect to `/auth`. (FR-055, SC-035)
+- [X] T102 [P] [US11] Add token expiration checking in `frontend/src/hooks/useGame.ts` (or `frontend/src/hooks/useAuth.ts`): parse `expires_at` from session lease and redirect to `/auth` if expired. (FR-056, SC-036)
+- [X] T103 [P] [US11] Fix useEffect stale closure in `frontend/src/hooks/useGame.ts` and `frontend/src/hooks/useCampaign.ts`: remove `load` from dependency array or wrap in `useCallback`. (FR-057)
+- [X] T104 [P] [US11] Add free-text input validation in `frontend/src/components/ChoicesPanel.tsx`: reject empty submissions (after trim), enforce max length (1000 chars), disable submit button when empty. (FR-058)
+- [X] T105 [P] [US11] Sanitize error messages in `frontend/src/hooks/useGame.ts`: show generic "Something went wrong" to users; log details to `console.error` only in dev mode. (FR-059)
+- [X] T106 [P] [US11] Add security headers to the backend response or reverse proxy config: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. (FR-060)
+- [X] T107 [P] [US11] Pin `vitest >= 3.2.6` in `frontend/package.json` (GHSA-5xrq-8626-4rwp); run `npm install` to refresh lockfile. (FR-061)
+- [X] T108 [US11] Add `frontend/src/components/__tests__/test_error_boundary.test.tsx`: throw in child component → assert fallback UI renders (not blank screen). (SC-033)
+- [X] T109 [US11] Add `frontend/src/components/__tests__/test_combat_panel_validation.test.tsx`: if `CombatPanel` is kept, assert it renders gracefully when `combat` is null/undefined. If removed, this test is not needed. (SC-034)
+- [X] T110 [US11] Add `frontend/src/hooks/__tests__/test_auth_redirect.test.tsx`: mock 401 response → assert redirect to `/auth`; mock expired `expires_at` → assert redirect. (SC-035, SC-036)
+- [X] T111 [US11] Add `frontend/src/components/__tests__/test_choices_validation.test.tsx`: empty input → submit button disabled; max length enforced. (FR-058)
 
 **Checkpoint**: SPA is production-hardened — source maps disabled, CSP present,
 `ErrorBoundary` wraps App, combat UI validated or removed, 401/403 redirects, token
@@ -340,9 +340,9 @@ headers set, vitest upgraded.
 - [ ] T058 [P] Add `tests/server/test_postgres_leases.py`: acquire/validate/takeover/release; wrong `current_token` → `409`; expiry `<=` boundary; `SELECT FOR UPDATE` concurrency. (SC-011, SC-017, FR-035)
 - [ ] T059 [P] Add `tests/server/test_postgres_gdpr.py`: export includes account + campaigns + `save_slot` snapshots; erasure removes all rows. (SC-014, SC-017, FR-035)
 - [ ] T060 [P] Add `tests/server/test_postgres_campaign_scoping.py`: two campaigns with different `campaign_id` values do not see each other's state (extends `test_multi_campaign_isolation.py` to run against live DB). (SC-002, SC-017, FR-035)
-- [ ] T080 [P] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
-- [ ] T081 [P] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
-- [ ] T082 [P] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
+- [X] T080 [P] Add `tests/server/test_postgres_storage.py` (or extend existing): TLS enforcement, concurrent `append_event`, `close()` lifecycle, consistent snapshot, identifier validation. (SC-018, SC-019, SC-020, SC-021, SC-022, FR-037–FR-041)
+- [X] T081 [P] Run the storage swap-boundary test with Postgres: `DATABASE_URL=... uv run pytest tests/qa/test_storage_swap.py -v`. (SC-023, FR-042)
+- [X] T082 [P] Run the atomic-write test with Postgres: `DATABASE_URL=... uv run pytest tests/server/test_atomic_writes.py -v`. (SC-024, FR-043)
 
 **Checkpoint**: All DB-backed paths covered by live Postgres integration tests including
 storage hardening paths from Phase 7.
@@ -360,35 +360,35 @@ Phase 1. ADR renumbering (T061–T065) and verification (T066–T071) must follo
 
 ### MEDIUM/LOW fixes (can run in parallel with Phases 2–9)
 
-- [ ] T020 [P] Move the `malachar_defeated` victory check out of `src/gamebook_web/api/play.py` into an adventure-module config (e.g. a `victory_flag` field read from Ignarok SKILL metadata or a small `adventure_module.py` config). The API reads the flag name from config. (FR-005, swap boundary #2)
-- [ ] T021 [P] Add `name: str | None` to `CampaignState` in `src/gamebook_web/sessions/campaign.py`; `registry.create(account_id, name=None)` stores it; `CampaignResponse` (from `POST /me/game` and `GET /me/game`) and `GraveyardEntry` include `name`. Update `play.py:create_game` handler to pass `body.name`. (FR-006)
-- [ ] T022 [P] Gate `useGame.acquireSession`/`takeoverSession`/`releaseSession` behind `import.meta.env.VITE_SESSION_LEASE === 'true'` (default off) in `frontend/src/hooks/useGame.ts`. Session routes are `/me/game/session`, `/me/game/session/takeover`, `DELETE /me/game/session` (updated in T116). Document the flag in `frontend/.env.local.example`. (FR-007)
-- [ ] T023 [P] Add `GET /me` endpoint in `src/gamebook_web/api/account.py` returning `{ id: account.account_id }` (dev stub; real identity + metadata in slice 004). Game state lives at `/me/game` — this is the account-identity endpoint only. (FR-007)
-- [ ] T024 [P] Pin `vite` to `>=5.4.12` in `frontend/package.json` (CVE-2025-30208). Run `npm install` to update the lockfile. (FR-011)
-- [ ] T025 [P] Align the dev token: `frontend/.env.local.example` → `VITE_DEV_TOKEN=dev-token`; `frontend/src/pages/AuthPage.tsx` fallback → `dev-token`; backend `DEV_TOKEN` is already `dev-token`. (FR-012)
-- [ ] T026 [P] Narrow CORS in `src/gamebook_web/api/app.py`: `allow_methods=["GET","POST","DELETE","OPTIONS"]`, `allow_headers=["Content-Type","Authorization"]`. (FR-013)
+- [X] T020 [P] Move the `malachar_defeated` victory check out of `src/gamebook_web/api/play.py` into an adventure-module config (e.g. a `victory_flag` field read from Ignarok SKILL metadata or a small `adventure_module.py` config). The API reads the flag name from config. (FR-005, swap boundary #2)
+- [X] T021 [P] Add `name: str | None` to `CampaignState` in `src/gamebook_web/sessions/campaign.py`; `registry.create(account_id, name=None)` stores it; `CampaignResponse` (from `POST /me/game` and `GET /me/game`) and `GraveyardEntry` include `name`. Update `play.py:create_game` handler to pass `body.name`. (FR-006)
+- [X] T022 [P] Gate `useGame.acquireSession`/`takeoverSession`/`releaseSession` behind `import.meta.env.VITE_SESSION_LEASE === 'true'` (default off) in `frontend/src/hooks/useGame.ts`. Session routes are `/me/game/session`, `/me/game/session/takeover`, `DELETE /me/game/session` (updated in T116). Document the flag in `frontend/.env.local.example`. (FR-007)
+- [X] T023 [P] Add `GET /me` endpoint in `src/gamebook_web/api/account.py` returning `{ id: account.account_id }` (dev stub; real identity + metadata in slice 004). Game state lives at `/me/game` — this is the account-identity endpoint only. (FR-007)
+- [X] T024 [P] Pin `vite` to `>=5.4.12` in `frontend/package.json` (CVE-2025-30208). Run `npm install` to update the lockfile. (FR-011)
+- [X] T025 [P] Align the dev token: `frontend/.env.local.example` → `VITE_DEV_TOKEN=dev-token`; `frontend/src/pages/AuthPage.tsx` fallback → `dev-token`; backend `DEV_TOKEN` is already `dev-token`. (FR-012)
+- [X] T026 [P] Narrow CORS in `src/gamebook_web/api/app.py`: `allow_methods=["GET","POST","DELETE","OPTIONS"]`, `allow_headers=["Content-Type","Authorization"]`. (FR-013)
 - [x] T027 **OBSOLETE — superseded by spec 007.** `_RESULT_KEYS`, `EffectType`, `Effect`, and `_scene_contains_fabricated_numbers` were deleted in spec 007 (ADR-029). Principle I is now enforced by design. No replacement needed.
-- [ ] T028 [P] Rename `docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md` → `docs/adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md`; update the ADR header number. Delete `docs/adrs/ADR-014-vite-env-import-meta-types.md` and `docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md` (the "moved" stubs). (ADR-020, FR-016)
-- [ ] T029 [P] Update `docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md` cross-link from ADR-014 to ADR-021. (ADR-020, FR-016)
+- [X] T028 [P] Rename `docs/adrs/ADR-014-pydantic-ai-v2-mcp-toolset-direct-call.md` → `docs/adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md`; update the ADR header number. Delete `docs/adrs/ADR-014-vite-env-import-meta-types.md` and `docs/adrs/ADR-015-mock-mode-client-side-fixture-layer.md` (the "moved" stubs). (ADR-020, FR-016)
+- [X] T029 [P] Update `docs/learning-lessons/pydantic_ai_v2_mcp_toolset_direct_call_pattern.md` cross-link from ADR-014 to ADR-021. (ADR-020, FR-016)
 
 ### ADR renumbering (after implementation complete)
 
-- [ ] T061 [P] Rename `docs/adrs/ADR-017-oidc-jwt-jwks-validation-pattern.md` → `ADR-022-oidc-jwt-jwks-validation-pattern.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T062 [P] Rename `docs/adrs/ADR-018-session-lease-acquire-takeover-semantics.md` → `ADR-023-session-lease-acquire-takeover-semantics.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T063 [P] Rename `docs/adrs/ADR-019-opentelemetry-auto-instrumentation.md` → `ADR-024-opentelemetry-auto-instrumentation.md`; update the ADR header number. (FR-036, ADR-020)
-- [ ] T064 [P] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
-- [ ] T083 [P] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
-- [ ] T084 [P] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
-- [ ] T096 [P] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting that `_check_terminal_state` runs after `take_turn` (the only entry point post-spec-007). Original scope of "unifying between take_turn and combat_round" is moot — `combat_round` was deleted in spec 007. (ADR-028, FR-044)
-- [ ] T065 Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
+- [X] T061 [P] Rename `docs/adrs/ADR-017-oidc-jwt-jwks-validation-pattern.md` → `ADR-022-oidc-jwt-jwks-validation-pattern.md`; update the ADR header number. (FR-036, ADR-020)
+- [X] T062 [P] Rename `docs/adrs/ADR-018-session-lease-acquire-takeover-semantics.md` → `ADR-023-session-lease-acquire-takeover-semantics.md`; update the ADR header number. (FR-036, ADR-020)
+- [X] T063 [P] Rename `docs/adrs/ADR-019-opentelemetry-auto-instrumentation.md` → `ADR-024-opentelemetry-auto-instrumentation.md`; update the ADR header number. (FR-036, ADR-020)
+- [X] T064 [P] Create `docs/adrs/ADR-025-db-backed-campaign-registry.md` documenting the replacement of `CampaignRegistry` with `AccountRepository`. (FR-036, ADR-025)
+- [X] T083 [P] Create `docs/adrs/ADR-026-postgres-tls-policy.md` documenting TLS-by-default policy for PostgreSQL connections. (FR-037, ADR-026)
+- [X] T084 [P] Create `docs/adrs/ADR-027-postgres-concurrency-and-lifecycle.md` documenting concurrency-safe event sequence allocation and deterministic `PostgresStorage` lifecycle. (FR-038, FR-039, ADR-027)
+- [X] T096 [P] Create `docs/adrs/ADR-028-combat-terminal-state-unification.md` documenting that `_check_terminal_state` runs after `take_turn` (the only entry point post-spec-007). Original scope of "unifying between take_turn and combat_round" is moot — `combat_round` was deleted in spec 007. (ADR-028, FR-044)
+- [X] T065 Update `CLAUDE.md` ADR table to list ADRs 014–028 exactly once each with correct numbers and titles. (SC-008, FR-016, FR-036)
 
 ### Final verification (must be last)
 
-- [ ] T066 Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
-- [ ] T067 Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
-- [ ] T068 Run `cd frontend && npm test -- --run` (vitest unit suite including new 005 tests) — must be green. (SC-007)
-- [ ] T069 Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
-- [ ] T070 Run `DATABASE_URL=... uv run pytest tests/server/test_postgres_*.py tests/qa/test_storage_swap.py tests/server/test_atomic_writes.py -v` (live Postgres integration tests) — must be green. (SC-017, SC-023, SC-024)
+- [X] T066 Run `uv run pytest -q` (full backend suite) — must be green. (SC-006)
+- [X] T067 Run `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` (plugability audit) — must be green. (SC-005)
+- [X] T068 Run `cd frontend && npm test -- --run` (vitest unit suite including new 005 tests) — must be green. (SC-007)
+- [X] T069 Run `cd frontend && npx playwright test` (e2e, including the new live-backend suite) — must be green. (SC-001)
+- [X] T070 Run `DATABASE_URL=... uv run pytest tests/server/test_postgres_*.py tests/qa/test_storage_swap.py tests/server/test_atomic_writes.py -v` (live Postgres integration tests) — must be green. (SC-017, SC-023, SC-024)
 - [ ] T071 Run `/sdd-final-review` to dispatch cycle-2 (QA + Security + Tech Leader) and confirm cycle-1 findings from all five reviews are closed.
 
 **Checkpoint**: All success criteria met; ADR numbering clean; ready for SDD cycle-2 review.
