@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-28
 
-**Status**: Draft
+**Status**: Active — absorbing 2026-07-01 architectural decisions (D1: backend-scoped campaign management; D2: ADR-018 Option A confirmed; ADR-019 + ADR-028 superseded by ADR-029)
 
 **Epic**: `001-web-platform-migration` — remediation slice addressing the SDD final
 review cycle-1 findings from **five** blocked/conditional slices:
@@ -339,24 +339,46 @@ is new for the 003 review. The 005 review requires no new ADRs — its findings 
 implementation bugs and configuration issues. They are the blueprint for the
 implementation work in this spec.
 
-### ADR-017 — Backend-canonical API/frontend contract shape
+### ADR-017 — Backend-scoped API / backend-canonical contract shape
 
-The backend Pydantic models are the single source of truth. The frontend TypeScript
-types are adjusted to match them, and the SPA assembles `CampaignState` from the
-granular fields (`scene`, `character`, `world`, `effects_applied`, `outcome`,
-`final_result`, `campaign_ended`, etc.) rather than expecting an aggregated `campaign`
-object. The OpenAPI schema at `/openapi.json` becomes the frozen contract. This was
-chosen because it avoids forcing the backend to re-read full campaign state after
-every turn/combat call, keeps the externally-usable API surface clean, and minimizes
-backend churn.
+**Amended 2026-07-01 (D1)**: The original ADR-017 kept `/campaigns/{id}/...` routes
+with the frontend managing `campaign_id` explicitly. This is amended to a
+**backend-scoped** design: the frontend has no awareness of `campaign_id`. The backend
+resolves the active campaign from the JWT (`JWT → account_id → SELECT campaign WHERE
+status='active'`). One active campaign per account at a time.
+
+**Route redesign** — from resource-scoped to session-scoped:
+
+| Old (resource-scoped) | New (session-scoped) |
+|---|---|
+| `POST /campaigns` | `POST /me/game` — create or resume active campaign |
+| `GET /campaigns` | `GET /me/graveyard` — past ended campaigns |
+| `GET /campaigns/{id}` | `GET /me/game` — current campaign state |
+| `DELETE /campaigns/{id}` | `DELETE /me/game` — abandon current campaign |
+| `POST /campaigns/{id}/turn` | `POST /me/game/turn` |
+| `GET /campaigns/{id}/character` | `GET /me/game/character` |
+| `POST /campaigns/{id}/character` | `POST /me/game/character` |
+| `GET /campaigns/{id}/scene` | `GET /me/game/scene` |
+| `POST /campaigns/{id}/save` | `POST /me/game/save` |
+| `POST /campaigns/{id}/session` | `POST /me/game/session` |
+| `POST /campaigns/{id}/session/takeover` | `POST /me/game/session/takeover` |
+| `DELETE /campaigns/{id}/session` | `DELETE /me/game/session` |
+
+**Rationale**: A gamebook player thinks "I am playing", not "I am managing campaign
+abc-123". `campaign_id` is an internal routing detail (like a database row ID) that
+does not belong in URLs or frontend state. The backend resolves it from auth context.
+This also eliminates the need for the frontend to store, pass, or validate `campaign_id`.
+
+**Backend canonical response shapes** (unchanged in structure, updated for spec 007):
 
 | Response type | Backend shape (canonical) |
 |---|---|
-| `TurnResponse` | `{ scene, character?, world?, effects_applied }` |
-| `CombatRoundResponse` | `{ outcome, final_result?, character?, campaign_ended }` |
-| `FleeCombatResponse` | `{ result, character?, campaign_ended }` |
-| Campaign identifier | `campaign_id` everywhere |
-| `CampaignSummary` | `{ campaign_id, status, name?, created_at?, updated_at? }` |
+| `TurnResponse` | `{ scene, character?, world?, status }` (no `effects_applied` — removed spec 007) |
+| `GameState` | `{ status, character?, world?, current_scene? }` |
+| `CampaignSummary` (graveyard) | `{ campaign_id, status, name?, created_at?, updated_at? }` |
+
+Note: `CombatRoundResponse` and `FleeCombatResponse` are **obsolete** — combat routes
+removed by spec 007 (ADR-029). Combat is auto-resolved inside `POST /me/game/turn`.
 
 ### ADR-018 — Multi-tenant engine via per-call `campaign_id`
 
@@ -365,24 +387,36 @@ Multi-tenancy is implemented at the **MCP server layer**, not by rewriting the
 parameter; `build_server` receives a `storage_factory: Callable[[str], StorageBackend]`
 that returns a cached-or-new backend scoped to the campaign. The web layer passes
 `campaign_id` on every `call_engine(...)` invocation. This preserves Principle II
-(interface stability) and swap boundary #1, keeps one engine subprocess for all
-campaigns, and makes the campaign dimension explicit in the contract.
+(interface stability) and swap boundary #1, keeps **one engine subprocess for all
+campaigns**, and makes the campaign dimension explicit in the contract.
+
+**Implementation (Option A — confirmed 2026-07-01)**: `campaign_id: str` is added as
+the first parameter of all 18 MCP tools. The narrator receives `campaign_id` in the
+system prompt and the LLM includes it in every tool call. The web layer validates
+post-narration (via `result.all_messages()`) that all tool calls used the correct
+`campaign_id`. One MCP subprocess at startup serves all campaigns.
+
+**Production scaling path**: When horizontal scaling is required, the transport layer
+migrates from `StdioTransport` to `StreamableHTTPTransport` (MCP HTTP transport). With
+HTTP transport, `campaign_id` moves to an HTTP header or URL path — the tool schemas
+stay unchanged. This migration is a transport-layer swap, not a redesign.
 
 Rejected alternatives:
-- **Subprocess per campaign**: too heavy for 1,000 concurrent campaigns (memory,
-startup latency) and hides the campaign dimension from the contract.
+- **Subprocess per campaign (Option B)**: creates one Python subprocess per active
+  campaign (~40–50 MB each). Does not scale; rejected.
 - **Multi-tenant `StorageBackend`**: would rewrite every storage method and every test,
-violating the spirit of swap boundary #1.
+  violating the spirit of swap boundary #1.
+- **Per-request toolset (Option B variant)**: same memory problem as subprocess per
+  campaign, plus subprocess cold-start latency on every request.
 
-### ADR-019 — Allowlist for fabricated-number detection
+### ~~ADR-019 — Allowlist for fabricated-number detection~~ SUPERSEDED BY ADR-029
 
-The `_RESULT_KEYS` denylist in `agent.py` is replaced by an allowlist of legal param
-keys per `EffectType`. Unknown keys in `effect.params` are rejected with `ModelRetry`.
-The prose regex is extended to catch patterns like "lost 5 points", "took 3 damage",
-"N hp". This makes the "numbers never in prose" gate structural instead of heuristic
-with minimal code churn. A future hardening slice may replace `params: dict[str, Any]`
-with a discriminated union of typed Pydantic models (ADR-019 option 3), which is out of
-scope here.
+**Superseded 2026-06-30 by spec 007 (ADR-029)**: `EffectType`, `Effect`, `effects[]`,
+`_RESULT_KEYS`, and `_scene_contains_fabricated_numbers` were all **deleted** in spec
+007. The narrator now calls MCP tools directly during `agent.run()` and narrates only
+what it sees from real tool responses. Principle I ("numbers never in prose") is
+enforced by design — there is no post-hoc validator to bypass. T027 in tasks.md is
+marked OBSOLETE. No implementation work required.
 
 ### ADR-020 — Resolve duplicate ADR numbering (extended for 004 absorption)
 
@@ -504,25 +538,15 @@ Two production-hardening decisions for the persistence foundation:
    loop. Live-Postgres test fixtures call it in teardown; the MCP server calls it on
    graceful shutdown. This closes the MEDIUM finding that engines/threads leak per test.
 
-### ADR-028 — Combat terminal-state unification (new, from 003 review)
+### ~~ADR-028 — Combat terminal-state unification~~ SUPERSEDED BY ADR-029
 
-The explicit `POST /combat/round` route (`combat.py:128-146`) only handles hero death
-(`winner == "enemy"`) — it archives to `graveyard` but never calls
-`_check_terminal_state`. Winning the final boss via the explicit combat route never
-triggers victory archiving or campaign end. Victory is only checked inside `take_turn`
-via `_check_terminal_state`.
-
-**Decision**: terminal-state checking is unified into a shared helper
-(`_check_terminal_state` or equivalent) called from **both** `take_turn` and
-`combat_round`. When `outcome.ended` is True, the helper checks for victory (adventure
-module's `victory_flag`) or death, archives appropriately, and marks the campaign as
-ended. This closes the logic gap without duplicating the terminal-state logic.
-
-Rejected alternatives:
-- **Add a victory branch inline in `combat_round`**: duplicates the terminal-state
-  logic; future drift risk.
-- **Only check victory in `take_turn`**: the explicit combat route is a public API
-  endpoint; skipping victory there is a correctness bug.
+**Superseded 2026-06-30 by spec 007 (ADR-029)**: `combat.py` and both explicit combat
+routes (`POST /combat/round`, `POST /combat/flee`) were **deleted**. Combat is now
+auto-resolved by the narrator calling MCP tools directly during `agent.run()`. There is
+only one entry point for terminal-state checking: `_check_terminal_state` called from
+`take_turn` in `play.py`. The original finding (victory never triggered via the explicit
+route) is moot — that route no longer exists. T085 and T094 in tasks.md are updated
+accordingly. No new unification work required.
 
 ## Implementation Notes
 
@@ -536,12 +560,14 @@ implemented.
 2. **Test fixtures must provide a per-campaign storage factory.** In-memory tests use a
    factory that returns a fresh `InMemoryStorage` per `campaign_id`. Existing tests
    pass `campaign_id="dev-campaign"` or a fixture-provided id.
-3. **Frontend state assembly belongs to `useGame`.** The backend returns granular
-   fields; the SPA composes `CampaignState`. `setCampaign(res.campaign)` is removed.
-4. **Session lease endpoints are gated, not implemented.** `useGame.acquireSession`,
-   `takeoverSession`, and `releaseSession` are wrapped in
-   `import.meta.env.VITE_SESSION_LEASE === 'true'`. Real lease enforcement is deferred to
-   slice 004, so the default live-mode build does not 404 on missing endpoints.
+3. **Frontend has no awareness of `campaign_id` (D1, 2026-07-01).** The SPA uses
+   backend-scoped routes (`/me/game/turn`, `/me/game/character`, etc.). The backend
+   resolves `campaign_id` from the JWT (`account_id → active campaign`). The frontend
+   never stores, passes, or validates `campaign_id`. `useGame` is a parameterless hook.
+4. **Session lease endpoints are implemented (spec 004 merged).** `acquireSession`,
+   `takeoverSession`, and `releaseSession` exist in `src/gamebook_web/api/sessions.py`.
+   The `VITE_SESSION_LEASE` gate in the frontend is removed; lease calls use the
+   new backend-scoped routes (`/me/game/session`, `/me/game/session/takeover`).
 5. **Production guards are fail-fast.** If `ENV=production` and `GAMEBOOK_DEV_MODE=1`,
    the lifespan raises `RuntimeError`. If `ENV=production`, the FastAPI app is built
    with `docs_url=None, redoc_url=None, openapi_url=None`.
@@ -670,35 +696,37 @@ implemented.
 ### User Story 1 - The SPA plays against the live backend (Priority: P1)
 
 A player opens the SPA in live mode (not mock), signs in with the dev token, starts a
-campaign, creates a character, takes a turn, resolves a combat round, and reaches an
-end-state — and every response field the SPA reads is populated and matches the
-backend's OpenAPI schema. No `undefined` campaign, no 404 on session endpoints (gated
-out), no field-name mismatch.
+game, creates a character, takes turns, and reaches an end-state — every response field
+the SPA reads is populated and matches the backend's OpenAPI schema. No `undefined`
+fields, no 404s, no field-name mismatches. The SPA never manages a `campaign_id` — the
+backend resolves the active campaign from the account's session (D1).
 
 **Why this priority**: This is the entire point of the remediation — the SPA is
-currently mock-only because of contract drift. Without this, slices 003 and 005
-cannot be used together, which is the product.
+currently mock-only because of contract drift AND uses resource-scoped routes that the
+backend will no longer expose. Without this, slices 003 and 005 cannot be used
+together.
 
 **Independent Test**: Start the FastAPI backend and the Vite dev server with
-`VITE_USE_MOCK=false`. Drive the full play loop through the browser (or a Playwright
-test against the live backend): create campaign → create character → take 2 turns →
-start combat → resolve a round → flee → end. Confirm every response renders without
-`undefined` and the character sheet reflects engine-rolled values.
+`VITE_USE_MOCK=false`. Drive the full play loop through a Playwright test against the
+live backend: `POST /me/game` → `POST /me/game/character` → `POST /me/game/turn` × 2
+→ turn that auto-resolves combat (no separate combat endpoint) → `GET /me/graveyard`
+(if ended). Confirm every response renders without `undefined` and the character sheet
+reflects engine-rolled values.
 
 **Acceptance Scenarios**:
 
-1. **Given** the backend running and the SPA in live mode, **When** the player creates
-   a campaign, **Then** `createCampaign` returns `{ campaign_id, status, name }` and
-   the SPA stores it under `campaign_id` (not `id`).
-2. **Given** a campaign exists, **When** the player takes a turn, **Then** the
-   `TurnResponse` carries `{ scene, character, world, effects_applied }` and the SPA
-   assembles `CampaignState` from those fields without reading `res.campaign`.
-3. **Given** an active combat, **When** the player resolves a round, **Then** the
-   `CombatRoundResponse` carries `{ outcome, final_result, character, campaign_ended }`
-   and the SPA renders the round from `outcome` (not `res.round`).
-4. **Given** two campaigns A and B owned by the same account, **When** the player
-   creates a character in A then reads B's character, **Then** B has no character
-   (engine state is isolated per campaign — ADR-018).
+1. **Given** the backend running and the SPA in live mode, **When** the player starts a
+   game (`POST /me/game`), **Then** the response carries `{ status, campaign_id }` and
+   the SPA proceeds to character creation without storing the campaign_id in a URL
+   parameter or component prop.
+2. **Given** a game in progress, **When** the player takes a turn (`POST /me/game/turn`),
+   **Then** `TurnResponse` carries `{ scene, character, world }` _(no `effects_applied`
+   — removed in spec 007)_ and the SPA renders without reading `res.campaign`.
+3. **Given** a turn that triggers combat, **When** `POST /me/game/turn` returns,
+   **Then** combat is auto-resolved inside the turn (no separate `/combat/round`
+   endpoint) and the `scene.terminal` flag indicates end-state.
+4. **Given** a game that ended (hero died or won), **When** the player calls
+   `GET /me/graveyard`, **Then** the ended campaign appears in the list.
 5. **Given** the backend boots with `ENV=production` and `GAMEBOOK_DEV_MODE=1`,
    **Then** the server refuses to start with a clear error.
 
@@ -711,19 +739,21 @@ touch campaign A's state.
 **Why this priority**: This is the CRITICAL security finding (A01). Without
 per-campaign isolation, the backend is a cross-account data leak.
 
-**Independent Test**: Using the documented API with the `FakeNarrator`, create two
-campaigns, create a character in each, take a turn in each, and assert each
-campaign's `GET /campaigns/{id}` returns only its own state. Run the existing
-`test_api_play_loop.py` against a two-campaign fixture and confirm no cross-talk.
+**Independent Test**: Using the documented API with two different accounts, create a
+campaign per account (via `POST /me/game`), create a character in each, take a turn in
+each, and assert `GET /me/game/character` for account A does not return B's character.
+Run `test_multi_campaign_isolation.py` against a two-account fixture and confirm no
+cross-talk. The test passes `campaign_id` to all 18 MCP tools directly (not via env
+var or URL).
 
 **Acceptance Scenarios**:
 
-1. **Given** two campaigns in one process, **When** a character is created in
-   campaign A, **Then** `GET /campaigns/B/character` returns 404 (no character) and
-   `GET /campaigns/A/character` returns A's character.
+1. **Given** two accounts (A and B) each with one active campaign, **When** a
+   character is created in A's campaign, **Then** a read of B's character
+   (`GET /me/game/character` authenticated as B) returns 404 — B has no character.
 2. **Given** the engine subprocess is started once, **When** 100 campaigns are
-   created, **Then** the process does not spawn 100 subprocesses (one process, one
-   `storage_factory`, per-campaign backends cached).
+   created across accounts, **Then** the process does not spawn 100 subprocesses (one
+   process, one `storage_factory`, per-campaign backends cached).
 3. **Given** the `storage_factory` cache, **When** a campaign is idle, **Then** its
    backend can be evicted and re-created on next access without data loss (state is
    durable in Postgres/JSON, not in the cache).
@@ -892,54 +922,49 @@ stops the daemon thread; assert `save_slot` reads a consistent snapshot.
 5. **Given** `load_slot("")` or `load_combat(None)`, **When** the call is made,
    **Then** the response is a clear validation error (not an obscure SQLAlchemy error).
 
-### User Story 9 - Combat victory works via the explicit combat route (Priority: P2)
+### ~~User Story 9~~ OBSOLETE — superseded by spec 007 (ADR-029)
 
-A player fights the final boss via the explicit `POST /combat/round` endpoint (not
-through `take_turn`). When the hero wins, the campaign is marked as victorious, the
-character is archived, and further turns are rejected. Currently this path only
-handles death — victory is silently skipped.
+~~Combat victory works via the explicit combat route.~~
 
-**Why this priority**: This is the MEDIUM finding from the 003 review — a logic gap
-where winning via the explicit combat route never triggers victory. It's a
-correctness bug, not just a contract issue.
+**Why obsolete**: `combat.py` and its routes (`POST /combat/round`,
+`POST /combat/flee`) were deleted in spec 007 (ADR-029). Combat is now auto-resolved
+by the narrator calling MCP tools directly during `agent.run()`. Victory and death are
+detected by `_check_terminal_state` called from `take_turn` — the only combat entry
+point. The reduced scope of FR-044 (task T085) reflects this: ensure
+`_check_terminal_state` handles both victory and death from `take_turn`, no
+unification needed.
 
-**Independent Test**: Start a combat, drive the hero to victory via
-`POST /combat/round`, and assert the campaign is archived as victorious and
-`campaign_ended` is True in the response.
+**What replaced it**: User Story 2 (multi-tenant engine isolation) covers the engine
+correctness path. The narrator auto-resolves combat inside `POST /me/game/turn`, and
+SC-025 is updated below accordingly.
 
-**Acceptance Scenarios**:
+### User Story 10 - Narrator is tested (Priority: P2)
 
-1. **Given** an active combat where the hero wins the final round, **When**
-   `POST /combat/round` is called, **Then** `_check_terminal_state` is invoked and the
-   campaign is marked as victorious.
-2. **Given** a campaign ended by combat victory, **When** the player attempts another
-   turn, **Then** the response is `409 campaign_ended`.
-3. **Given** the terminal-state helper, **When** it is called from either `take_turn`
-   or `combat_round`, **Then** the same victory/death logic applies (no duplication).
+The `PydanticNarrator` live path (LLM → calls MCP tools during `agent.run()` →
+validates `Scene` → returns `TurnResponse`) is exercised by an integration test.
+Currently this path has zero test coverage. _(Note: `combat_subagent.py` was deleted
+in spec 007 — no subagent to test. Scenario 2 about fabricated-number `ModelRetry`
+is also obsolete — the `effects[]` validator was deleted in spec 007; Principle I is
+now enforced by design, not a post-hoc validator.)_
 
-### User Story 10 - Narrator and combat subagent are tested (Priority: P2)
-
-The `PydanticNarrator` live path (LLM → `Scene` → validation → effects → response)
-and the `combat_subagent.py` delegation are exercised by integration tests. Currently
-both have zero test coverage, blocking SC-005.
-
-**Why this priority**: This is the LOW finding from the 003 review — production-only
-code paths are unverified. Without these tests, the live narrator cannot be trusted.
+**Why this priority**: LOW finding from the 003 review — production-only code paths
+are unverified. Without this test, the live narrator cannot be trusted.
 
 **Independent Test**: Run an integration test with a mocked LLM that produces a valid
-`Scene`; assert the scene flows through validation → effects → response. Run a test
-that delegates a combat to `combat_subagent` and verifies the `CombatResult`.
+`Scene`; assert the scene flows through validation → response. Assert no `effects`
+field in `Scene` and no `effects_applied` in `TurnResponse`.
 
 **Acceptance Scenarios**:
 
-1. **Given** a mocked LLM producing a valid `Scene`, **When** the `PydanticNarrator`
-   runs, **Then** the scene passes validation, effects are applied via MCP, and the
-   response carries the expected fields.
-2. **Given** a mocked LLM producing a `Scene` with fabricated numbers, **When** the
-   `PydanticNarrator` runs, **Then** the output validator triggers `ModelRetry` and the
-   scene is rejected.
-3. **Given** a combat delegation, **When** `combat_subagent.resolve_combat()` runs,
-   **Then** the `CombatResult` structure is correct and the combat state is updated.
+1. **Given** a mocked LLM producing a valid `Scene` (narrative + choices, no effects),
+   **When** the `PydanticNarrator` runs, **Then** the scene passes structural
+   validation, `TurnResponse` carries `{ scene, character?, world? }`, no
+   `effects_applied` field exists.
+2. **Given** a mocked LLM producing a `Scene` with `terminal=True`, **When** the
+   `PydanticNarrator` runs and `take_turn` calls `_check_terminal_state`, **Then** the
+   campaign is marked `ended` if the hero is dead or the victory flag is set.
+3. ~~Given a mocked LLM with fabricated numbers~~ — **OBSOLETE**: the
+   `_scene_contains_fabricated_numbers` validator was deleted in spec 007 (ADR-029).
 
 ### User Story 11 - SPA is production-hardened (Priority: P2)
 
@@ -980,19 +1005,37 @@ parameter. `build_server` takes a `storage_factory: Callable[[str], StorageBacke
 instead of a single `storage` instance. The factory caches per-campaign backends.
 
 ### FR-002 (ADR-018) Web layer passes campaign_id on every engine call
-Every `call_engine(toolset, tool_name, ...)` call site in `play.py` and `combat.py`
-passes `campaign_id=campaign_id`. `GAMEBOOK_CAMPAIGN_ID` is no longer read by the web
-backend lifespan.
+Every `call_engine(toolset, tool_name, ...)` call site in `play.py` passes
+`campaign_id=campaign_id`. _(combat.py was deleted in spec 007 — only play.py call
+sites remain.)_ `GAMEBOOK_CAMPAIGN_ID` is no longer read by the web backend lifespan;
+the `campaign_id` is resolved by `_get_active_campaign(account)` on each request.
 
-### FR-003 (ADR-017) Frontend types conform to backend response shapes
-`frontend/src/types/index.ts` is updated: `TurnResponse`, `CombatRoundResponse`,
-`FleeCombatResponse`, `CampaignSummary`, `CampaignState` match the backend Pydantic
-models. `useGame.applyTurnResponse` / `applyCombatResponse` assemble `CampaignState`
-from the granular fields.
+### FR-003 (ADR-017 + D1) Frontend conforms to backend-scoped API contract
+`frontend/src/types/index.ts` is updated: `TurnResponse` → `{ scene, character?,
+world? }` _(no `effects_applied` — removed in spec 007)_; remove
+`CombatRoundResponse` and `FleeCombatResponse` _(combat endpoints deleted in spec
+007)_. Add `GraveyardEntry` type for `GET /me/graveyard`. `useGame.applyTurnResponse`
+assembles `GameState` from `{ character, world, current_scene }` — no `campaign_id`
+threaded through frontend state (D1).
 
-### FR-004 (ADR-017) Campaign identifier is `campaign_id` everywhere
-The frontend uses `campaign_id` (not `id`) in all types, API calls, and component
-props. The backend `CampaignResponse` already uses `campaign_id`.
+### FR-004 (ADR-017 + D1) Frontend has no campaign_id awareness — backend-scoped design
+The SPA API client uses `/me/game/...` routes (no `{campaign_id}` path parameter).
+`useGame()` takes no `campaignId` argument — the backend resolves the active campaign
+from the authenticated account. The frontend treats the game as a singleton session;
+the graveyard (`GET /me/graveyard`) is the only multi-campaign view.
+
+### FR-004b (D1) Backend routes redesigned to `/me/game/...`
+All game-play routes in `src/gamebook_web/api/play.py` are renamed from
+`/campaigns/{id}/...` to `/me/game/...`. `_get_active_campaign(account)` replaces
+`_campaign_or_404(registry, campaign_id, account)` as the auth/ownership helper. When
+no active campaign exists for the account (first visit, or all campaigns ended), it
+returns `404 no_active_campaign` with `hint: "POST /me/game to start a new game"` —
+never a generic 404 — so the SPA can route the player to the start screen.
+`GET /me/graveyard` lists ended campaigns (death + victory) and is read-only in this
+slice. **Known gap (deferred)**: individual graveyard entries cannot be deleted by the
+player in this slice — only `DELETE /me` (GDPR erasure) removes them. If individual
+entry deletion is needed in the future, `DELETE /me/graveyard/{id}` is the natural
+extension point. The `contracts/http-api.md` is updated to reflect these routes.
 
 ### FR-005 (MEDIUM) Victory condition moved out of the API layer
 The hardcoded `malachar_defeated` check (`play.py:405`) is replaced by an
@@ -1034,9 +1077,12 @@ CVE-2025-30208 patch.
 `app.py` CORS config changes `allow_methods=["*"]` → `["GET", "POST", "DELETE",
 "OPTIONS"]` and `allow_headers=["*"]` → `["Content-Type", "Authorization"]`.
 
-### FR-014 (ADR-019) Allowlist for fabricated-number detection
-`agent.py` replaces `_RESULT_KEYS` denylist with `_ALLOWED_EFFECT_PARAMS` allowlist
-keyed by `EffectType`. Unknown param keys → `ModelRetry`. Prose regex extended.
+### ~~FR-014~~ SUPERSEDED BY ADR-029 / spec 007
+~~Allowlist for fabricated-number detection (`_ALLOWED_EFFECT_PARAMS`, `EffectType`,
+`_RESULT_KEYS`, `_scene_contains_fabricated_numbers`).~~
+All of `effects[]`, `EffectType`, and the fabricated-number validator were deleted in
+spec 007 (ADR-029). The narrator now calls MCP tools directly during generation —
+Principle I (no AI-invented numbers) is enforced by design. No replacement needed.
 
 ### FR-015 (HIGH) Integration test: frontend against live backend
 A Playwright test runs the SPA against the live FastAPI backend (not mock mode) for
@@ -1182,31 +1228,37 @@ so the consumer-level combat/storage swap boundary is proven for every backend.
 `tests/server/test_atomic_writes.py` simulates a failure after at least one
 `session.execute()` has run, proving that a crash mid-statement leaves no partial data.
 
-### FR-044 (ADR-028, MEDIUM) Unify combat terminal-state checking
-`src/gamebook_web/api/combat.py` `combat_round` route calls `_check_terminal_state`
-(or a shared terminal-check helper) when `outcome.ended` is True, handling both
-victory and death. The same helper is used by `take_turn` in `play.py`.
+### ~~FR-044~~ SUPERSEDED BY ADR-029 / spec 007
+~~Unify combat terminal-state checking across `combat.py` and `take_turn`.~~
+`combat.py` was deleted in spec 007 — `_check_terminal_state` is only called from
+`take_turn`. Task T085 reduces to: ensure `_check_terminal_state` handles both victory
+(`victory_flag`) and death from the single `take_turn` entry point. No unification
+needed; no `combat.py` to merge.
 
-### FR-045 (MEDIUM, from 003) Fix `request: Request = None` default
-All rate-limited routes in `src/gamebook_web/api/play.py` and `combat.py` remove the
-`= None` default from the `request: Request` parameter. The parameter is required
-(slowapi expects a non-null `Request`).
+### ~~FR-045~~ SUPERSEDED BY ADR-029 / spec 007
+~~Fix `request: Request = None` default on combat.py routes.~~
+`combat.py` was deleted in spec 007. The `= None` default only remains (if at all) on
+`play.py` routes. Task T086 is reduced to: remove `= None` from `play.py` rate-limited
+routes only.
 
 ### FR-046 (MEDIUM, from 003) Rate limiter keys on account_id
 `src/gamebook_web/limiter.py` keys the rate limiter on `account_id` when authenticated,
 falling back to IP only when unauthenticated. Trusted proxy headers
 (`X-Forwarded-For`) are configured for behind-LB deployments.
 
-### FR-047 (LOW, from 003) Narrator + combat subagent test coverage
+### FR-047 (LOW, from 003) Narrator integration test coverage
 `tests/server/test_narrator_integration.py` exercises the `PydanticNarrator` live path
-with a mocked LLM producing a valid `Scene` (and a fabricated-number scene that
-triggers `ModelRetry`). `tests/server/test_combat_subagent.py` exercises
-`combat_subagent.resolve_combat()` and verifies the `CombatResult` structure.
+with a mocked LLM producing a valid `Scene` (narrative + choices, no `effects` field).
+Asserts `TurnResponse` has no `effects_applied`. _(Fabricated-number `ModelRetry`
+scenario is obsolete — validator deleted in spec 007. `test_combat_subagent.py` is
+obsolete — `combat_subagent.py` deleted in spec 007.)_
 
-### FR-048 (LOW, from 003) `list_campaigns` includes `name` and timestamps
-`src/gamebook_web/api/play.py` `list_campaigns` response includes `name`,
-`created_at`, and `updated_at` for each campaign, matching the frontend
-`CampaignSummary` type.
+### FR-048 (LOW, from 003 + D1) `GET /me/graveyard` includes `name` and timestamps
+With D1 backend-scoped design, there is no `list_campaigns` endpoint. The graveyard
+(`GET /me/graveyard`) lists ended campaigns. Each `GraveyardEntry` includes `name`,
+`created_at`, `ended_at` (or `updated_at`), and `ended_reason` (death or victory).
+The frontend `GraveyardEntry` type matches. _(The old `list_campaigns` → `CampaignSummary`
+type is removed in T010.)_
 
 ### FR-049 (from 003) Python dependency upper bounds
 `pyproject.toml` floating `>=` ranges are capped with upper bounds
@@ -1325,16 +1377,22 @@ on all responses.
   when `DATABASE_URL` is present. Verified by `tests/qa/test_storage_swap.py`.
 - **SC-024** (from 002 cycle-1) Atomic-write test exercises a real mid-statement
   failure. Verified by `tests/server/test_atomic_writes.py`.
-- **SC-025** (from 003 cycle-1) Combat victory via `POST /combat/round` triggers
-  terminal-state archiving and campaign end. Verified by `test_combat_victory.py`.
+- **~~SC-025~~** SUPERSEDED BY ADR-029 / spec 007. ~~Combat victory via `POST /combat/round`~~
+  — `combat.py` was deleted in spec 007. Replaced by: **SC-025b** — combat victory
+  auto-resolved inside `POST /me/game/turn` triggers `_check_terminal_state`,
+  archives the character, and marks the campaign ended. Verified by
+  `test_combat_victory.py` (updated to use `POST /me/game/turn` path).
 - **SC-026** (from 003 cycle-1) `PydanticNarrator` live path is exercised by an
-  integration test with a mocked LLM. Verified by `test_narrator_integration.py`.
-- **SC-027** (from 003 cycle-1) `combat_subagent.py` is exercised by a test that
-  verifies the `CombatResult` structure. Verified by `test_combat_subagent.py`.
+  integration test with a mocked LLM (no `effects_applied`, no fabricated-number
+  validator — both removed in spec 007). Verified by `test_narrator_integration.py`.
+- **~~SC-027~~** SUPERSEDED BY ADR-029 / spec 007. ~~`combat_subagent.py` test.~~
+  `combat_subagent.py` was deleted in spec 007 (ADR-029). No replacement needed.
 - **SC-028** (from 003 cycle-1) Rate limiter keys on `account_id` when authenticated.
   Verified by `test_rate_limiter.py`.
-- **SC-029** (from 003 cycle-1) `list_campaigns` includes `name`, `created_at`, and
-  `updated_at`. Verified by `test_api_play_loop.py` (extended).
+- **SC-029** (from 003 cycle-1, updated for D1) `GET /me/graveyard` includes `name`,
+  `created_at`, `ended_at`, and `ended_reason` for each ended campaign. Verified by
+  `test_api_play_loop.py` (extended). _(With D1, there is no `list_campaigns` endpoint;
+  the graveyard is the only multi-campaign view.)_
 - **SC-030** (from 003 cycle-1) Python dependency ranges have upper bounds in
   `pyproject.toml`. Verified by inspection.
 - **SC-031** (from 005 cycle-1) Source maps are disabled in production builds. Verified
@@ -1438,6 +1496,31 @@ on all responses.
   (e.g. `<1.0`) prevent unexpected breaking changes from major releases while still
   allowing minor/patch updates. Strict pins would require manual updates for every
   patch release.
+
+### Session 2026-07-01 (architectural decisions D1 + D2)
+
+- Q: Should the frontend manage `campaign_id` explicitly (resource-scoped REST) or
+  should the backend resolve the campaign from auth context (session-scoped)?
+  → A: **Backend-scoped (D1)**. One active campaign per account. Frontend calls
+  `/me/game/turn` etc. Backend does `JWT → account_id → SELECT campaign WHERE
+  status='active'`. `campaign_id` is an internal routing detail, not exposed to the
+  frontend. ADR-017 is amended accordingly.
+- Q: Which Option for ADR-018 multi-tenant implementation? Option A (campaign_id in
+  tools), Option B (per-campaign subprocess cache), or Option C (transparent wrapper)?
+  → A: **Option A (D2)**. One MCP subprocess, `campaign_id: str` as first parameter in
+  all 18 tools, `storage_factory: Callable[[str], StorageBackend]` in `build_server`.
+  Narrator system prompt includes `campaign_id`; post-narration audit validates it.
+  Option B rejected (N subprocesses ≈ N×50 MB, does not scale). Option C rejected
+  (hidden complexity, no pydantic-ai extension point for transparent injection).
+- Q: What is the production scaling path for the MCP transport?
+  → A: Migrate `StdioTransport` → `StreamableHTTPTransport` when horizontal scaling is
+  needed. With HTTP transport, `campaign_id` moves to an HTTP header or URL path. The
+  18 MCP tool signatures stay unchanged. This is a transport-layer swap, not a
+  business logic redesign.
+- Q: What about the `/campaigns` list endpoints?
+  → A: `/campaigns` (list) becomes `/me/graveyard` — shows ended campaigns (past
+  heroes). There is no "list of active campaigns" because there is only one active
+  campaign per account at any time.
 
 ### Session 2026-06-28 (005 absorption)
 

@@ -276,28 +276,28 @@ class CombatEngine(Protocol):
 
 ## 6. `mcp/server.py` — MCP tool contract (stdio transport, server name `gamebook`)
 
-Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`update_world` added in cycle 2 per ADR-010):
+Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`update_world` added in cycle 2 per ADR-010). **Every tool takes `campaign_id: str` as its first parameter** (ADR-018 Option A — one server process, all campaigns isolated by `campaign_id`; the harness/narrator injects it via `ScopedMCPToolset`):
 
 | tool | params | returns |
 |---|---|---|
-| `roll_dice` | `notation: str` | `{rolls, total}` |
-| `test_luck` | — | `{roll, success, luck_after}` (persists luck −1) |
-| `create_character` | `name: str` | `CharacterSheet` (rolls attributes, persists, alive) |
-| `read_character_sheet` | — | `CharacterSheet` |
-| `update_character_sheet` | `changes: dict` | `CharacterSheet` (validates invariants) |
-| `read_world` | — | `World` |
-| `update_world` | `changes: dict` | `World` (patch + allowlist; persists via `save_world`) |
-| `register_event` | `type: str, data: dict` | the created `Event` |
-| `read_events` | — | `list[Event]` |
-| `read_summary` | — | `str` |
-| `update_summary` | `text: str` | `{ok: true}` |
-| `start_combat` | `enemies: list, flee_allowed: bool` | `Combat` |
-| `resolve_combat_round` | `combat_id: str, use_luck: bool` | `RoundOutcome` |
-| `flee_combat` | `combat_id: str` | `FleeResult` |
-| `end_combat` | `combat_id: str` | `FinalResult` |
-| `archive_character` | `destination: str` | `{ok: true}` |
-| `save_progress` | `slot: str \| None` | `{ok: true, slot}` |
-| `load_progress` | `slot: str \| None` | `{ok: true, slot}` |
+| `roll_dice` | `campaign_id: str, notation: str` | `{rolls, total}` |
+| `test_luck` | `campaign_id: str` | `{roll, success, luck_after}` (persists luck −1) |
+| `create_character` | `campaign_id: str, name: str` | `CharacterSheet` (rolls attributes, persists, alive) |
+| `read_character_sheet` | `campaign_id: str` | `CharacterSheet` |
+| `update_character_sheet` | `campaign_id: str, changes: dict` | `CharacterSheet` (validates invariants) |
+| `read_world` | `campaign_id: str` | `World` |
+| `update_world` | `campaign_id: str, changes: dict` | `World` (patch + allowlist; persists via `save_world`) |
+| `register_event` | `campaign_id: str, type: str, data: dict` | the created `Event` |
+| `read_events` | `campaign_id: str` | `list[Event]` |
+| `read_summary` | `campaign_id: str` | `str` |
+| `update_summary` | `campaign_id: str, text: str` | `{ok: true}` |
+| `start_combat` | `campaign_id: str, enemies: list, flee_allowed: bool` | `Combat` |
+| `resolve_combat_round` | `campaign_id: str, combat_id: str, use_luck: bool` | `RoundOutcome` |
+| `flee_combat` | `campaign_id: str, combat_id: str` | `FleeResult` |
+| `end_combat` | `campaign_id: str, combat_id: str` | `FinalResult` |
+| `archive_character` | `campaign_id: str, destination: str` | `{ok: true}` |
+| `save_progress` | `campaign_id: str, slot: str \| None` | `{ok: true, slot}` |
+| `load_progress` | `campaign_id: str, slot: str \| None` | `{ok: true, slot}` |
 
 **`update_character_sheet(changes)` patch semantics (binding on infra + content):**
 `changes` is a partial dict of `CharacterSheet` fields. Top-level scalar/list fields
@@ -331,17 +331,19 @@ reads the sheet's current luck, applies the rule, persists luck −1, returns
 `{roll, success, luck_after}`. **`save_progress(slot=None)`** snapshots all state to the
 slot (`None` → `"autosave"`); **`load_progress`** restores it.
 
-**Composition root:** provide `build_server(storage: StorageBackend, combat: CombatEngine,
-rng: RandomSource) -> FastMCP` taking interfaces; `main()` builds concretes
-(`JSONStorage("estado")`, `CombatService(storage, rng)`, `random.Random()`) and runs
-stdio. `python -m gamebook.mcp.server` is the entry point. `.mcp.json` at repo root
-registers: `command: "uv"`, `args: ["run","python","-m","gamebook.mcp.server"]`.
+**Composition root:** provide `build_server(storage_factory: Callable[[str], StorageBackend],
+rng: RandomSource) -> FastMCP` taking a factory and a `RandomSource` (ADR-018 — `CombatService`
+is constructed inside `build_server` from the factory, keeping it out of module scope). `main()`
+builds the factory (one-per-campaign `JSONStorage` or `PostgresStorage`) and passes `random.Random()`
+as the RNG, then calls `.run()` for stdio. `python -m gamebook.mcp.server` is the entry point.
+`.mcp.json` at repo root registers: `command: "uv"`, `args: ["run","python","-m","gamebook.mcp.server"]`.
 Tools contain NO game rules — they orchestrate `regras`/`combate`/`storage` only.
 
-**Phase-2 `main()` extension (feature 001, 2026-06-26):** If both `DATABASE_URL` and
-`GAMEBOOK_CAMPAIGN_ID` env vars are set, `main()` uses `PostgresStorage(url, campaign_id)`
-instead of `JSONStorage`.  `build_server` is unchanged; the concrete import of `PostgresStorage`
-is local to `main()` (composition root only).
+**Phase-2 `main()` factory (ADR-018 Option A, feature 001, 2026-06-26):** `main()` builds a
+`storage_factory = lambda campaign_id: PostgresStorage(url, campaign_id)` when `DATABASE_URL` is
+set, otherwise `lambda campaign_id: JSONStorage(f"estado/{campaign_id}")`. The factory is cached
+by `campaign_id` inside `main()` (dict MVP; LRU pending for scale). `build_server` is unchanged —
+it only receives the factory interface, never a concrete backend.
 
 ---
 
