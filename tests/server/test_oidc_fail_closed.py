@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
-from jose import jwk, jwt
+import jwt
+from jwt.algorithms import RSAAlgorithm
 from starlette.testclient import TestClient
 
 from gamebook_web.auth import oidc_auth
@@ -51,9 +53,10 @@ def rsa_pem() -> str:
 
 @pytest.fixture(scope="module")
 def jwks(rsa_pem: str) -> dict:
-    pub = jwk.construct(rsa_pem, "RS256").public_key().to_dict()
-    pub["kid"] = KID
-    return {"keys": [pub]}
+    priv = serialization.load_pem_private_key(rsa_pem.encode(), password=None)
+    pub_jwk = json.loads(RSAAlgorithm.to_jwk(priv.public_key()))
+    pub_jwk["kid"] = KID
+    return {"keys": [pub_jwk]}
 
 
 def _mint(pem: str, claims: dict, *, kid: str | None = KID) -> str:

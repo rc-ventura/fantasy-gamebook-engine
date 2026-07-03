@@ -144,5 +144,5 @@ async def release_session(
         )
     from gamebook_web.sessions.lease import get_lease_service
 
-    await get_lease_service().release(campaign_id, x_session_lease)
+    await get_lease_service().release(campaign_id, account.account_id, x_session_lease)
     audit_event("session.released", account_id=account.account_id, campaign_id=campaign_id)

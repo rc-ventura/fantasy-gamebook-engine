@@ -13,8 +13,18 @@ GAMEBOOK_DEV_MODE — if "1", fall back to dev stub (testing convenience)
 Graceful degradation (T017)
 ---------------------------
 If the JWKS endpoint is unreachable, new sign-ins receive ``503 auth_unavailable``.
-Tokens already validated within the last ``VALIDATED_TOKEN_TTL`` seconds continue
-to be accepted from an in-memory cache keyed on (signature-hash, exp).
+Tokens already validated within the last ``VALIDATED_TOKEN_TTL`` seconds (60s, H-03)
+continue to be accepted from an in-memory cache keyed on (signature-hash, exp).
+
+Revocation gap (H-03, ADR-022 amendment): a revoked token remains valid for up to
+``VALIDATED_TOKEN_TTL`` (60s) after revocation, and during a JWKS outage all
+previously-validated tokens continue to work for the same window.  The 60s TTL
+(reduced from 300s) limits the worst-case window.  The ``exp`` used for cache TTL
+lookup comes from ``jwt.get_unverified_claims`` (read before signature
+verification), but the full SHA-256 token hash prevents forging a cache hit with
+a modified token.  This is an accepted trade-off: strict revocation would require
+an online revocation list (CRL/introspection) per request, adding latency and a
+new failure mode.
 
 JWKS key cache TTL: 5 minutes (refreshed on 404 key-id to handle key rotation).
 """
@@ -31,9 +41,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import jwt
 from fastapi import Header, HTTPException, status
-from jose import JWTError, jwk, jwt
-from jose.exceptions import ExpiredSignatureError
+from jwt import ExpiredSignatureError, PyJWTError
+from jwt import PyJWK
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +88,7 @@ def _get_cache_lock() -> asyncio.Lock:
 # Key: (token-signature-hash, exp), Value: account_id.  An OrderedDict gives
 # us O(1) LRU eviction so the cache cannot grow without bound (CWE-400).
 _VALIDATED_TOKEN_CACHE: OrderedDict[tuple[str, int], str] = OrderedDict()
-VALIDATED_TOKEN_TTL = 300  # seconds; allows tokens to ride through a short OIDC outage
+VALIDATED_TOKEN_TTL = 60  # seconds (H-03); reduced from 300 to limit revocation gap
 # Hard cap on cached tokens — bounds memory under a token-flood / re-auth storm.
 _VALIDATED_TOKEN_CACHE_MAX = 10_000
 
@@ -174,7 +185,7 @@ async def _get_signing_key(jwks_uri: str, kid: str) -> Any:
     if not matched:
         _unauthenticated(f"No signing key matches token 'kid'={kid}")
 
-    return jwk.construct(matched[0])
+    return PyJWK(matched[0]).key
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +251,14 @@ async def get_current_account(
     try:
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
-        # Also get exp from unverified claims for cache lookup
-        unverified_claims = jwt.get_unverified_claims(token)
-    except (JWTError, ValueError, TypeError) as exc:
+        # Also get exp from unverified claims for cache lookup.
+        # PyJWT doesn't have get_unverified_claims; decode without signature
+        # verification to read the claims (safe: we only use exp for cache keying,
+        # and the full SHA-256 token hash prevents forging a cache hit).
+        unverified_claims = jwt.decode(
+            token, options={"verify_signature": False}
+        )
+    except (PyJWTError, ValueError, TypeError) as exc:
         _unauthenticated(f"Malformed token: {exc}")
 
     # T034 (FR-020): a token without a 'kid' cannot be matched to a specific
@@ -251,7 +267,7 @@ async def get_current_account(
         _unauthenticated("Token header missing 'kid'")
 
     # T033 (FR-019): 'exp' is mandatory.  A token with no expiry never expires,
-    # so reject it before validation (jose 'require_exp' enforces this too).
+    # so reject it before validation (PyJWT 'require': ['exp'] enforces this too).
     if "exp" not in unverified_claims:
         _unauthenticated("Token missing 'exp' claim")
     exp = int(unverified_claims.get("exp", 0))
@@ -290,7 +306,7 @@ async def get_current_account(
             "verify_aud": bool(audience),
             "verify_iss": True,
             "verify_exp": True,
-            "require_exp": True,
+            "require": ["exp"],
         }
         claims = jwt.decode(
             token,
@@ -302,7 +318,7 @@ async def get_current_account(
         )
     except ExpiredSignatureError:
         _unauthenticated("Token has expired")
-    except JWTError as exc:
+    except PyJWTError as exc:
         _unauthenticated(f"Token validation failed: {exc}")
 
     sub: str = claims.get("sub", "")

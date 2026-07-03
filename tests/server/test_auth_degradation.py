@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 
 
 # ---------------------------------------------------------------------------
@@ -31,15 +31,6 @@ def _make_test_jwt(sub: str = "test-user", exp: int | None = None) -> tuple[str,
         key_size=2048,
         backend=default_backend(),
     )
-
-    from jose.utils import base64url_encode
-    import struct
-
-    pub_numbers = private_key.public_key().public_numbers()
-
-    def _int_to_bytes(n: int) -> bytes:
-        length = (n.bit_length() + 7) // 8
-        return n.to_bytes(length, "big")
 
     if exp is None:
         exp = int(time.time()) + 3600
@@ -62,7 +53,7 @@ def _make_test_jwt(sub: str = "test-user", exp: int | None = None) -> tuple[str,
     pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption())
 
     kid = "test-key-1"
-    token = jose_jwt.encode(payload, pem, algorithm="RS256", headers={"kid": kid})
+    token = pyjwt.encode(payload, pem, algorithm="RS256", headers={"kid": kid})
     return token, kid
 
 

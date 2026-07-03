@@ -419,9 +419,9 @@ account (FR-009).
 ### Session Lease (FR-025)
 | Method & path | Purpose |
 |---|---|
-| `POST /campaigns/{id}/session` | Acquire/refresh the play-session lease |
-| `POST /campaigns/{id}/session/takeover` | Force-take the lease (demotes prior holder) |
-| `DELETE /campaigns/{id}/session` | Release the lease |
+| `POST /me/game/session` | Acquire/refresh the play-session lease |
+| `POST /me/game/session/takeover` | Force-take the lease (validates current_token, ADR-023) |
+| `DELETE /me/game/session` | Release the lease |
 
 ### Character
 | Method & path | Purpose |
@@ -455,7 +455,7 @@ account (FR-009).
 | 503 | `auth_unavailable` | IdP down; signed-in players continue read-only until expiry |
 
 ### 9a. Auth implementation details
-- `JWTValidator` (`src/gamebook_web/auth/jwt_validator.py`) validates against the OIDC JWKS endpoint.
+- OIDC JWT/JWKS validation (`src/gamebook_web/auth/oidc_auth.py`) validates against the OIDC JWKS endpoint (PyJWT, migrated from python-jose).
 - JWKS keys are cached in memory (5-minute TTL) for graceful degradation (FR-024).
 - `RequireAuth = Depends(get_current_account_sub)` is the FastAPI dependency used by all protected routes.
 - Environment variables: `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`.
@@ -665,7 +665,7 @@ class Account:
 ENV: `OIDC_JWKS_URI`, `OIDC_AUDIENCE`, `OIDC_ISSUER`  
 Algorithms: RS256, ES256  
 Key cache TTL: 5 min; force-refresh on unknown `kid` (key rotation)  
-Validated-token cache: keyed on `sha256(token)[:16]+exp`; serves cached `account_id` when JWKS unreachable  
+Validated-token cache: keyed on `(sha256(token), exp)` (full SHA-256 digest); serves cached `account_id` when JWKS unreachable; TTL = 60s (H-03)  
 
 ---
 
@@ -689,23 +689,23 @@ TTL: 30 minutes default; renewed on every successful state-changing request.
 
 | Method | Raises | Description |
 |---|---|---|
-| `acquire(campaign_id, account_id)` | 409 `not_session_holder` | Create or renew lease; reject if another account holds unexpired lease |
-| `validate(campaign_id, lease_token)` | 409 `not_session_holder` / `lease_expired` | Assert token is the current unexpired holder |
+| `acquire(campaign_id, account_id)` | 409 `not_session_holder` | Create or renew lease; reject if another account holds unexpired lease (no `force_takeover` — H-01) |
+| `validate(campaign_id, account_id, lease_token)` | 409 `not_session_holder` / `lease_expired` | Assert token AND account match the current unexpired holder (H-02; `hmac.compare_digest`) |
 | `renew(campaign_id, lease_token)` | 409 `not_session_holder` | Extend TTL on success |
-| `release(campaign_id, lease_token)` | — | Delete lease row |
-| `takeover(campaign_id, account_id, current_token)` | — | Atomically replace holder (force-acquire) |
+| `release(campaign_id, account_id, lease_token)` | — | Delete lease row (only if account + token match; H-02) |
+| `takeover(campaign_id, account_id, current_token)` | 409 `not_session_holder` | Atomically replace holder; validates `current_token` (FR-027) |
 
 ### Lease endpoints
 
 | Method | Path | Header | Description |
 |---|---|---|---|
-| `POST` | `/campaigns/{id}/session` | — | Acquire lease → `{lease_token, expires_at}` |
-| `POST` | `/campaigns/{id}/session/takeover` | — | Take over → new `{lease_token, expires_at}` |
-| `DELETE` | `/campaigns/{id}/session` | `X-Session-Lease` | Release lease |
+| `POST` | `/me/game/session` | — | Acquire lease → `{session_token, expires_at}` |
+| `POST` | `/me/game/session/takeover` | — | Take over → new `{session_token, expires_at}` (validates `current_token`) |
+| `DELETE` | `/me/game/session` | `X-Session-Lease` | Release lease |
 
-### Lease enforcement (LeaseGuardMiddleware)
+### Lease enforcement (route-level `require_lease` dependency, ADR-031)
 
-All mutating requests (`POST`, `DELETE`, `PATCH`, `PUT`) to `/campaigns/{id}/**` require `X-Session-Lease` header (except exempt paths: session endpoints themselves, character creation, campaign DELETE, `/me/**`).
+All mutating `/me/game/**` routes (`POST /me/game`, `POST /me/game/turn`, `POST /me/game/character`, `POST /me/game/save`, `DELETE /me/game`) have `Depends(require_lease)` which resolves the caller's active `campaign_id` from their account (D1) and calls `LeaseService.validate(campaign_id, account_id, X-Session-Lease)`. The lease is opt-in: enforcement begins only after a session calls `POST /me/game/session` to acquire a lease. `LeaseGuardMiddleware` is retained as a fail-closed guard for the OIDC-configured-but-no-database misconfiguration case only.
 
 On token mismatch → `409 not_session_holder`  
 On expiry → `409 lease_expired`  

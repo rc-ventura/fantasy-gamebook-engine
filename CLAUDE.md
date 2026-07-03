@@ -173,6 +173,7 @@ principles; when in conflict, the constitution wins.
 | [ADR-028](./docs/adrs/ADR-028-combat-terminal-state-unification.md) | Combat terminal-state check — single entry point after `take_turn` (combat_round deleted by spec 007; victory flag from adventure-module config) | Accepted | 2026-07-02 |
 | [ADR-029](./docs/adrs/ADR-029-narrator-as-tool-use-agent-eliminate-effects.md) | Narrator as tool-use agent — eliminate `effects[]` pattern, restore Phase 1 interaction model (post-006, slice 007) | Accepted | 2026-06-30 |
 | [ADR-030](./docs/adrs/ADR-030-observability-and-evals-otel-stack.md) | Observability & evals — OTel stack + Pydantic Evals (spec 006 planning) | Accepted | 2026-07-01 |
+| [ADR-031](./docs/adrs/ADR-031-d1-lease-enforcement-route-level-dependency.md) | D1 lease enforcement via route-level `require_lease` dependency (amends ADR-023) | Accepted | 2026-07-02 |
 
 ## Learning Lessons
 

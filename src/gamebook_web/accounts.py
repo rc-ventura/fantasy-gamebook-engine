@@ -59,7 +59,16 @@ class AccountRepository:
     """Async SQLAlchemy-backed account and ownership queries."""
 
     def __init__(self, url: str) -> None:
-        self._engine = create_async_engine(url, pool_pre_ping=True)
+        # Bounded pool (L-POOL): matches LeaseService — an unbounded pool can
+        # exhaust Postgres connections under load; these limits cap worst-case
+        # connection usage per process while still allowing reasonable concurrency.
+        self._engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+        )
 
     def _session(self) -> AsyncSession:
         return AsyncSession(self._engine, expire_on_commit=False)

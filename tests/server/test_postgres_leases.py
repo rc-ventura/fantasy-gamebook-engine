@@ -48,7 +48,7 @@ async def test_acquire_then_validate_ok():
     svc = _svc()
     lease = await svc.acquire(cid, aid)
     # Correct token validates without error.
-    await svc.validate(cid, lease["lease_token"])
+    await svc.validate(cid, aid, lease["lease_token"])
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_validate_wrong_token_is_409():
     svc = _svc()
     await svc.acquire(cid, aid)
     with pytest.raises(HTTPException) as exc:
-        await svc.validate(cid, "not-the-token")
+        await svc.validate(cid, aid, "not-the-token")
     assert exc.value.status_code == 409
     assert exc.value.detail["error"]["code"] == "not_session_holder"
 
@@ -72,8 +72,8 @@ async def test_takeover_with_correct_token_rotates_and_invalidates_old():
     assert rotated["lease_token"] != first["lease_token"]
     # Old token no longer validates; new one does.
     with pytest.raises(HTTPException):
-        await svc.validate(cid, first["lease_token"])
-    await svc.validate(cid, rotated["lease_token"])
+        await svc.validate(cid, aid, first["lease_token"])
+    await svc.validate(cid, aid, rotated["lease_token"])
 
 
 @pytest.mark.asyncio
@@ -91,7 +91,7 @@ async def test_release_removes_lease():
     aid, cid = await _account_and_campaign()
     svc = _svc()
     lease = await svc.acquire(cid, aid)
-    await svc.release(cid, lease["lease_token"])
+    await svc.release(cid, aid, lease["lease_token"])
     assert await svc.get_lease(cid) is None
 
 
@@ -118,7 +118,7 @@ async def test_expired_lease_is_rejected_and_replaceable():
 
     # Expired token is rejected.
     with pytest.raises(HTTPException) as exc:
-        await svc.validate(cid, token)
+        await svc.validate(cid, aid, token)
     assert exc.value.detail["error"]["code"] == "lease_expired"
 
     # A fresh acquire replaces the expired lease (no 409).
@@ -146,3 +146,48 @@ async def test_non_holder_cannot_steal_under_concurrency():
     )
     # Neither non-holder acquire succeeds while the lease is held and unexpired.
     assert all(isinstance(r, HTTPException) and r.status_code == 409 for r in results), results
+
+
+@pytest.mark.asyncio
+async def test_validate_wrong_account_id_is_409_even_with_correct_token():
+    """H-02: a leaked lease token cannot be replayed by a different account.
+
+    Even if account B somehow obtains account A's lease token, validate()
+    must reject it because holder_account_id != requesting_account_id.
+    """
+    from gamebook_web.accounts import AccountRepository
+
+    aid, cid = await _account_and_campaign()
+    repo = AccountRepository(DATABASE_URL)
+    other = (await repo.get_or_create(f"oidc|{uuid.uuid4()}"))["account_id"]
+
+    svc = _svc()
+    lease = await svc.acquire(cid, aid)
+
+    # Other account tries to validate with the real token — must be rejected.
+    with pytest.raises(HTTPException) as exc:
+        await svc.validate(cid, other, lease["lease_token"])
+    assert exc.value.status_code == 409
+    assert exc.value.detail["error"]["code"] == "not_session_holder"
+
+
+@pytest.mark.asyncio
+async def test_release_wrong_account_id_is_silent_noop():
+    """H-02: release by a non-holder account is a silent no-op (not an error).
+
+    A different account cannot release (and thereby free for takeover) someone
+    else's lease even if they have the token.
+    """
+    from gamebook_web.accounts import AccountRepository
+
+    aid, cid = await _account_and_campaign()
+    repo = AccountRepository(DATABASE_URL)
+    other = (await repo.get_or_create(f"oidc|{uuid.uuid4()}"))["account_id"]
+
+    svc = _svc()
+    lease = await svc.acquire(cid, aid)
+
+    # Other account tries to release with the real token — silent no-op.
+    await svc.release(cid, other, lease["lease_token"])
+    # Lease still exists (was not released by the wrong account).
+    assert await svc.get_lease(cid) is not None

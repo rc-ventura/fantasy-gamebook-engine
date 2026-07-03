@@ -75,7 +75,14 @@ def setup_telemetry(
 
     # TLS by default (T051/FR-032): the OTLP exporter uses a secure channel
     # unless OTLP_INSECURE is explicitly enabled (local collector without TLS).
+    # L-OTLP: refuse insecure OTLP in production — a plaintext telemetry channel
+    # enables MITM interception/spoofing of traces and metrics.
     insecure = os.getenv("OTLP_INSECURE", "0") in ("1", "true", "True")
+    if insecure and os.getenv("ENV", "").lower() == "production":
+        raise RuntimeError(
+            "OTLP_INSECURE=1 is not allowed in production (ENV=production). "
+            "Use a TLS-secured OTLP collector endpoint."
+        )
 
     resource = Resource.create({"service.name": service_name})
 

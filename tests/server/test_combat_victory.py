@@ -92,9 +92,9 @@ class TestCombatVictoryViaTurn:
         terminal_checks: list[str] = []
         original = play_mod._check_terminal_state
 
-        async def spy(campaign_id, character, world, toolset, registry):
+        async def spy(campaign_id, character, world, toolset, registry, **kwargs):
             terminal_checks.append(campaign_id)
-            return await original(campaign_id, character, world, toolset, registry)
+            return await original(campaign_id, character, world, toolset, registry, **kwargs)
 
         monkeypatch.setattr(play_mod, "_check_terminal_state", spy)
 

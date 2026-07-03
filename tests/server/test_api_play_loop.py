@@ -367,6 +367,34 @@ class TestInputValidation:
         resp = api_client.post("/me/game/turn", json={"choice": long_choice}, headers=_auth_headers())
         assert resp.status_code == 200
 
+    def test_game_name_over_max_length_returns_422(self, api_client):
+        """M-02: a game name exceeding 100 chars is rejected."""
+        long_name = "x" * 101
+        resp = api_client.post("/me/game", json={"name": long_name}, headers=_auth_headers())
+        assert resp.status_code == 422
+
+    def test_character_name_over_max_length_returns_422(self, api_client):
+        """M-02: a character name exceeding 100 chars is rejected."""
+        _create_game(api_client)
+        long_name = "x" * 101
+        resp = api_client.post("/me/game/character", json={"name": long_name}, headers=_auth_headers())
+        assert resp.status_code == 422
+
+    def test_game_name_control_chars_are_stripped(self, api_client):
+        """M-02: control characters in game name are stripped (log injection prevention)."""
+        # Name with newlines, tabs, null bytes — should be stripped to "Aria"
+        dirty_name = "Ar\ri\na\t\x00"
+        resp = api_client.post("/me/game", json={"name": dirty_name}, headers=_auth_headers())
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "Aria"
+
+    def test_character_name_control_chars_are_stripped(self, api_client):
+        """M-02: control characters in character name are stripped."""
+        _create_game(api_client)
+        dirty_name = "He\rl\no\t\x00"
+        resp = api_client.post("/me/game/character", json={"name": dirty_name}, headers=_auth_headers())
+        assert resp.status_code == 201
+
 
 class TestAuthEnvelope:
     def test_invalid_token_returns_401(self, api_client):

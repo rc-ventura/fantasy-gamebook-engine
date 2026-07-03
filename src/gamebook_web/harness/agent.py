@@ -27,6 +27,7 @@ from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai import UsageLimits
 from pydantic_ai.toolsets import WrapperToolset
+from pydantic_ai.messages import ModelMessage, ToolCallPart
 
 from gamebook_web.harness.base import NarratorContext
 from gamebook_web.harness.scene import Scene
@@ -156,6 +157,44 @@ def _load_adventure_lore() -> str:
 
 
 # ---------------------------------------------------------------------------
+# _assert_narrator_campaign — T006b post-audit detection (belt-and-suspenders)
+# ---------------------------------------------------------------------------
+
+def _assert_narrator_campaign(messages: list[ModelMessage], expected_campaign_id: str) -> None:
+    """Scan the agent's message history for tool calls with a wrong campaign_id.
+
+    T006b: the ``ScopedMCPToolset`` wrapper (prevention) overrides ``campaign_id``
+    on every tool call, so the LLM cannot inject a wrong one.  This function is
+    the **detection** layer — if the wrapper is ever silently dropped (e.g. by a
+    pydantic-ai ``for_run``/``visit_and_replace`` rebuild, as happened before per
+    the learning-lesson), wrong-campaign tool calls would pass through the
+    prevention layer undetected.  This audit catches them after ``agent.run()``
+    completes, before the scene is returned to the player.
+
+    Raises ``RuntimeError`` if any tool call's ``campaign_id`` argument differs
+    from ``expected_campaign_id``.  Tool calls without a ``campaign_id`` argument
+    are fine — the wrapper injects it, so the LLM's original (possibly missing)
+    value is irrelevant; we only flag calls where a *different* campaign_id is
+    present in the recorded args.
+    """
+    for msg in messages:
+        for part in msg.parts:
+            if not isinstance(part, ToolCallPart):
+                continue
+            args = part.args
+            if not isinstance(args, dict):
+                continue
+            call_campaign = args.get("campaign_id")
+            if call_campaign is not None and call_campaign != expected_campaign_id:
+                raise RuntimeError(
+                    f"_assert_narrator_campaign: tool {part.tool_name!r} was called "
+                    f"with campaign_id={call_campaign!r} but expected "
+                    f"{expected_campaign_id!r}. The ScopedMCPToolset prevention "
+                    f"wrapper may have been dropped from the toolset tree."
+                )
+
+
+# ---------------------------------------------------------------------------
 # PydanticNarrator
 # ---------------------------------------------------------------------------
 
@@ -218,6 +257,13 @@ class PydanticNarrator:
         agent.run()). The toolset is filtered to the narrator-safe subset
         (_NARRATOR_ALLOWED_TOOLS) so lifecycle tools cannot be called during
         narration. UsageLimits caps tool-call iterations to prevent runaway loops.
+
+        T006b belt-and-suspenders: after ``agent.run()``, ``_assert_narrator_campaign``
+        scans all tool calls in the message history for a wrong ``campaign_id``.
+        The ``ScopedMCPToolset`` wrapper (prevention) is the primary defense; this
+        audit is the secondary detection layer — if the wrapper is ever dropped
+        by a pydantic-ai toolset-tree rebuild, wrong-campaign writes are still
+        caught before the scene is returned to the player.
         """
         from gamebook_web.observability.tracing import narrator_span
 
@@ -236,6 +282,10 @@ class PydanticNarrator:
                 toolsets=toolsets,
                 usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
             )
+
+        # T006b: post-audit detection — scan all tool calls for wrong campaign_id.
+        _assert_narrator_campaign(result.all_messages(), campaign_id)
+
         return result.output
 
     # ------------------------------------------------------------------

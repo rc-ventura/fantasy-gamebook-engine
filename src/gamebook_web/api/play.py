@@ -24,7 +24,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai.mcp import MCPToolset
 
 from gamebook_web.adventure_module import get_adventure_config
@@ -34,6 +34,7 @@ from gamebook_web.harness.base import NarratorBackend, NarratorContext, get_narr
 from gamebook_web.harness.scene import Scene
 from gamebook_web.mcp_host import call_engine, get_engine_toolset
 from gamebook_web.sessions.campaign import CampaignRegistry, CampaignState, get_campaign_registry
+from gamebook_web.sessions.lease import require_lease
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,28 @@ router = APIRouter(tags=["play"])
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
+def _strip_control_chars(value: str | None) -> str | None:
+    """M-02 (A03): strip control characters (except common whitespace) from
+    user-supplied name fields to prevent log injection and header splitting.
+
+    Removes C0 control chars (0x00–0x1F) and DEL (0x7F), which include
+    newlines (\\r, \\n), tabs (\\t), null bytes, and other non-printable
+    characters.  Regular spaces (0x20) are preserved.
+    """
+    if value is None:
+        return None
+    return "".join(c for c in value if c == " " or (ord(c) > 0x20 and ord(c) != 0x7F))
+
+
 class CreateGameRequest(BaseModel):
-    name: str | None = None     # optional adventure run name
+    # M-02 (A03): cap name length to prevent DoS / log injection; strip
+    # control characters that enable log-injection / header-splitting.
+    name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def _sanitize_name(cls, v: str | None) -> str | None:
+        return _strip_control_chars(v)
 
 
 class GameResponse(BaseModel):
@@ -54,7 +75,13 @@ class GameResponse(BaseModel):
 
 
 class CreateCharacterRequest(BaseModel):
-    name: str = "Hero"
+    # M-02 (A03): same max_length + control-character guard as CreateGameRequest.
+    name: str = Field(default="Hero", max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def _sanitize_name(cls, v: str) -> str:
+        return _strip_control_chars(v) or "Hero"
 
 
 class TurnRequest(BaseModel):
@@ -137,7 +164,8 @@ def _assert_not_ended(state: CampaignState) -> None:
 # Game (one active game per account)
 # ---------------------------------------------------------------------------
 
-@router.post("/me/game", status_code=status.HTTP_201_CREATED)
+@router.post("/me/game", status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_lease)])
 async def create_game(
     request: Request,
     body: CreateGameRequest | None = None,
@@ -195,7 +223,8 @@ async def get_game(
     }
 
 
-@router.delete("/me/game", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/me/game", status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_lease)])
 async def delete_game(
     request: Request,
     account: Account = Depends(get_current_account),
@@ -215,7 +244,8 @@ async def delete_game(
 # Character
 # ---------------------------------------------------------------------------
 
-@router.post("/me/game/character", status_code=status.HTTP_201_CREATED)
+@router.post("/me/game/character", status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_lease)])
 async def create_character(
     request: Request,
     body: CreateCharacterRequest | None = None,
@@ -277,6 +307,7 @@ async def take_turn(
     request: Request,
     body: TurnRequest | None = None,
     account: Account = Depends(get_current_account),
+    _lease: None = Depends(require_lease),
 ) -> TurnResponse:
     """Take a turn: narrator calls MCP tools and returns a validated Scene.
 
@@ -308,85 +339,97 @@ async def take_turn(
     # T046 (FR-030): wrap the whole turn in a span (campaign_id/account_id only,
     # no PII); turn_span marks ERROR on exception.
     with turn_span(campaign_id, account.account_id) as span:
-        # 1. Read engine state (session-opening read per FR-003)
-        character = None
+        # M-QA-1: record turn_duration in a finally so narrator-failure latency
+        # is captured too — the histogram must not have a blind spot for exactly
+        # the failure cases where latency matters most.
         try:
-            character = await call_engine(toolset, "read_character_sheet", campaign_id=campaign_id)
-        except Exception:
-            pass
+            # 1. Read engine state (session-opening read per FR-003)
+            character = None
+            try:
+                character = await call_engine(toolset, "read_character_sheet", campaign_id=campaign_id)
+            except Exception:
+                pass
 
-        world = await call_engine(toolset, "read_world", campaign_id=campaign_id)
-        summary = await call_engine(toolset, "read_summary", campaign_id=campaign_id)
-        events = await call_engine(toolset, "read_events", campaign_id=campaign_id)
-        recent_events = events[-10:] if events else []
-        events_before = len(events) if events else 0
-        if isinstance(world, dict) and world.get("turn") is not None:
-            span.set_attribute("turn_number", world["turn"])
+            world = await call_engine(toolset, "read_world", campaign_id=campaign_id)
+            summary = await call_engine(toolset, "read_summary", campaign_id=campaign_id)
+            events = await call_engine(toolset, "read_events", campaign_id=campaign_id)
+            recent_events = events[-10:] if events else []
+            events_before = len(events) if events else 0
+            if isinstance(world, dict) and world.get("turn") is not None:
+                span.set_attribute("turn_number", world["turn"])
 
-        ctx = NarratorContext(
-            character=character,
-            world=world,
-            summary=summary,
-            recent_events=recent_events,
-            choice=choice,
-        )
-
-        # 2. Narrator → Scene (narrator calls MCP tools during generation)
-        try:
-            scene: Scene = await narrator.narrate(campaign_id, ctx)
-        except Exception as exc:
-            # Type only, no traceback (ADR-024, FR-031): a narrator exception can
-            # carry the player's raw choice text; keep it out of the server log.
-            logger.error("Narrator failed for campaign %s: %s", campaign_id, type(exc).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},
-            ) from exc
-
-        # 3. Structural validation (belt-and-suspenders; Scene model validates on construction)
-        if not scene.narrative.strip():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"error": {"code": "invalid_scene", "message": "Scene narrative is empty"}},
+            ctx = NarratorContext(
+                character=character,
+                world=world,
+                summary=summary,
+                recent_events=recent_events,
+                choice=choice,
             )
 
-        # 4. Re-read state (narrator may have called tools that changed character/world)
-        try:
-            character = await call_engine(toolset, "read_character_sheet", campaign_id=campaign_id)
-        except Exception:
-            pass
-        try:
-            world = await call_engine(toolset, "read_world", campaign_id=campaign_id)
-        except Exception:
-            pass
+            # 2. Narrator → Scene (narrator calls MCP tools during generation)
+            try:
+                scene: Scene = await narrator.narrate(campaign_id, ctx)
+            except Exception as exc:
+                # Type only, no traceback (ADR-024, FR-031): a narrator exception can
+                # carry the player's raw choice text; keep it out of the server log.
+                logger.error("Narrator failed for campaign %s: %s", campaign_id, type(exc).__name__)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},
+                ) from exc
 
-        # combat_rounds_total (FR-030): combat resolves inside the narrator tool
-        # loop (ADR-029), so count the combat-typed events it registered this turn.
-        try:
-            post_events = await call_engine(toolset, "read_events", campaign_id=campaign_id)
-            rounds = _count_new_combat_events(post_events, events_before)
-            if rounds:
-                metrics.combat_rounds_total.add(rounds, attributes={"campaign_id": campaign_id})
-        except Exception:  # pragma: no cover — metrics must not break a turn
-            pass
+            # 3. Structural validation (belt-and-suspenders; Scene model validates on construction)
+            if not scene.narrative.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"error": {"code": "invalid_scene", "message": "Scene narrative is empty"}},
+                )
 
-        # 5. Check terminal conditions against the post-turn state
-        await _check_terminal_state(campaign_id, character, world, toolset, registry)
+            # 4. Re-read state (narrator may have called tools that changed character/world)
+            # M-QA-2: track re-read failures explicitly — if the narrator killed the
+            # hero via a tool call but the re-read throws, we must still check for
+            # death using the pre-narrator state as a fallback.
+            character_reread_failed = False
+            try:
+                character = await call_engine(toolset, "read_character_sheet", campaign_id=campaign_id)
+            except Exception:
+                character_reread_failed = True
+            try:
+                world = await call_engine(toolset, "read_world", campaign_id=campaign_id)
+            except Exception:
+                pass
 
-        # 6. Store scene and return (status reflects any end-state set in step 5)
-        scene_dict = scene.model_dump()
-        registry.set_scene(campaign_id, scene_dict)
+            # combat_rounds_total (FR-030): combat resolves inside the narrator tool
+            # loop (ADR-029), so count the combat-typed events it registered this turn.
+            try:
+                post_events = await call_engine(toolset, "read_events", campaign_id=campaign_id)
+                rounds = _count_new_combat_events(post_events, events_before)
+                if rounds:
+                    metrics.combat_rounds_total.add(rounds, attributes={"campaign_id": campaign_id})
+            except Exception:  # pragma: no cover — metrics must not break a turn
+                pass
 
-        response = TurnResponse(
-            scene=scene_dict,
-            status=state.status,
-            character=character,
-            world=world,
-        )
+            # 5. Check terminal conditions against the post-turn state
+            await _check_terminal_state(
+                campaign_id, character, world, toolset, registry,
+                re_read_failed=character_reread_failed,
+                pre_narrator_character=ctx.character,
+            )
 
-    metrics.turn_duration.record(
-        time.perf_counter() - started, attributes={"campaign_id": campaign_id}
-    )
+            # 6. Store scene and return (status reflects any end-state set in step 5)
+            scene_dict = scene.model_dump()
+            registry.set_scene(campaign_id, scene_dict)
+
+            response = TurnResponse(
+                scene=scene_dict,
+                status=state.status,
+                character=character,
+                world=world,
+            )
+        finally:
+            metrics.turn_duration.record(
+                time.perf_counter() - started, attributes={"campaign_id": campaign_id}
+            )
     return response
 
 
@@ -396,11 +439,40 @@ async def _check_terminal_state(
     world: dict | None,
     toolset: MCPToolset,
     registry: CampaignRegistry,
+    *,
+    re_read_failed: bool = False,
+    pre_narrator_character: dict | None = None,
 ) -> None:
-    """Archive and end campaign if hero is dead or victory condition is met."""
+    """Archive and end campaign if hero is dead or victory condition is met.
+
+    M-QA-2: if the post-turn ``read_character_sheet`` re-read failed
+    (``re_read_failed=True``), ``character`` is stale/None.  In that case fall
+    back to ``pre_narrator_character`` — the state read *before* the narrator
+    ran.  This is conservative: if the pre-narrator character was alive, we
+    can't confirm death, so we skip the death check (the campaign stays
+    active and the next turn will re-check).  But if the pre-narrator
+    character was *already* dead, we still archive.  The important fix is
+    that a re-read failure no longer causes us to silently skip a death that
+    the narrator caused: if ``pre_narrator_character`` was alive and
+    ``character`` is None due to re-read failure, we retry the read once
+    before giving up.
+    """
     from gamebook_web.observability.tracing import get_metrics
 
-    if character and not character.get("alive", True):
+    # M-QA-2: if the re-read failed, retry once before falling back.
+    effective_character = character
+    if effective_character is None and re_read_failed:
+        try:
+            effective_character = await call_engine(
+                toolset, "read_character_sheet", campaign_id=campaign_id
+            )
+        except Exception:
+            # Final fallback: use the pre-narrator snapshot.  If that was
+            # alive, we can't confirm a narrator-caused death — leave the
+            # campaign active and let the next turn re-check.
+            effective_character = pre_narrator_character
+
+    if effective_character and not effective_character.get("alive", True):
         try:
             await call_engine(toolset, "archive_character", campaign_id=campaign_id, destination="graveyard")
         except Exception as exc:
@@ -435,7 +507,7 @@ async def get_scene(
 # Save
 # ---------------------------------------------------------------------------
 
-@router.post("/me/game/save")
+@router.post("/me/game/save", dependencies=[Depends(require_lease)])
 async def save_game(
     request: Request,
     account: Account = Depends(get_current_account),
