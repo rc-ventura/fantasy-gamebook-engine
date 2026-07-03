@@ -4,8 +4,9 @@ Lifespan:
   1. Setup OpenTelemetry (OTLP if configured, in-memory otherwise).
   2. Install OIDC auth dependency override (unless GAMEBOOK_DEV_MODE=1).
   3. Start the engine MCPToolset (subprocess or in-process via test override).
-  4. Instantiate the narrator (PydanticNarrator if ANTHROPIC_API_KEY is set,
-     else FakeNarrator as a dev fallback).
+  4. Instantiate the narrator (PydanticNarrator if an API key is set for
+     NARRATOR_MODEL's provider — anthropic/openai/openrouter — else
+     FakeNarrator as a dev fallback).
   5. Create a fresh CampaignRegistry.
   6. All are stored in ``app.state``; routes read them via ``Request``.
 
@@ -100,10 +101,28 @@ def _init_app_state(app: FastAPI) -> None:
         _configure_narrator(app)
 
 
+# PydanticAI resolves the model string's ``provider:model`` prefix to a
+# provider class (ADR-011); each provider reads its own API-key env var.
+# OpenRouter has native pydantic-ai support (``openrouter:<model-id>``,
+# distinct from the ``openai`` provider) — see docs/CONTRACTS.md §0b.
+_PROVIDER_KEY_MAP = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _resolve_api_key(model: str) -> str | None:
+    """Return the API key for ``model``'s provider prefix, or None if unset/unknown."""
+    provider = model.split(":", 1)[0]
+    env_var = _PROVIDER_KEY_MAP.get(provider)
+    return os.getenv(env_var) if env_var else None
+
+
 def _configure_narrator(app: FastAPI) -> None:
     """Choose narrator implementation based on environment."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
     model = os.getenv("NARRATOR_MODEL", "anthropic:claude-opus-4-8")
+    api_key = _resolve_api_key(model)
 
     if api_key:
         # Production: use PydanticAI narrator with the active engine toolset
@@ -117,7 +136,10 @@ def _configure_narrator(app: FastAPI) -> None:
         # Dev / test fallback: FakeNarrator (no LLM required)
         from gamebook_web.harness.base import FakeNarrator
         app.state.narrator = FakeNarrator()
-        logger.info("Narrator: FakeNarrator (no ANTHROPIC_API_KEY — dev mode)")
+        logger.info(
+            "Narrator: FakeNarrator (no API key configured for model=%s — dev mode)",
+            model,
+        )
 
 
 # ---------------------------------------------------------------------------
