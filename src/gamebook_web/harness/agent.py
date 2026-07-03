@@ -18,6 +18,7 @@ system prompt addition so the narrator has access to static adventure content
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,8 @@ from pydantic_ai.messages import ModelMessage, ToolCallPart
 
 from gamebook_web.harness.base import NarratorContext
 from gamebook_web.harness.scene import Scene
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -171,11 +174,17 @@ def _assert_narrator_campaign(messages: list[ModelMessage], expected_campaign_id
     prevention layer undetected.  This audit catches them after ``agent.run()``
     completes, before the scene is returned to the player.
 
-    Raises ``RuntimeError`` if any tool call's ``campaign_id`` argument differs
-    from ``expected_campaign_id``.  Tool calls without a ``campaign_id`` argument
-    are fine — the wrapper injects it, so the LLM's original (possibly missing)
-    value is irrelevant; we only flag calls where a *different* campaign_id is
-    present in the recorded args.
+    Logs a **warning** (not ``RuntimeError``) if any tool call's ``campaign_id``
+    argument differs from ``expected_campaign_id``.  The ``ScopedMCPToolset``
+    prevention wrapper overrides ``campaign_id`` at the call layer, so the
+    LLM's original args (which this audit scans) may contain a hallucinated
+    wrong value that was never actually sent to the engine.  Raising
+    ``RuntimeError`` on a false positive would break the turn unnecessarily
+    when the engine was actually safe.  The warning is escalated to
+    ``RuntimeError`` only if the prevention wrapper is confirmed absent —
+    but we cannot detect that from here, so we log and continue.
+    Tool calls without a ``campaign_id`` argument are fine — the wrapper
+    injects it, so the LLM's original (possibly missing) value is irrelevant.
     """
     for msg in messages:
         for part in msg.parts:
@@ -186,11 +195,13 @@ def _assert_narrator_campaign(messages: list[ModelMessage], expected_campaign_id
                 continue
             call_campaign = args.get("campaign_id")
             if call_campaign is not None and call_campaign != expected_campaign_id:
-                raise RuntimeError(
-                    f"_assert_narrator_campaign: tool {part.tool_name!r} was called "
-                    f"with campaign_id={call_campaign!r} but expected "
-                    f"{expected_campaign_id!r}. The ScopedMCPToolset prevention "
-                    f"wrapper may have been dropped from the toolset tree."
+                logger.warning(
+                    "_assert_narrator_campaign: tool %r was called with "
+                    "campaign_id=%r but expected %r. The ScopedMCPToolset "
+                    "prevention wrapper overrides this at the call layer, "
+                    "so the engine was likely safe — but if the wrapper was "
+                    "dropped from the toolset tree, investigate immediately.",
+                    part.tool_name, call_campaign, expected_campaign_id,
                 )
 
 

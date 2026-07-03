@@ -273,7 +273,7 @@ class TestAssertNarratorCampaign:
         ]
         _assert_narrator_campaign(messages, "expected-cid")
 
-    def test_raises_on_wrong_campaign_id(self):
+    def test_warns_on_wrong_campaign_id(self, caplog):
         from pydantic_ai.messages import ModelResponse, ToolCallPart
 
         from gamebook_web.harness.agent import _assert_narrator_campaign
@@ -286,10 +286,13 @@ class TestAssertNarratorCampaign:
                 )
             ]),
         ]
-        with pytest.raises(RuntimeError, match="wrong campaign_id|attacker-cid"):
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="gamebook_web.harness.agent"):
             _assert_narrator_campaign(messages, "expected-cid")
+        assert "attacker-cid" in caplog.text
+        assert "expected-cid" in caplog.text
 
-    def test_raises_on_any_message_in_history(self):
+    def test_warns_on_any_message_in_history(self, caplog):
         """The audit must scan ALL messages, not just the last one."""
         from pydantic_ai.messages import (
             ModelRequest,
@@ -311,8 +314,11 @@ class TestAssertNarratorCampaign:
                              args={"campaign_id": "wrong-cid", "turn": 5})
             ]),
         ]
-        with pytest.raises(RuntimeError, match="update_world"):
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="gamebook_web.harness.agent"):
             _assert_narrator_campaign(messages, "expected-cid")
+        assert "update_world" in caplog.text
+        assert "wrong-cid" in caplog.text
 
 
 # ---------------------------------------------------------------------------

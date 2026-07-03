@@ -1,6 +1,6 @@
 # ADR-022: OIDC JWT/JWKS validation + graceful degradation strategy
 
-**Status**: Accepted | **Date**: 2026-06-28 | **Branch**: `feat/004-auth-obs`
+**Status**: Accepted (amended 2026-07-02 — see "Amendment: PyJWT migration" below) | **Date**: 2026-06-28 | **Branch**: `feat/004-auth-obs`
 
 > Renumbered from slice 004's ADR-017 by spec 006 (ADR-020 numbering policy) — the original numbers collided with ADRs 017-019 on `dev`.
 
@@ -69,3 +69,40 @@ when `GAMEBOOK_DEV_MODE` is unset and `OIDC_JWKS_URI` is configured. Tests conti
 
 - T003 (OIDC auth implementation), T017 (graceful degradation tests)
 - ADR-011 (auth seam established in slice 003)
+
+---
+
+## Amendment: PyJWT migration (2026-07-02)
+
+**Status**: Accepted | **Date**: 2026-07-02 | **Branch**: `feat/006-remediation`
+
+### Context
+
+The original decision chose `python-jose` for JWT validation. By 2026, `python-jose` is in maintenance mode — no active development, and CVE-2024-33664 (algorithm confusion) and CVE-2024-33663 (PJWS/JWS input confusion) were disclosed. The SDD final review (cycle 1) flagged this as a dependency risk.
+
+### Decision
+
+Migrate from `python-jose` to `PyJWT` (`>=2.8.0,<3.0`):
+
+- `import jwt` replaces `from jose import jwt`
+- `jwt.PyJWK` replaces `jose.backends.cryptography_backend.CryptographyRSAKey` for JWKS key construction
+- `jwt.exceptions` replaces `jose.exceptions` for error handling
+- Algorithms explicitly restricted to `["RS256", "ES256"]` — no `none`, no HS256 (prevents algorithm confusion)
+- PyJWT 2.4.0+ includes the fix for CVE-2022-29217 (algorithm confusion)
+
+### Consequences
+
+**Positive**:
+- Actively maintained library with timely CVE patches
+- Simpler API — no separate key construction step (`jwt.PyJWK` handles JWKS directly)
+- Algorithm-confusion hardening via explicit `algorithms=` parameter (required by PyJWT)
+
+**Negative**:
+- `joserfc` (the maintained successor to `python-jose`) is still pulled in transitively via `authlib` ← `fastmcp_slim[client]`, but is not used by application auth code — the app uses PyJWT directly. This expands the dependency tree but does not create a vulnerability.
+
+### What changed in the code
+
+- `pyproject.toml`: `python-jose[cryptography]` → `pyjwt>=2.8.0,<3.0`
+- `src/gamebook_web/auth/oidc_auth.py`: `import jwt` / `from jwt import PyJWK` / `jwt.exceptions.*`
+- Tests: `tests/server/test_oidc_fail_closed.py`, `tests/server/test_auth_degradation.py` updated to use `pyjwt` directly
+- `VALIDATED_TOKEN_TTL` reduced from 300s to 60s (H-03 — revocation gap)

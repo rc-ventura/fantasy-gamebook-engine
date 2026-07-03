@@ -427,9 +427,14 @@ async def take_turn(
                 world=world,
             )
         finally:
-            metrics.turn_duration.record(
-                time.perf_counter() - started, attributes={"campaign_id": campaign_id}
-            )
+            # Metrics must not break a turn (ADR-024) — wrap in try/except so
+            # a metrics backend failure doesn't mask the original exception.
+            try:
+                metrics.turn_duration.record(
+                    time.perf_counter() - started, attributes={"campaign_id": campaign_id}
+                )
+            except Exception:  # pragma: no cover — metrics must never break a turn
+                logger.warning("turn_duration metric failed for campaign %s", campaign_id, exc_info=True)
     return response
 
 

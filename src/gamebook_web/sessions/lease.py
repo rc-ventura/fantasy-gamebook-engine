@@ -60,6 +60,12 @@ def _tokens_match(a: str, b: str) -> bool:
     """Constant-time token comparison (CWE-208 — avoid timing side-channels)."""
     return hmac.compare_digest(a, b)
 
+
+def _accounts_match(a: str, b: str) -> bool:
+    """Constant-time account_id comparison (L-TIMING — avoid timing oracle
+    on whether the supplied account is the current lease holder)."""
+    return hmac.compare_digest(a, b)
+
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
@@ -197,62 +203,147 @@ class LeaseService:
         replayed by a different account — both the token and the holder's
         account must match.
 
+        Uses ``SELECT ... FOR UPDATE`` (ADR-032) so the lease row is locked
+        for the duration of this transaction, preventing a concurrent
+        ``takeover`` from rotating the holder between validate and the
+        protected mutation (TOCTOU).
+
         Raises:
             409 ``not_session_holder`` — token or account mismatch
             409 ``lease_expired`` — token matches but lease has expired
         """
         async with self._session() as session:
-            row = await session.execute(
-                text(
-                    "SELECT lease_token, holder_account_id, expires_at FROM session_lease "
-                    "WHERE campaign_id = :cid"
-                ),
-                {"cid": campaign_id},
-            )
-            result = row.fetchone()
-            if result is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "error": {
-                            "code": "not_session_holder",
-                            "message": "No active session lease for this campaign. Acquire one first.",
-                        }
-                    },
+            async with session.begin():
+                row = await session.execute(
+                    text(
+                        "SELECT lease_token, holder_account_id, expires_at FROM session_lease "
+                        "WHERE campaign_id = :cid FOR UPDATE"
+                    ),
+                    {"cid": campaign_id},
                 )
+                result = row.fetchone()
+                if result is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "not_session_holder",
+                                "message": "No active session lease for this campaign. Acquire one first.",
+                            }
+                        },
+                    )
 
-            db_token, db_holder, db_expires_at = result
-            now = datetime.now(tz=timezone.utc)
+                db_token, db_holder, db_expires_at = result
+                now = datetime.now(tz=timezone.utc)
 
-            # Make expires_at timezone-aware if it isn't
-            if db_expires_at.tzinfo is None:
-                db_expires_at = db_expires_at.replace(tzinfo=timezone.utc)
+                # Make expires_at timezone-aware if it isn't
+                if db_expires_at.tzinfo is None:
+                    db_expires_at = db_expires_at.replace(tzinfo=timezone.utc)
 
-            if db_holder != account_id or not _tokens_match(db_token, lease_token):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "error": {
-                            "code": "not_session_holder",
-                            "message": "You do not hold the session lease for this campaign.",
-                        }
-                    },
-                )
+                # L-TIMING: evaluate both comparisons unconditionally (no
+                # short-circuit) to avoid a timing oracle on account_id.
+                holder_ok = _accounts_match(db_holder, account_id)
+                token_ok = _tokens_match(db_token, lease_token)
+                if not holder_ok or not token_ok:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "not_session_holder",
+                                "message": "You do not hold the session lease for this campaign.",
+                            }
+                        },
+                    )
 
-            if db_expires_at <= now:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "error": {
-                            "code": "lease_expired",
-                            "message": "Your session lease has expired. Acquire a new one.",
-                        }
-                    },
-                )
+                if db_expires_at <= now:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "lease_expired",
+                                "message": "Your session lease has expired. Acquire a new one.",
+                            }
+                        },
+                    )
 
     # ------------------------------------------------------------------
     # renew
     # ------------------------------------------------------------------
+
+    async def validate_and_renew(
+        self, campaign_id: str, account_id: str, lease_token: str
+    ) -> None:
+        """Atomically validate the lease AND renew its TTL in one transaction.
+
+        This closes the TOCTOU window (ADR-032): ``require_lease`` previously
+        called ``validate()`` and ``renew()`` in separate transactions.  A
+        concurrent ``takeover`` could rotate the holder between the two,
+        causing the mutation to proceed under an invalidated lease.  By
+        combining both operations under a single ``FOR UPDATE`` lock, the
+        lease row cannot change between validation and renewal.
+
+        Raises the same 409 errors as ``validate()``.
+        """
+        async with self._session() as session:
+            async with session.begin():
+                row = await session.execute(
+                    text(
+                        "SELECT lease_token, holder_account_id, expires_at FROM session_lease "
+                        "WHERE campaign_id = :cid FOR UPDATE"
+                    ),
+                    {"cid": campaign_id},
+                )
+                result = row.fetchone()
+                if result is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "not_session_holder",
+                                "message": "No active session lease for this campaign. Acquire one first.",
+                            }
+                        },
+                    )
+
+                db_token, db_holder, db_expires_at = result
+                now = datetime.now(tz=timezone.utc)
+                if db_expires_at.tzinfo is None:
+                    db_expires_at = db_expires_at.replace(tzinfo=timezone.utc)
+
+                # L-TIMING: evaluate both unconditionally.
+                holder_ok = _accounts_match(db_holder, account_id)
+                token_ok = _tokens_match(db_token, lease_token)
+                if not holder_ok or not token_ok:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "not_session_holder",
+                                "message": "You do not hold the session lease for this campaign.",
+                            }
+                        },
+                    )
+
+                if db_expires_at <= now:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "lease_expired",
+                                "message": "Your session lease has expired. Acquire a new one.",
+                            }
+                        },
+                    )
+
+                # Renew TTL within the same locked transaction.
+                new_expires = self._new_expiry()
+                await session.execute(
+                    text(
+                        "UPDATE session_lease SET expires_at = :expires "
+                        "WHERE campaign_id = :cid"
+                    ),
+                    {"expires": new_expires, "cid": campaign_id},
+                )
 
     async def renew(self, campaign_id: str, lease_token: str) -> dict[str, Any]:
         """Extend the TTL of an unexpired lease matching ``lease_token``.
@@ -316,7 +407,10 @@ class LeaseService:
                 if result is None:
                     return  # nothing to release
                 db_token, db_holder = result
-                if db_holder != account_id or not _tokens_match(db_token, lease_token):
+                # L-TIMING: evaluate both unconditionally.
+                holder_ok = _accounts_match(db_holder, account_id)
+                token_ok = _tokens_match(db_token, lease_token)
+                if not holder_ok or not token_ok:
                     return  # not the holder — no-op
                 await session.execute(
                     text("DELETE FROM session_lease WHERE campaign_id = :cid"),
@@ -525,18 +619,22 @@ async def require_lease(
         )
 
     try:
-        await lease_svc.validate(campaign_id, account.account_id, x_session_lease)
+        # ADR-032: validate + renew atomically in a single FOR UPDATE
+        # transaction to close the TOCTOU window.  HTTPException from
+        # validate_and_renew (not_session_holder / lease_expired) MUST
+        # propagate — swallowing it would let a taken-over lease proceed.
+        await lease_svc.validate_and_renew(campaign_id, account.account_id, x_session_lease)
     except HTTPException:
         audit_event(
             "lease.denied", level=logging.WARNING, campaign_id=campaign_id, reason="validate_failed"
         )
         raise
-
-    # Renew on success — best effort, must never break the request it guards.
-    try:
-        await lease_svc.renew(campaign_id, x_session_lease)
     except Exception:
-        pass
+        # Non-HTTP exceptions (DB connectivity, etc.) are non-fatal — the
+        # request proceeds without lease renewal rather than failing hard
+        # on an infrastructure blip.  This is intentionally narrower than
+        # the previous ``except Exception: pass`` which also swallowed 409s.
+        logger.warning("lease validate_and_renew error for campaign %s", campaign_id, exc_info=True)
 
 
 # FastAPI dependency marker for routes: ``Depends(require_lease)``.

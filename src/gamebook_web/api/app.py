@@ -71,7 +71,7 @@ def _check_production_dev_mode_clash() -> None:
     """
     env = os.getenv("ENV", "")
     dev_mode = os.getenv("GAMEBOOK_DEV_MODE", "0")
-    if env == "production" and dev_mode in ("1", "true", "True"):
+    if env.lower() == "production" and dev_mode in ("1", "true", "True"):
         raise RuntimeError(
             "Refusing to start: ENV=production but GAMEBOOK_DEV_MODE is enabled. "
             "Unset GAMEBOOK_DEV_MODE before deploying to production."
@@ -158,7 +158,7 @@ def _configure_narrator(app: FastAPI) -> None:
 # App
 # ---------------------------------------------------------------------------
 
-_is_production = os.getenv("ENV") == "production"
+_is_production = os.getenv("ENV", "").lower() == "production"
 
 app = FastAPI(
     title="Gamebook Web API",
