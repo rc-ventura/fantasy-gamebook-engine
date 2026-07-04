@@ -1,21 +1,14 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: (template/unratified) → 1.0.0
-Bump rationale: Initial ratification — first concrete constitution replacing the
-  unfilled template placeholders.
+Version change: 1.0.0 → 1.1.0
+Bump rationale: Add reference to Pydantic AI best practices as development guidance
+  for the narrator harness (ADR-011). New referenced document, no principle change.
 
-Modified principles: none (initial adoption)
-Added principles:
-  - I. Numbers Never in Prose (NON-NEGOTIABLE)
-  - II. Dependency on Interfaces Only (The Golden Rule)
-  - III. CONTRACTS.md is the Single Source of Truth
-  - IV. Determinism and Isolated Testing
-  - V. Domain Invariants and Atomic Persistence
-Added sections:
-  - Additional Constraints
-  - Development Workflow
-  - Governance
+Modified principles: none
+Added principles: none
+Added sections: none (added reference to docs/pydantic-ai-best-practices.md in
+  Additional Constraints)
 
 Templates reviewed for consistency:
   - .specify/templates/plan-template.md ✅ no change (Constitution Check gate already
@@ -102,6 +95,11 @@ lost campaign — atomicity is non-negotiable.
 - **MCP transport**: the MCP server uses the FastMCP high-level API over stdio.
 - **Decision records**: technical decisions are recorded as ADRs (`docs/adrs/`) and
   Learning Lessons (`docs/learning-lessons/`), and indexed in `CLAUDE.md`.
+- **Narrator harness guidance**: Pydantic AI best practices for the narrator harness
+  (ADR-011) are documented in `docs/pydantic-ai-best-practices.md`. The harness
+  implementation SHOULD follow these patterns where they do not conflict with the
+  core principles. Where a best practice conflicts with a principle, the principle
+  wins (per the Governance section).
 
 ## Development Workflow
 
@@ -134,4 +132,4 @@ document. Amendments that change engine contracts MUST also update `docs/CONTRAC
 compliance gates; the SDD review pipeline is the human/agent compliance gate. Runtime
 development guidance lives in `CLAUDE.md` and `docs/CONTRACTS.md`.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-26 | **Last Amended**: 2026-06-26
+**Version**: 1.1.0 | **Ratified**: 2026-06-26 | **Last Amended**: 2026-07-01

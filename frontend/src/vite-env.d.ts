@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_DEV_TOKEN?: string
   /** When 'true', all API calls use the deterministic mock handlers. */
   readonly VITE_USE_MOCK?: string
+  /** When 'true', the SPA acquires/releases the play-session lease (slice 004). Default off. */
+  readonly VITE_SESSION_LEASE?: string
 }
 
 interface ImportMeta {

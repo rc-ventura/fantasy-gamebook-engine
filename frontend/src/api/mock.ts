@@ -10,13 +10,19 @@
  * The mock honours the core invariant: every number comes from a "mock engine" —
  * no value is fabricated at render time, all values are pre-computed here and
  * returned as API responses exactly as the real backend would.
+ *
+ * Field names match backend-canonical shape (ADR-017 backend wins, spec 006 D1):
+ *   WorldState: current_location, visited_locations (not location/visited)
+ *   Routes: /me/game/... (no campaign_id in URL)
  */
 
+import { ApiError } from '../types'
 import type {
   Account,
   CampaignState,
-  CampaignSummary,
   CharacterSheet,
+  CreateGameResponse,
+  GraveyardEntry,
   Scene,
   SessionLease,
   TurnResponse,
@@ -47,6 +53,20 @@ function setMockStage(stage: MockStage): void {
   sessionStorage.setItem('mock_stage', stage)
 }
 
+// ── Mock graveyard state ──────────────────────────────────────────────────────
+
+function getMockGraveyard(): GraveyardEntry[] {
+  const raw = sessionStorage.getItem('mock_graveyard')
+  if (!raw) return []
+  try { return JSON.parse(raw) as GraveyardEntry[] } catch { return [] }
+}
+
+function addToGraveyard(entry: GraveyardEntry): void {
+  const g = getMockGraveyard()
+  g.push(entry)
+  sessionStorage.setItem('mock_graveyard', JSON.stringify(g))
+}
+
 // ── Mock data fixtures ────────────────────────────────────────────────────────
 
 const MOCK_ACCOUNT: Account = {
@@ -54,7 +74,6 @@ const MOCK_ACCOUNT: Account = {
   email: 'adventurer@grimoire.local',
 }
 
-/** Character sheet with engine-realistic attribute values. */
 function makeMockCharacter(alive = true): CharacterSheet {
   return {
     name: 'Aldric the Bold',
@@ -74,20 +93,20 @@ function makeMockCharacter(alive = true): CharacterSheet {
 }
 
 const MOCK_WORLD_OPENING: WorldState = {
-  location: 'village_of_stonebrook',
-  visited: ['village_of_stonebrook'],
+  current_location: 'village_of_stonebrook',
+  visited_locations: ['village_of_stonebrook'],
   flags: {},
 }
 
 const MOCK_WORLD_EXPLORING: WorldState = {
-  location: 'grey_mountain_foothills',
-  visited: ['village_of_stonebrook', 'grey_mountain_foothills'],
+  current_location: 'grey_mountain_foothills',
+  visited_locations: ['village_of_stonebrook', 'grey_mountain_foothills'],
   flags: { quest_accepted: true },
 }
 
 const MOCK_WORLD_COMBAT: WorldState = {
-  location: 'grey_mountain_pass',
-  visited: ['village_of_stonebrook', 'grey_mountain_foothills', 'grey_mountain_pass'],
+  current_location: 'grey_mountain_pass',
+  visited_locations: ['village_of_stonebrook', 'grey_mountain_foothills', 'grey_mountain_pass'],
   flags: { quest_accepted: true },
 }
 
@@ -151,14 +170,12 @@ function buildCampaignState(stage: MockStage): CampaignState {
   switch (stage) {
     case 'no_character':
       return {
-        id: MOCK_CAMPAIGN_ID,
         status: 'active',
         world: MOCK_WORLD_OPENING,
       }
 
     case 'opening':
       return {
-        id: MOCK_CAMPAIGN_ID,
         status: 'active',
         character: makeMockCharacter(),
         world: MOCK_WORLD_OPENING,
@@ -167,7 +184,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
 
     case 'exploring':
       return {
-        id: MOCK_CAMPAIGN_ID,
         status: 'active',
         character: { ...makeMockCharacter(), luck: { initial: 9, current: 8 } },
         world: MOCK_WORLD_EXPLORING,
@@ -181,7 +197,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
         luck: { initial: 9, current: 7 },
       }
       return {
-        id: MOCK_CAMPAIGN_ID,
         status: 'active',
         character: char,
         world: MOCK_WORLD_COMBAT,
@@ -191,7 +206,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
 
     case 'ended':
       return {
-        id: MOCK_CAMPAIGN_ID,
         status: 'ended',
         character: { ...makeMockCharacter(false), stamina: { initial: 20, current: 0 } },
         world: MOCK_WORLD_COMBAT,
@@ -202,7 +216,6 @@ function buildCampaignState(stage: MockStage): CampaignState {
 
 // ── Mock handlers (public API) ────────────────────────────────────────────────
 
-/** Simulate network latency for realistic UX testing. */
 function delay(ms = 600): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -213,39 +226,43 @@ export const mockApi = {
     return MOCK_ACCOUNT
   },
 
-  async listCampaigns(): Promise<CampaignSummary[]> {
-    await delay(300)
-    return [
-      {
-        id: MOCK_CAMPAIGN_ID,
-        status: getMockStage() === 'ended' ? 'ended' : 'active',
-        created_at: '2026-06-27T10:00:00Z',
-        updated_at: new Date().toISOString(),
-      },
-    ]
-  },
-
-  async createCampaign(): Promise<CampaignSummary> {
+  async createGame(_name?: string): Promise<CreateGameResponse> {
     await delay(400)
     setMockStage('no_character')
     return {
-      id: MOCK_CAMPAIGN_ID,
+      campaign_id: MOCK_CAMPAIGN_ID,
       status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     }
   },
 
-  async getCampaign(_id: string): Promise<CampaignState> {
+  async getGame(): Promise<CampaignState> {
     await delay(400)
     const stage = getMockStage()
+    if (stage === 'ended') {
+      throw new ApiError(404, 'no_active_campaign', 'No active game')
+    }
     return buildCampaignState(stage)
   },
 
-  async createCharacter(_id: string, name?: string): Promise<CharacterSheet> {
+  async deleteGame(): Promise<void> {
+    await delay(300)
+    const stage = getMockStage()
+    if (stage !== 'ended') {
+      addToGraveyard({
+        campaign_id: MOCK_CAMPAIGN_ID,
+        status: 'ended',
+        name: null,
+        created_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        ended_reason: null,
+      })
+    }
+    sessionStorage.removeItem('mock_stage')
+  },
+
+  async createCharacter(name?: string): Promise<CharacterSheet> {
     await delay(600)
     setMockStage('opening')
-    // Simulate engine dice rolls: SKILL 1d6+6, STAMINA 2d6+12, LUCK 1d6+6
     const d6 = () => Math.floor(Math.random() * 6) + 1
     const skill = d6() + 6
     const stamina = d6() + d6() + 12
@@ -260,19 +277,21 @@ export const mockApi = {
     }
   },
 
-  async getScene(_id: string): Promise<Scene> {
+  async getScene(): Promise<Scene | null> {
     await delay(300)
     const stage = getMockStage()
     const campaign = buildCampaignState(stage)
-    return campaign.current_scene ?? OPENING_SCENE
+    return campaign.current_scene ?? null
   },
 
-  async takeTurn(_id: string, choiceId: string | undefined, _freeText: string | undefined): Promise<TurnResponse> {
+  async takeTurn(choice?: string | number | null): Promise<TurnResponse> {
     await delay(800)
     const stage = getMockStage()
 
     let nextStage: MockStage = stage
     let scene: Scene
+
+    const choiceId = choice != null ? String(choice) : undefined
 
     if (stage === 'opening') {
       if (choiceId === '3') {
@@ -286,15 +305,9 @@ export const mockApi = {
         scene = EXPLORING_SCENE
       }
     } else if (stage === 'exploring') {
-      if (choiceId === '3') {
-        nextStage = 'in_combat'
-        scene = COMBAT_SCENE
-      } else {
-        nextStage = 'in_combat'
-        scene = COMBAT_SCENE
-      }
+      nextStage = 'in_combat'
+      scene = COMBAT_SCENE
     } else if (stage === 'in_combat') {
-      // After combat, go to victory or ended based on stamina
       nextStage = 'exploring'
       scene = VICTORY_SCENE
     } else {
@@ -303,12 +316,11 @@ export const mockApi = {
 
     setMockStage(nextStage)
     const campaign = buildCampaignState(nextStage)
-    campaign.current_scene = scene
 
     return { scene, status: campaign.status, character: campaign.character, world: campaign.world }
   },
 
-  async acquireSession(_id: string): Promise<SessionLease> {
+  async acquireSession(): Promise<SessionLease> {
     await delay(200)
     return {
       session_token: 'mock-session-token-' + Date.now().toString(),
@@ -316,7 +328,7 @@ export const mockApi = {
     }
   },
 
-  async takeoverSession(_id: string): Promise<SessionLease> {
+  async takeoverSession(): Promise<SessionLease> {
     await delay(300)
     return {
       session_token: 'mock-session-token-takeover-' + Date.now().toString(),
@@ -324,16 +336,16 @@ export const mockApi = {
     }
   },
 
-  async releaseSession(_id: string): Promise<void> {
+  async releaseSession(): Promise<void> {
     await delay(100)
   },
 
-  async saveCampaign(_id: string): Promise<void> {
+  async saveGame(): Promise<void> {
     await delay(300)
   },
 
-  async deleteCampaign(_id: string): Promise<void> {
+  async getGraveyard(): Promise<GraveyardEntry[]> {
     await delay(300)
-    sessionStorage.removeItem('mock_stage')
+    return getMockGraveyard()
   },
 }

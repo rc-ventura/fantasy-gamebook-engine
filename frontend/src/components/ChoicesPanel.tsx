@@ -180,6 +180,7 @@ export default function ChoicesPanel({
           value={freeText}
           onChange={(e) => setFreeText(e.target.value)}
           disabled={disabled}
+          maxLength={1000}
           placeholder={
             actionPending ? 'Awaiting the narrator…' : 'Or speak freely…'
           }

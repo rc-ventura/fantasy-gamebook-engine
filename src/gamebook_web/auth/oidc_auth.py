@@ -13,8 +13,18 @@ GAMEBOOK_DEV_MODE — if "1", fall back to dev stub (testing convenience)
 Graceful degradation (T017)
 ---------------------------
 If the JWKS endpoint is unreachable, new sign-ins receive ``503 auth_unavailable``.
-Tokens already validated within the last ``VALIDATED_TOKEN_TTL`` seconds continue
-to be accepted from an in-memory cache keyed on (signature-hash, exp).
+Tokens already validated within the last ``VALIDATED_TOKEN_TTL`` seconds (60s, H-03)
+continue to be accepted from an in-memory cache keyed on (signature-hash, exp).
+
+Revocation gap (H-03, ADR-022 amendment): a revoked token remains valid for up to
+``VALIDATED_TOKEN_TTL`` (60s) after revocation, and during a JWKS outage all
+previously-validated tokens continue to work for the same window.  The 60s TTL
+(reduced from 300s) limits the worst-case window.  The ``exp`` used for cache TTL
+lookup comes from ``jwt.get_unverified_claims`` (read before signature
+verification), but the full SHA-256 token hash prevents forging a cache hit with
+a modified token.  This is an accepted trade-off: strict revocation would require
+an online revocation list (CRL/introspection) per request, adding latency and a
+new failure mode.
 
 JWKS key cache TTL: 5 minutes (refreshed on 404 key-id to handle key rotation).
 """
@@ -31,9 +41,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import jwt
 from fastapi import Header, HTTPException, status
-from jose import JWTError, jwk, jwt
-from jose.exceptions import ExpiredSignatureError
+from jwt import ExpiredSignatureError, PyJWTError
+from jwt import PyJWK
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +88,7 @@ def _get_cache_lock() -> asyncio.Lock:
 # Key: (token-signature-hash, exp), Value: account_id.  An OrderedDict gives
 # us O(1) LRU eviction so the cache cannot grow without bound (CWE-400).
 _VALIDATED_TOKEN_CACHE: OrderedDict[tuple[str, int], str] = OrderedDict()
-VALIDATED_TOKEN_TTL = 300  # seconds; allows tokens to ride through a short OIDC outage
+VALIDATED_TOKEN_TTL = 60  # seconds (H-03); reduced from 300 to limit revocation gap
 # Hard cap on cached tokens — bounds memory under a token-flood / re-auth storm.
 _VALIDATED_TOKEN_CACHE_MAX = 10_000
 
@@ -150,8 +161,13 @@ async def _fetch_jwks(jwks_uri: str, force_refresh: bool = False) -> dict[str, A
         return _JWKS_CACHE
 
 
-async def _get_signing_key(jwks_uri: str, kid: str | None) -> Any:
-    """Return the signing key matching ``kid`` (or the first key if no kid)."""
+async def _get_signing_key(jwks_uri: str, kid: str) -> Any:
+    """Return the signing key whose ``kid`` matches the token header.
+
+    T034 (FR-020): there is NO fallback to an arbitrary key.  A token whose
+    ``kid`` has no match in the (freshly refreshed) key set is rejected ``401``,
+    so an attacker cannot get a token signed by any unrelated key accepted.
+    """
     jwks = await _fetch_jwks(jwks_uri)
     keys = jwks.get("keys", [])
     if not keys:
@@ -160,18 +176,16 @@ async def _get_signing_key(jwks_uri: str, kid: str | None) -> Any:
             detail={"error": {"code": "auth_unavailable", "message": "OIDC key set is empty"}},
         )
 
-    if kid is not None:
+    matched = [k for k in keys if k.get("kid") == kid]
+    if not matched:
+        # Key might have been rotated — force refresh once, then re-match.
+        jwks = await _fetch_jwks(jwks_uri, force_refresh=True)
+        keys = jwks.get("keys", [])
         matched = [k for k in keys if k.get("kid") == kid]
-        if not matched:
-            # Key might have been rotated — force refresh once
-            jwks = await _fetch_jwks(jwks_uri, force_refresh=True)
-            keys = jwks.get("keys", [])
-            matched = [k for k in keys if k.get("kid") == kid]
-        if matched:
-            return jwk.construct(matched[0])
+    if not matched:
+        _unauthenticated(f"No signing key matches token 'kid'={kid}")
 
-    # Fall back to first key
-    return jwk.construct(keys[0])
+    return PyJWK(matched[0]).key
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +228,17 @@ async def get_current_account(
     if not jwks_uri:
         _unauthenticated("OIDC_JWKS_URI not configured — set GAMEBOOK_DEV_MODE=1 for local dev")
 
+    # T032 (FR-019): OIDC_ISSUER is mandatory when OIDC is active — 'iss' is
+    # always verified (no empty-string default that silently disables the check).
+    # Startup (app._install_auth_override) also enforces this; guard here in case
+    # the dependency is exercised directly.
+    if not issuer:
+        logger.error("OIDC_ISSUER not configured while OIDC auth is active")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"code": "auth_unavailable", "message": "Authentication misconfigured"}},
+        )
+
     if authorization is None:
         _unauthenticated("Missing Authorization header")
 
@@ -226,11 +251,26 @@ async def get_current_account(
     try:
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
-        # Also get exp from unverified claims for cache lookup
-        unverified_claims = jwt.get_unverified_claims(token)
-        exp = int(unverified_claims.get("exp", 0))
-    except (JWTError, ValueError, TypeError) as exc:
+        # Also get exp from unverified claims for cache lookup.
+        # PyJWT doesn't have get_unverified_claims; decode without signature
+        # verification to read the claims (safe: we only use exp for cache keying,
+        # and the full SHA-256 token hash prevents forging a cache hit).
+        unverified_claims = jwt.decode(
+            token, options={"verify_signature": False}
+        )
+    except (PyJWTError, ValueError, TypeError) as exc:
         _unauthenticated(f"Malformed token: {exc}")
+
+    # T034 (FR-020): a token without a 'kid' cannot be matched to a specific
+    # JWKS key.  Reject it rather than falling back to an arbitrary signing key.
+    if not kid:
+        _unauthenticated("Token header missing 'kid'")
+
+    # T033 (FR-019): 'exp' is mandatory.  A token with no expiry never expires,
+    # so reject it before validation (PyJWT 'require': ['exp'] enforces this too).
+    if "exp" not in unverified_claims:
+        _unauthenticated("Token missing 'exp' claim")
+    exp = int(unverified_claims.get("exp", 0))
 
     # Check validated-token cache (graceful degradation)
     async with _get_cache_lock():
@@ -242,7 +282,10 @@ async def get_current_account(
     try:
         signing_key = await _get_signing_key(jwks_uri, kid)
     except httpx.RequestError as exc:
-        logger.warning("OIDC JWKS fetch failed — provider unreachable: %s", exc)
+        from gamebook_web.observability.audit import audit_event
+
+        logger.warning("OIDC JWKS fetch failed — provider unreachable: %s", type(exc).__name__)
+        audit_event("auth.jwks_unavailable", level=logging.WARNING)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": {"code": "auth_unavailable", "message": "Authentication service temporarily unavailable"}},
@@ -256,20 +299,26 @@ async def get_current_account(
             detail={"error": {"code": "auth_unavailable", "message": "Authentication service temporarily unavailable"}},
         )
 
-    # Validate JWT
+    # Validate JWT.  'iss' and 'exp' are always verified and required; 'aud' is
+    # verified whenever an audience is configured (default "gamebook").
     try:
-        options = {"verify_aud": bool(audience), "verify_iss": bool(issuer)}
+        options = {
+            "verify_aud": bool(audience),
+            "verify_iss": True,
+            "verify_exp": True,
+            "require": ["exp"],
+        }
         claims = jwt.decode(
             token,
             signing_key,
             algorithms=["RS256", "ES256"],
             audience=audience if audience else None,
-            issuer=issuer if issuer else None,
+            issuer=issuer,
             options=options,
         )
     except ExpiredSignatureError:
         _unauthenticated("Token has expired")
-    except JWTError as exc:
+    except PyJWTError as exc:
         _unauthenticated(f"Token validation failed: {exc}")
 
     sub: str = claims.get("sub", "")
@@ -280,7 +329,9 @@ async def get_current_account(
     try:
         account = await _resolve_account(sub)
     except Exception as exc:
-        logger.exception("Account resolution failed for sub=%s: %s", sub, exc)
+        # No PII / traceback in logs (FR-031): 'sub' is an account identifier and
+        # the exception message may echo it — log only the exception type.
+        logger.error("Account resolution failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": {"code": "internal_error", "message": "Account resolution failed"}},
@@ -290,10 +341,16 @@ async def get_current_account(
     async with _get_cache_lock():
         _cache_validated_token(token, exp, account.account_id)
 
+    from gamebook_web.observability.audit import audit_event
+
+    audit_event("auth.signin", account_id=account.account_id)
     return account
 
 
 def _unauthenticated(message: str) -> None:
+    from gamebook_web.observability.audit import audit_event
+
+    audit_event("auth.failed", level=logging.WARNING, reason=message.replace(" ", "_")[:60])
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": {"code": "unauthenticated", "message": message}},

@@ -4,21 +4,26 @@
  * ALL values displayed in the UI must come from these API types.
  * The frontend NEVER invents, rolls, or fabricates any stat or number.
  *
+ * Field names match the backend (ADR-017 — backend wins):
+ *   WorldState: current_location, visited_locations (not location/visited)
+ *   TurnRequest: choice (not choice_id/free_text)
+ *   CampaignState: no id field — routes are /me/game/... (D1, spec 006)
+ *
  * Contracts:
  *   docs/CONTRACTS.md §10 (Scene — updated spec 007, ADR-029)
- *   specs/001-web-platform-migration/data-model.md §A
+ *   specs/006-cycle1-remediation/contracts/http-api.md
  */
 
 // ── Scene (narrator structured output, CONTRACTS.md §10) ────────────────────
-// Updated spec 007 (ADR-029): narrator calls MCP tools directly during
-// generation. Scene carries only prose and choices — no deferred effects.
+// spec 007 (ADR-029): narrator calls MCP tools directly during generation.
+// Scene carries only prose and choices — no deferred effects.
 
 export interface Choice {
   id: string
   label: string
 }
 
-/** The structured unit the narrator produces for one turn.
+/** Structured unit the narrator produces for one turn.
  *  narrative + choices only — no effects field (spec 007, ADR-029).
  *  terminal=true on death/victory scenes (choices will be empty).
  */
@@ -54,29 +59,50 @@ export interface CharacterSheet {
   alive: boolean
 }
 
+/** Backend-canonical field names (ADR-017 backend wins, spec 006 D1). */
 export interface WorldState {
-  location: string
-  visited: string[]
+  current_location: string
+  visited_locations: string[]
   flags: Record<string, boolean | string | number>
+  known_npcs?: unknown[]
+  turn?: number
 }
 
-// ── Campaign (web-layer entity) ──────────────────────────────────────────────
+// ── Game (web-layer entity, D1 backend-scoped routes) ───────────────────────
 
 export type CampaignStatus = 'active' | 'ended'
 
-export interface CampaignSummary {
-  id: string
-  status: CampaignStatus
-  created_at: string
-  updated_at: string
-}
-
+/** Full game state from GET /me/game. No campaign_id — the frontend never
+ *  manages campaign_id; the backend resolves it from the authenticated account
+ *  (spec 006, D1, ADR-017).
+ */
 export interface CampaignState {
-  id: string
   status: CampaignStatus
+  name?: string | null
   character?: CharacterSheet
   world?: WorldState
   current_scene?: Scene
+  summary?: string
+  events?: unknown[]
+}
+
+/** Response from POST /me/game. campaign_id is returned for debug/reference;
+ *  the SPA does not store or route using it.
+ */
+export interface CreateGameResponse {
+  status: string
+  campaign_id: string
+  name?: string | null
+}
+
+/** Entry in GET /me/graveyard (ended campaign tombstone). */
+export interface GraveyardEntry {
+  campaign_id: string
+  status: 'ended'
+  name: string | null
+  created_at: string | null
+  ended_at: string | null
+  ended_reason: 'death' | 'victory' | null
 }
 
 // ── Account / Identity ───────────────────────────────────────────────────────
@@ -86,7 +112,7 @@ export interface Account {
   email?: string
 }
 
-// ── Session lease (FR-025) ────────────────────────────────────────────────────
+// ── Session lease (placeholder — real impl in slice 004) ─────────────────────
 
 export interface SessionLease {
   session_token: string
@@ -106,6 +132,7 @@ export type ApiErrorCode =
   | 'unauthenticated'
   | 'forbidden'
   | 'not_found'
+  | 'no_active_campaign'
   | 'not_session_holder'
   | 'run_ended'
   | 'invalid_scene'
@@ -124,13 +151,11 @@ export class ApiError extends Error {
   }
 }
 
-// ── Turn request ─────────────────────────────────────────────────────────────
+// ── Turn request / response ───────────────────────────────────────────────────
 
+/** Player input — choice ID or free-text; backend field is `choice` (ADR-017). */
 export interface TurnRequest {
-  /** Choice ID from the current scene's choices array. Mutually exclusive with free_text. */
-  choice_id?: string
-  /** Free-text input from the player. Mutually exclusive with choice_id. */
-  free_text?: string
+  choice?: string | number | null
 }
 
 export interface TurnResponse {
@@ -139,4 +164,3 @@ export interface TurnResponse {
   character?: CharacterSheet
   world?: WorldState
 }
-

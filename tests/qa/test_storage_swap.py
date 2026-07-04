@@ -20,7 +20,9 @@ random ``combat_id`` differs between runs, so it is excluded from comparison.
 from __future__ import annotations
 
 import copy
+import os
 import random
+import uuid
 from typing import Any, Literal
 
 import pytest
@@ -40,6 +42,22 @@ from gamebook.storage.interfaces import StorageBackend
 from gamebook.storage.json_storage import JSONStorage
 
 SEED = 1234
+
+# PostgresStorage joins the swap matrix when a live database is available
+# (006 T077 / ADR-009, FR-042, SC-023). Skipped otherwise.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+BACKENDS = [
+    "memory",
+    "json",
+    "mock",
+    pytest.param(
+        "postgres",
+        marks=pytest.mark.skipif(
+            not DATABASE_URL, reason="DATABASE_URL not set — PostgresStorage swap leg skipped"
+        ),
+    ),
+]
 
 
 # --------------------------------------------------------------------------- a third backend
@@ -121,7 +139,26 @@ def _make_backend(kind: str, tmp_path) -> StorageBackend:
         return JSONStorage(str(tmp_path / "estado"))
     if kind == "mock":
         return MockStorage()
+    if kind == "postgres":
+        from gamebook.storage.postgres import PostgresStorage
+
+        # Fresh campaign per run so tests never see each other's rows.
+        return PostgresStorage(DATABASE_URL, str(uuid.uuid4()))
     raise AssertionError(kind)
+
+
+def _close_backend(storage: StorageBackend) -> None:
+    """Deterministic lifecycle (ADR-027): PostgresStorage needs close()."""
+    close = getattr(storage, "close", None)
+    if callable(close):
+        close()
+
+
+@pytest.fixture(params=BACKENDS)
+def swap_backend(request: pytest.FixtureRequest, tmp_path) -> Any:
+    storage = _make_backend(request.param, tmp_path)
+    yield storage
+    _close_backend(storage)
 
 
 def _hero() -> CharacterSheet:
@@ -178,13 +215,26 @@ def _run_full_fight(storage: StorageBackend) -> dict[str, Any]:
 
 
 def test_combat_behaviour_is_identical_across_storage_backends(tmp_path) -> None:
-    """Driving the same fight through three backends yields identical results."""
+    """Driving the same fight through every backend yields identical results.
+
+    When ``DATABASE_URL`` is set, ``PostgresStorage`` joins the comparison —
+    proving swap boundary #1 for the production backend through the same
+    consumer (T077 / ADR-009).
+    """
     memory = _run_full_fight(_make_backend("memory", tmp_path))
     json_ = _run_full_fight(_make_backend("json", tmp_path))
     mock = _run_full_fight(_make_backend("mock", tmp_path))
 
     assert memory == json_, "InMemoryStorage and JSONStorage diverged (boundary #1 broken)"
     assert memory == mock, "An independent MockStorage diverged (engine coupled to a concrete impl)"
+
+    if DATABASE_URL:
+        pg = _make_backend("postgres", tmp_path)
+        try:
+            postgres = _run_full_fight(pg)
+        finally:
+            _close_backend(pg)
+        assert memory == postgres, "PostgresStorage diverged (boundary #1 broken for the prod backend)"
 
     # The fight actually did something meaningful (guards against a vacuous pass).
     assert memory["rounds"], "no rounds were resolved"
@@ -197,10 +247,9 @@ def test_mock_storage_satisfies_the_storage_backend_protocol() -> None:
     assert isinstance(MockStorage(), StorageBackend)
 
 
-@pytest.mark.parametrize("kind", ["memory", "json", "mock"])
-def test_flee_behaviour_is_identical_across_backends(kind: str, tmp_path) -> None:
+def test_flee_behaviour_is_identical_across_backends(swap_backend) -> None:
     """Fleeing costs exactly 2 stamina and ends the fight on every backend."""
-    storage = _make_backend(kind, tmp_path)
+    storage = swap_backend
     storage.save_character(_hero())
     engine = CombatService(storage, random.Random(SEED))
 
@@ -214,14 +263,13 @@ def test_flee_behaviour_is_identical_across_backends(kind: str, tmp_path) -> Non
 
 
 # --------------------------------------------------------------------------- flee-death signal (C2)
-@pytest.mark.parametrize("kind", ["memory", "json", "mock"])
-def test_safe_flee_signal_identical_across_backends(kind: str, tmp_path) -> None:
+def test_safe_flee_signal_identical_across_backends(swap_backend) -> None:
     """A survivable escape reports `hero_alive=True`; end_combat has no winner.
 
     Same observable signal on every backend (boundary #1) — proving the new
     FleeResult.hero_alive / end_combat semantics don't depend on the impl.
     """
-    storage = _make_backend(kind, tmp_path)
+    storage = swap_backend
     storage.save_character(_hero())  # stamina 24, the 2 flee-damage is harmless
     engine = CombatService(storage, random.Random(SEED))
 
@@ -235,15 +283,14 @@ def test_safe_flee_signal_identical_across_backends(kind: str, tmp_path) -> None
     assert final.winner is None  # a safe escape is not a defeat
 
 
-@pytest.mark.parametrize("kind", ["memory", "json", "mock"])
-def test_fatal_flee_signal_identical_across_backends(kind: str, tmp_path) -> None:
+def test_fatal_flee_signal_identical_across_backends(swap_backend) -> None:
     """A lethal escape reports `hero_alive=False`; end_combat resolves as enemy win.
 
     Identical on every backend: the fixed 2 flee-damage drops the hero to 0, the
     sheet flips to not-alive, and `end_combat` returns winner='enemy' even though
     `combat.winner` is None (fleeing has no winner) — the unambiguous death signal.
     """
-    storage = _make_backend(kind, tmp_path)
+    storage = swap_backend
     weak = _hero().model_copy(update={"stamina": Attribute(initial=24, current=2)})
     storage.save_character(weak)
     engine = CombatService(storage, random.Random(SEED))
@@ -259,17 +306,16 @@ def test_fatal_flee_signal_identical_across_backends(kind: str, tmp_path) -> Non
 
 
 # --------------------------------------------------------------------------- slot restore clears state the snapshot lacked
-@pytest.mark.parametrize("kind", ["memory", "json", "mock"])
-def test_load_slot_resets_world_when_snapshot_had_no_world(kind: str, tmp_path) -> None:
+def test_load_slot_resets_world_when_snapshot_had_no_world(swap_backend) -> None:
     """Restoring a slot saved before any world existed resets world to default.
 
     Boundary #1 regression guard: a snapshot whose ``world`` was ``None`` must
     clear any world written *after* the save — not leave stale state. (A
-    ``PostgresStorage._restore_snapshot`` bug skipped the world delete; the three
-    backends here already honour it, so this pins the contract every faithful
-    backend must meet.)
+    ``PostgresStorage._restore_snapshot`` bug skipped the world delete; this
+    pins the contract every faithful backend must meet — including Postgres
+    when ``DATABASE_URL`` is set.)
     """
-    storage = _make_backend(kind, tmp_path)
+    storage = swap_backend
     storage.save_slot("early")  # snapshot taken before any world exists
     storage.save_world(World(current_location="deep_cave", turn=10))
     assert storage.load_world().current_location == "deep_cave"

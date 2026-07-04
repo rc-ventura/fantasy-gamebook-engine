@@ -54,3 +54,8 @@ Key changes relevant to this project:
 | PydanticAI agent run | `agent.run(prompt, toolsets=[toolset])` |
 | Tests (no subprocess) | `MCPToolset(build_server(InMemoryStorage(), ...))` |
 | Production (subprocess) | `MCPToolset(StdioTransport(command="uv", args=[...]))` |
+
+## Decision record
+
+Formalized in [ADR-021 — pydantic-ai 2.0 MCPToolset pattern](../adrs/ADR-021-pydantic-ai-v2-mcp-toolset-direct-call.md)
+(renumbered from ADR-014 by [ADR-020](../adrs/ADR-020-resolve-duplicate-adr-numbering.md)).

@@ -284,28 +284,28 @@ class CombatEngine(Protocol):
 
 ## 6. `mcp/server.py` — MCP tool contract (stdio transport, server name `gamebook`)
 
-Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`update_world` added in cycle 2 per ADR-010):
+Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`update_world` added in cycle 2 per ADR-010). **Every tool takes `campaign_id: str` as its first parameter** (ADR-018 Option A — one server process, all campaigns isolated by `campaign_id`; the harness/narrator injects it via `ScopedMCPToolset`):
 
 | tool | params | returns |
 |---|---|---|
-| `roll_dice` | `notation: str` | `{rolls, total}` |
-| `test_luck` | — | `{roll, success, luck_after}` (persists luck −1) |
-| `create_character` | `name: str` | `CharacterSheet` (rolls attributes, persists, alive) |
-| `read_character_sheet` | — | `CharacterSheet` |
-| `update_character_sheet` | `changes: dict` | `CharacterSheet` (validates invariants) |
-| `read_world` | — | `World` |
-| `update_world` | `changes: dict` | `World` (patch + allowlist; persists via `save_world`) |
-| `register_event` | `type: str, data: dict` | the created `Event` |
-| `read_events` | — | `list[Event]` |
-| `read_summary` | — | `str` |
-| `update_summary` | `text: str` | `{ok: true}` |
-| `start_combat` | `enemies: list, flee_allowed: bool` | `Combat` |
-| `resolve_combat_round` | `combat_id: str, use_luck: bool` | `RoundOutcome` |
-| `flee_combat` | `combat_id: str` | `FleeResult` |
-| `end_combat` | `combat_id: str` | `FinalResult` |
-| `archive_character` | `destination: str` | `{ok: true}` |
-| `save_progress` | `slot: str \| None` | `{ok: true, slot}` |
-| `load_progress` | `slot: str \| None` | `{ok: true, slot}` |
+| `roll_dice` | `campaign_id: str, notation: str` | `{rolls, total}` |
+| `test_luck` | `campaign_id: str` | `{roll, success, luck_after}` (persists luck −1) |
+| `create_character` | `campaign_id: str, name: str` | `CharacterSheet` (rolls attributes, persists, alive) |
+| `read_character_sheet` | `campaign_id: str` | `CharacterSheet` |
+| `update_character_sheet` | `campaign_id: str, changes: dict` | `CharacterSheet` (validates invariants) |
+| `read_world` | `campaign_id: str` | `World` |
+| `update_world` | `campaign_id: str, changes: dict` | `World` (patch + allowlist; persists via `save_world`) |
+| `register_event` | `campaign_id: str, type: str, data: dict` | the created `Event` |
+| `read_events` | `campaign_id: str` | `list[Event]` |
+| `read_summary` | `campaign_id: str` | `str` |
+| `update_summary` | `campaign_id: str, text: str` | `{ok: true}` |
+| `start_combat` | `campaign_id: str, enemies: list, flee_allowed: bool` | `Combat` |
+| `resolve_combat_round` | `campaign_id: str, combat_id: str, use_luck: bool` | `RoundOutcome` |
+| `flee_combat` | `campaign_id: str, combat_id: str` | `FleeResult` |
+| `end_combat` | `campaign_id: str, combat_id: str` | `FinalResult` |
+| `archive_character` | `campaign_id: str, destination: str` | `{ok: true}` |
+| `save_progress` | `campaign_id: str, slot: str \| None` | `{ok: true, slot}` |
+| `load_progress` | `campaign_id: str, slot: str \| None` | `{ok: true, slot}` |
 
 **`update_character_sheet(changes)` patch semantics (binding on infra + content):**
 `changes` is a partial dict of `CharacterSheet` fields. Top-level scalar/list fields
@@ -339,17 +339,19 @@ reads the sheet's current luck, applies the rule, persists luck −1, returns
 `{roll, success, luck_after}`. **`save_progress(slot=None)`** snapshots all state to the
 slot (`None` → `"autosave"`); **`load_progress`** restores it.
 
-**Composition root:** provide `build_server(storage: StorageBackend, combat: CombatEngine,
-rng: RandomSource) -> FastMCP` taking interfaces; `main()` builds concretes
-(`JSONStorage("estado")`, `CombatService(storage, rng)`, `random.Random()`) and runs
-stdio. `python -m gamebook.mcp.server` is the entry point. `.mcp.json` at repo root
-registers: `command: "uv"`, `args: ["run","python","-m","gamebook.mcp.server"]`.
+**Composition root:** provide `build_server(storage_factory: Callable[[str], StorageBackend],
+rng: RandomSource) -> FastMCP` taking a factory and a `RandomSource` (ADR-018 — `CombatService`
+is constructed inside `build_server` from the factory, keeping it out of module scope). `main()`
+builds the factory (one-per-campaign `JSONStorage` or `PostgresStorage`) and passes `random.Random()`
+as the RNG, then calls `.run()` for stdio. `python -m gamebook.mcp.server` is the entry point.
+`.mcp.json` at repo root registers: `command: "uv"`, `args: ["run","python","-m","gamebook.mcp.server"]`.
 Tools contain NO game rules — they orchestrate `regras`/`combate`/`storage` only.
 
-**Phase-2 `main()` extension (feature 001, 2026-06-26):** If both `DATABASE_URL` and
-`GAMEBOOK_CAMPAIGN_ID` env vars are set, `main()` uses `PostgresStorage(url, campaign_id)`
-instead of `JSONStorage`.  `build_server` is unchanged; the concrete import of `PostgresStorage`
-is local to `main()` (composition root only).
+**Phase-2 `main()` factory (ADR-018 Option A, feature 001, 2026-06-26):** `main()` builds a
+`storage_factory = lambda campaign_id: PostgresStorage(url, campaign_id)` when `DATABASE_URL` is
+set, otherwise `lambda campaign_id: JSONStorage(f"estado/{campaign_id}")`. The factory is cached
+by `campaign_id` inside `main()` (dict MVP; LRU pending for scale). `build_server` is unchanged —
+it only receives the factory interface, never a concrete backend.
 
 ---
 
@@ -417,9 +419,9 @@ account (FR-009).
 ### Session Lease (FR-025)
 | Method & path | Purpose |
 |---|---|
-| `POST /campaigns/{id}/session` | Acquire/refresh the play-session lease |
-| `POST /campaigns/{id}/session/takeover` | Force-take the lease (demotes prior holder) |
-| `DELETE /campaigns/{id}/session` | Release the lease |
+| `POST /me/game/session` | Acquire/refresh the play-session lease |
+| `POST /me/game/session/takeover` | Force-take the lease (validates current_token, ADR-023) |
+| `DELETE /me/game/session` | Release the lease |
 
 ### Character
 | Method & path | Purpose |
@@ -453,7 +455,7 @@ account (FR-009).
 | 503 | `auth_unavailable` | IdP down; signed-in players continue read-only until expiry |
 
 ### 9a. Auth implementation details
-- `JWTValidator` (`src/gamebook_web/auth/jwt_validator.py`) validates against the OIDC JWKS endpoint.
+- OIDC JWT/JWKS validation (`src/gamebook_web/auth/oidc_auth.py`) validates against the OIDC JWKS endpoint (PyJWT, migrated from python-jose).
 - JWKS keys are cached in memory (5-minute TTL) for graceful degradation (FR-024).
 - `RequireAuth = Depends(get_current_account_sub)` is the FastAPI dependency used by all protected routes.
 - Environment variables: `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`.
@@ -519,7 +521,7 @@ the engine-authoritative values in `character` and `world`.
 
 ---
 
-## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26; updated 2026-06-27)
+## 11. Phase-2 Postgres Mapping (swap boundary #1, 2026-06-26; updated 2026-07-02 by spec 006)
 
 > Folded from `specs/001-web-platform-migration/data-model.md` §B per Principle III.
 > **Implementation delivered by slice 002-persistence-foundation.**
@@ -571,14 +573,44 @@ asyncio event loop in a daemon thread bridges the two.  Each storage method call
 `asyncio.run_coroutine_threadsafe(coro, self._loop).result()`, blocking until the coroutine
 commits.  Works from any calling context (sync or already-running event loop).
 
+**TLS policy (ADR-026, FR-037 — spec 006):**
+- Connections require TLS **by default** (`ssl=require`).  Plaintext is allowed only with
+  the explicit dev override `POSTGRES_SSL_MODE=disable`, which is **refused in production**
+  (`ENV=production`).  Every deployment URL is therefore TLS-protected unless a developer
+  deliberately opts out locally.
+
+**Concurrency-safe event sequence (ADR-027, FR-038 — spec 006):**
+- `append_event` serializes concurrent appends per campaign with a transaction-scoped
+  advisory lock (`pg_advisory_xact_lock(hashtext(campaign_id))`) before computing
+  `MAX(seq)+1`.  The prior unserialized `MAX(seq)+1` had a race: two concurrent
+  transactions could compute the same seq.  `UNIQUE(campaign_id, seq)` remains the backstop.
+
+**Deterministic lifecycle (ADR-027, FR-039 — spec 006):**
+- `PostgresStorage.close()` disposes the async engine and stops the daemon event loop
+  (thread joined).  It MUST be called on MCP server graceful shutdown and in live-Postgres
+  test teardown.  Safe to call more than once.
+
+**Consistent snapshots (ADR-027, FR-040 — spec 006):**
+- `save_slot` builds its snapshot inside an explicit **read-only transaction**, so the
+  captured character/world/events/summary/combat all belong to one consistent point in time.
+
+**Identifier validation (ADR-027, FR-041 — spec 006):**
+- `save_slot`, `load_slot`, `load_combat`, and `remove_combat` reject empty/`None`/`/`/`\`/
+  `..` identifiers — parity with `JSONStorage` (no path-like identifiers reach SQL).
+
 **Other notes:**
 - `data JSONB` on `character_sheet` / `world` stores `model_dump(mode="json")` for exact
   round-trip (Principle V).  Attribute bounds stay enforced in `domain`, not the DB.
-- `event.seq` is computed as `MAX(seq)+1` within the INSERT transaction — no race condition.
 - Reads/writes are filtered by `campaign_id` (and `account_id` at the API layer in slice 004).
 - Migration: `alembic/versions/0001_initial_schema.py` — apply with
   `DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head`.
-- Phase-2 MCP path: `DATABASE_URL=... GAMEBOOK_CAMPAIGN_ID=<uuid> uv run python -m gamebook.mcp.server`
+- Phase-2 MCP path (ADR-018 Option A): `DATABASE_URL=... uv run python -m gamebook.mcp.server`
+  — one shared engine process; every tool takes `campaign_id` as its first parameter
+  (the legacy `GAMEBOOK_CAMPAIGN_ID` boot-time scoping is retired).
+- Test coverage: `tests/server/test_postgres_storage.py` (TLS, concurrency, lifecycle,
+  snapshot, identifiers), `tests/server/test_atomic_writes.py` (crash **after** a real
+  `execute()` → rollback, incl. multi-statement restore), `tests/qa/test_storage_swap.py`
+  (consumer-level swap proof across memory/json/mock/**postgres**).
 
 ---
 
@@ -633,7 +665,7 @@ class Account:
 ENV: `OIDC_JWKS_URI`, `OIDC_AUDIENCE`, `OIDC_ISSUER`  
 Algorithms: RS256, ES256  
 Key cache TTL: 5 min; force-refresh on unknown `kid` (key rotation)  
-Validated-token cache: keyed on `sha256(token)[:16]+exp`; serves cached `account_id` when JWKS unreachable  
+Validated-token cache: keyed on `(sha256(token), exp)` (full SHA-256 digest); serves cached `account_id` when JWKS unreachable; TTL = 60s (H-03)  
 
 ---
 
@@ -657,23 +689,23 @@ TTL: 30 minutes default; renewed on every successful state-changing request.
 
 | Method | Raises | Description |
 |---|---|---|
-| `acquire(campaign_id, account_id)` | 409 `not_session_holder` | Create or renew lease; reject if another account holds unexpired lease |
-| `validate(campaign_id, lease_token)` | 409 `not_session_holder` / `lease_expired` | Assert token is the current unexpired holder |
+| `acquire(campaign_id, account_id)` | 409 `not_session_holder` | Create or renew lease; reject if another account holds unexpired lease (no `force_takeover` — H-01) |
+| `validate(campaign_id, account_id, lease_token)` | 409 `not_session_holder` / `lease_expired` | Assert token AND account match the current unexpired holder (H-02; `hmac.compare_digest`) |
 | `renew(campaign_id, lease_token)` | 409 `not_session_holder` | Extend TTL on success |
-| `release(campaign_id, lease_token)` | — | Delete lease row |
-| `takeover(campaign_id, account_id, current_token)` | — | Atomically replace holder (force-acquire) |
+| `release(campaign_id, account_id, lease_token)` | — | Delete lease row (only if account + token match; H-02) |
+| `takeover(campaign_id, account_id, current_token)` | 409 `not_session_holder` | Atomically replace holder; validates `current_token` (FR-027) |
 
 ### Lease endpoints
 
 | Method | Path | Header | Description |
 |---|---|---|---|
-| `POST` | `/campaigns/{id}/session` | — | Acquire lease → `{lease_token, expires_at}` |
-| `POST` | `/campaigns/{id}/session/takeover` | — | Take over → new `{lease_token, expires_at}` |
-| `DELETE` | `/campaigns/{id}/session` | `X-Session-Lease` | Release lease |
+| `POST` | `/me/game/session` | — | Acquire lease → `{session_token, expires_at}` |
+| `POST` | `/me/game/session/takeover` | — | Take over → new `{session_token, expires_at}` (validates `current_token`) |
+| `DELETE` | `/me/game/session` | `X-Session-Lease` | Release lease |
 
-### Lease enforcement (LeaseGuardMiddleware)
+### Lease enforcement (route-level `require_lease` dependency, ADR-031)
 
-All mutating requests (`POST`, `DELETE`, `PATCH`, `PUT`) to `/campaigns/{id}/**` require `X-Session-Lease` header (except exempt paths: session endpoints themselves, character creation, campaign DELETE, `/me/**`).
+All mutating `/me/game/**` routes (`POST /me/game`, `POST /me/game/turn`, `POST /me/game/character`, `POST /me/game/save`, `DELETE /me/game`) have `Depends(require_lease)` which resolves the caller's active `campaign_id` from their account (D1) and calls `LeaseService.validate(campaign_id, account_id, X-Session-Lease)`. The lease is opt-in: enforcement begins only after a session calls `POST /me/game/session` to acquire a lease. `LeaseGuardMiddleware` is retained as a fail-closed guard for the OIDC-configured-but-no-database misconfiguration case only.
 
 On token mismatch → `409 not_session_holder`  
 On expiry → `409 lease_expired`  

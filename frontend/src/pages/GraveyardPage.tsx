@@ -1,43 +1,31 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCampaign } from '../hooks/useCampaign'
-import { getCampaign } from '../api'
-import type { CampaignState } from '../types'
-
-interface FallenHero {
-  id: string
-  endedAt: string
-  character: CampaignState['character']
-  world: CampaignState['world']
-}
+import { getGraveyard } from '../api'
+import type { GraveyardEntry } from '../types'
 
 export default function GraveyardPage() {
   const navigate = useNavigate()
-  const { campaigns, error: listError } = useCampaign()
-  const [fallen, setFallen] = useState<FallenHero[]>([])
+  const [fallen, setFallen] = useState<GraveyardEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    const ended = campaigns.filter((c) => c.status === 'ended')
-    if (ended.length === 0) { setLoading(false); return }
+    getGraveyard()
+      .then((entries) => { setFallen(entries); setLoading(false) })
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load graveyard')
+        setLoading(false)
+      })
+  }, [])
 
-    Promise.all(
-      ended.map((c) =>
-        getCampaign(c.id)
-          .then((state): FallenHero => ({ id: c.id, endedAt: c.updated_at, character: state.character, world: state.world }))
-          .catch((): FallenHero => ({ id: c.id, endedAt: c.updated_at, character: undefined, world: undefined }))
-      )
-    ).then((results) => {
-      setFallen(results)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [campaigns])
+  const formatDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '—'
 
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-
-  const fmtLoc = (loc: string) =>
-    loc.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const endedReasonLabel = (reason: GraveyardEntry['ended_reason']) => {
+    if (reason === 'death') return 'Fell in battle'
+    if (reason === 'victory') return 'Vanquished Malachar'
+    return 'Abandoned'
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
@@ -83,11 +71,11 @@ export default function GraveyardPage() {
           </div>
         )}
 
-        {!loading && listError && (
-          <div style={{ textAlign: 'center', color: '#c0392b', fontFamily: 'var(--font-body)', padding: '40px 0' }}>{listError}</div>
+        {!loading && loadError && (
+          <div style={{ textAlign: 'center', color: '#c0392b', fontFamily: 'var(--font-body)', padding: '40px 0' }}>{loadError}</div>
         )}
 
-        {!loading && fallen.length === 0 && (
+        {!loading && !loadError && fallen.length === 0 && (
           <div style={{ textAlign: 'center', padding: '64px 0' }}>
             <div style={{ fontFamily: 'var(--font-title)', fontSize: '1.2rem', color: 'var(--ink)', marginBottom: '10px' }}>
               No fallen heroes yet
@@ -104,18 +92,16 @@ export default function GraveyardPage() {
           </div>
         )}
 
-        {!loading && fallen.length > 0 && (
+        {!loading && !loadError && fallen.length > 0 && (
           <>
-            {/* Epitaph count */}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: '36px', textAlign: 'center' }}>
               {fallen.length} soul{fallen.length !== 1 ? 's' : ''} lost to the mountain
             </div>
 
-            {/* Hero cards grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '22px' }}>
               {fallen.map((hero) => (
                 <article
-                  key={hero.id}
+                  key={hero.campaign_id}
                   style={{
                     background: 'var(--panel-bg)',
                     border: '1px solid var(--panel-border)',
@@ -130,51 +116,39 @@ export default function GraveyardPage() {
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     <div>
                       <div style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.25rem', color: 'var(--panel-ink)', marginBottom: '3px' }}>
-                        {hero.character?.name ?? 'Unnamed Hero'}
+                        {hero.name ?? 'Grey Mountain Expedition'}
                       </div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', letterSpacing: '0.08em', color: 'var(--faint)' }}>
-                        R · I · P · {formatDate(hero.endedAt)}
+                        R · I · P · {formatDate(hero.ended_at)}
                       </div>
                     </div>
-                    <span style={{ fontFamily: 'var(--font-title)', fontSize: '1.6rem', color: 'var(--faint)', opacity: 0.6 }}>✝</span>
+                    <span style={{ fontFamily: 'var(--font-title)', fontSize: '1.6rem', color: hero.ended_reason === 'victory' ? 'var(--accent)' : 'var(--faint)', opacity: 0.6 }}>
+                      {hero.ended_reason === 'victory' ? '★' : '✝'}
+                    </span>
                   </div>
 
-                  {/* Where they fell */}
-                  {hero.world && (
-                    <div style={{ fontFamily: 'var(--font-body)', fontStyle: 'italic', fontSize: '0.95rem', color: 'var(--panel-muted)', borderLeft: '2px solid var(--panel-border)', paddingLeft: '12px' }}>
-                      Fell at <strong style={{ color: 'var(--panel-ink)' }}>{fmtLoc(hero.world.location)}</strong>
-                      {hero.world.visited.length > 0 && `, after visiting ${hero.world.visited.length} zone${hero.world.visited.length !== 1 ? 's' : ''}.`}
-                    </div>
-                  )}
+                  {/* Fate */}
+                  <div style={{ fontFamily: 'var(--font-body)', fontStyle: 'italic', fontSize: '0.95rem', color: 'var(--panel-muted)', borderLeft: '2px solid var(--panel-border)', paddingLeft: '12px' }}>
+                    {endedReasonLabel(hero.ended_reason)}
+                  </div>
 
-                  {/* Final stats */}
-                  {hero.character && (
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      {[
-                        { label: 'Skill', val: `${hero.character.skill.current}/${hero.character.skill.initial}`, color: 'var(--skill)' },
-                        { label: 'Stamina', val: `${hero.character.stamina.current}/${hero.character.stamina.initial}`, color: 'var(--stamina)' },
-                        { label: 'Luck', val: `${hero.character.luck.current}/${hero.character.luck.initial}`, color: 'var(--luck)' },
-                      ].map(({ label, val, color }) => (
-                        <div key={label} style={{ flex: 1, textAlign: 'center', background: 'var(--bg2)', border: '1px solid var(--line)', borderRadius: '3px', padding: '8px 4px' }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.08em', color: 'var(--faint)', textTransform: 'uppercase', marginBottom: '3px' }}>{label}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 600, color }}>{val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {/* Dates */}
+                  <div style={{ display: 'flex', gap: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)' }}>
+                    {hero.created_at && (
+                      <span>Started {formatDate(hero.created_at)}</span>
+                    )}
+                  </div>
 
                   {/* Campaign ID footnote */}
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--faint)', letterSpacing: '0.06em', borderTop: '1px solid var(--line)', paddingTop: '10px' }}>
-                    Campaign {hero.id.slice(0, 8)}…
+                    Campaign {hero.campaign_id.slice(0, 8)}…
                   </div>
 
-                  {/* Vignette overlay for atmosphere */}
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(0,0,0,.07) 0, transparent 60%)', pointerEvents: 'none' }} />
                 </article>
               ))}
             </div>
 
-            {/* CTA */}
             <div style={{ textAlign: 'center', marginTop: '54px' }}>
               <button
                 onClick={() => { void navigate('/dashboard') }}

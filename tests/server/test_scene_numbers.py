@@ -111,11 +111,11 @@ class TestSceneContractSimplified:
 
     def test_turn_response_shape_matches_contract(self, api_client):
         """TurnResponse contains scene, character, world — nothing else (CONTRACTS.md §9)."""
-        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "ContractCheck"},
+        api_client.post("/me/game", headers={"Authorization": "Bearer dev-token"})
+        api_client.post("/me/game/character", json={"name": "ContractCheck"},
                         headers={"Authorization": "Bearer dev-token"})
 
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+        resp = api_client.post("/me/game/turn", json={},
                                headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 200
         data = resp.json()
@@ -142,11 +142,11 @@ class TestAPISceneValidationGate:
 
         app.state.narrator = _BadNarrator()
 
-        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "BadTest"},
+        api_client.post("/me/game", headers={"Authorization": "Bearer dev-token"})
+        api_client.post("/me/game/character", json={"name": "BadTest"},
                         headers={"Authorization": "Bearer dev-token"})
 
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+        resp = api_client.post("/me/game/turn", json={},
                                headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "invalid_scene"
@@ -162,21 +162,21 @@ class TestAPISceneValidationGate:
         original_narrator = app.state.narrator
         app.state.narrator = _ErrorNarrator()
 
-        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
-        api_client.post(f"/campaigns/{cid}/character", json={"name": "FailTest"},
+        api_client.post("/me/game", headers={"Authorization": "Bearer dev-token"})
+        api_client.post("/me/game/character", json={"name": "FailTest"},
                         headers={"Authorization": "Bearer dev-token"})
 
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+        resp = api_client.post("/me/game/turn", json={},
                                headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 422
 
         # Scene not stored
-        scene_resp = api_client.get(f"/campaigns/{cid}/scene",
+        scene_resp = api_client.get("/me/game/scene",
                                     headers={"Authorization": "Bearer dev-token"})
         assert scene_resp.json()["scene"] is None
 
-        # Campaign still active (not corrupted)
-        state_resp = api_client.get(f"/campaigns/{cid}",
+        # Game still active (not corrupted)
+        state_resp = api_client.get("/me/game",
                                     headers={"Authorization": "Bearer dev-token"})
         assert state_resp.json()["status"] == "active"
 
@@ -200,14 +200,14 @@ class TestEngineAuthorityNumbers:
             Scene(narrative="The wind howls.", choices=[Choice(id="1", label="Wait")]),
         ])
 
-        cid = api_client.post("/campaigns", headers={"Authorization": "Bearer dev-token"}).json()["campaign_id"]
+        api_client.post("/me/game", headers={"Authorization": "Bearer dev-token"})
         original = api_client.post(
-            f"/campaigns/{cid}/character",
+            "/me/game/character",
             json={"name": "NoToolCalls"},
             headers={"Authorization": "Bearer dev-token"},
         ).json()
 
-        resp = api_client.post(f"/campaigns/{cid}/turn", json={},
+        resp = api_client.post("/me/game/turn", json={},
                                headers={"Authorization": "Bearer dev-token"})
         assert resp.status_code == 200
         data = resp.json()

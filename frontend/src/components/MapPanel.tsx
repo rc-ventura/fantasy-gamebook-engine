@@ -79,14 +79,14 @@ export default function MapPanel({ world, loading = false }: MapPanelProps) {
             fontSize: '1rem',
             color: 'var(--accent)',
           }}
-          aria-label={`Current location: ${formatLocation(world.location)}`}
+          aria-label={`Current location: ${formatLocation(world.current_location)}`}
         >
-          {formatLocation(world.location)}
+          {formatLocation(world.current_location)}
         </span>
       </div>
 
       {/* Visited zones */}
-      {world.visited.length > 0 && (
+      {world.visited_locations.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
           <span
             style={{
@@ -110,19 +110,19 @@ export default function MapPanel({ world, loading = false }: MapPanelProps) {
             }}
             aria-label="Visited locations"
           >
-            {world.visited.map((loc) => (
+            {world.visited_locations.map((loc) => (
               <li
                 key={loc}
                 style={{
                   fontFamily: 'var(--font-body)',
                   fontSize: '0.85rem',
-                  color: loc === world.location ? 'var(--accent)' : 'var(--panel-muted)',
+                  color: loc === world.current_location ? 'var(--accent)' : 'var(--panel-muted)',
                   paddingLeft: 'var(--space-sm)',
-                  borderLeft: loc === world.location
+                  borderLeft: loc === world.current_location
                     ? '2px solid var(--accent)'
                     : '2px solid var(--line)',
                 }}
-                aria-current={loc === world.location ? 'location' : undefined}
+                aria-current={loc === world.current_location ? 'location' : undefined}
               >
                 {formatLocation(loc)}
               </li>

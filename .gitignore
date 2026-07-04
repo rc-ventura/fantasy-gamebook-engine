@@ -13,9 +13,9 @@ htmlcov/
 # local Claude Code settings (personal, not shared)
 .claude/settings.local.json
 .env
+**/.env*
 
 # uv
-uv.lock
 .python-version
 
 # Playwright

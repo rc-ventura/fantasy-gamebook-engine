@@ -12,19 +12,27 @@
  * 3. Verify component props: every numeric prop that renders to the DOM
  *    must come from a typed API response type (not a local let/const).
  *
- * This is a static + runtime audit test — it cannot catch every case but
- * provides a repeatable regression gate.
+ * Updated for spec 006 D1 + spec 007 ADR-029:
+ *   - getCampaign(id) → getGame() (no id)
+ *   - combatRound removed (combat resolved by narrator via takeTurn)
+ *   - takeTurn(id, choice, text) → takeTurn(choice)
+ *   - TurnResponse has { scene, status, character?, world? } (no campaign wrapper)
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mockApi } from '../../../src/api/mock'
+
+beforeEach(() => {
+  sessionStorage.clear()
+})
 
 describe('no-fabricated-values audit (SC-003)', () => {
   describe('Mock API — all numbers are engine-realistic fixtures', () => {
     it('campaign state has engine-realistic skill (1d6+6 → 7–12)', async () => {
-      const campaign = await mockApi.getCampaign('mock-campaign-001')
-      if (campaign.character) {
-        const { skill } = campaign.character
+      sessionStorage.setItem('mock_stage', 'opening')
+      const state = await mockApi.getGame()
+      if (state.character) {
+        const { skill } = state.character
         expect(skill.initial).toBeGreaterThanOrEqual(7)
         expect(skill.initial).toBeLessThanOrEqual(12)
         expect(skill.current).toBeGreaterThanOrEqual(0)
@@ -33,11 +41,10 @@ describe('no-fabricated-values audit (SC-003)', () => {
     })
 
     it('campaign state has engine-realistic stamina (2d6+12 → 14–24)', async () => {
-      // Reset to opening so character is present
       sessionStorage.setItem('mock_stage', 'opening')
-      const campaign = await mockApi.getCampaign('mock-campaign-001')
-      if (campaign.character) {
-        const { stamina } = campaign.character
+      const state = await mockApi.getGame()
+      if (state.character) {
+        const { stamina } = state.character
         expect(stamina.initial).toBeGreaterThanOrEqual(14)
         expect(stamina.initial).toBeLessThanOrEqual(24)
         expect(stamina.current).toBeGreaterThanOrEqual(0)
@@ -47,63 +54,55 @@ describe('no-fabricated-values audit (SC-003)', () => {
 
     it('campaign state has engine-realistic luck (1d6+6 → 7–12)', async () => {
       sessionStorage.setItem('mock_stage', 'opening')
-      const campaign = await mockApi.getCampaign('mock-campaign-001')
-      if (campaign.character) {
-        const { luck } = campaign.character
+      const state = await mockApi.getGame()
+      if (state.character) {
+        const { luck } = state.character
         expect(luck.initial).toBeGreaterThanOrEqual(7)
         expect(luck.initial).toBeLessThanOrEqual(12)
       }
     })
 
-    it('combat round values respect engine rules (skill + 2d6)', async () => {
-      sessionStorage.setItem('mock_stage', 'in_combat')
-      const result = await mockApi.combatRound('mock-campaign-001', false)
-      // Hero AS = skill(10) + 2d6, so minimum 12, max 22
-      expect(result.round.hero_attack).toBeGreaterThanOrEqual(12)
-      expect(result.round.hero_attack).toBeLessThanOrEqual(22)
-      // Enemy AS = skill(8) + 2d6, so minimum 10, max 20
-      expect(result.round.enemy_attack).toBeGreaterThanOrEqual(10)
-      expect(result.round.enemy_attack).toBeLessThanOrEqual(20)
-    })
-
-    it('damage values are non-negative integers from engine', async () => {
-      sessionStorage.setItem('mock_stage', 'in_combat')
-      const result = await mockApi.combatRound('mock-campaign-001', false)
-      expect(result.round.hero_damage).toBeGreaterThanOrEqual(0)
-      expect(result.round.enemy_damage).toBeGreaterThanOrEqual(0)
-      expect(Number.isInteger(result.round.hero_damage)).toBe(true)
-      expect(Number.isInteger(result.round.enemy_damage)).toBe(true)
-    })
-
     it('current attribute never exceeds initial (invariant enforced by engine)', async () => {
       sessionStorage.setItem('mock_stage', 'exploring')
-      const campaign = await mockApi.getCampaign('mock-campaign-001')
-      if (campaign.character) {
-        const { skill, stamina, luck } = campaign.character
+      const state = await mockApi.getGame()
+      if (state.character) {
+        const { skill, stamina, luck } = state.character
         expect(skill.current).toBeLessThanOrEqual(skill.initial)
         expect(stamina.current).toBeLessThanOrEqual(stamina.initial)
         expect(luck.current).toBeLessThanOrEqual(luck.initial)
       }
     })
 
-    it('scene choices have stable IDs (not dynamically generated)', async () => {
+    it('take-turn response has scene with narrative and choices from engine', async () => {
       sessionStorage.setItem('mock_stage', 'opening')
-      const scene = await mockApi.getScene('mock-campaign-001')
-      const ids = scene.choices.map((c) => c.id)
-      // IDs are the stable engine-assigned identifiers ("1", "2", "3")
-      expect(ids).toEqual(['1', '2', '3'])
-    })
-
-    it('take-turn response preserves engine-produced campaign state', async () => {
-      sessionStorage.setItem('mock_stage', 'opening')
-      const result = await mockApi.takeTurn('mock-campaign-001', '3', undefined)
-      // The campaign returned must have the same structure as getCampaign
-      expect(result.campaign).toHaveProperty('id')
-      expect(result.campaign).toHaveProperty('status')
-      // Scene from the engine
+      const result = await mockApi.takeTurn('3')
+      // TurnResponse: { scene, status, character?, world? } — no campaign wrapper (spec 007)
+      expect(result).toHaveProperty('scene')
+      expect(result).toHaveProperty('status')
       expect(result.scene).toHaveProperty('narrative')
       expect(result.scene).toHaveProperty('choices')
-      expect(result.scene).toHaveProperty('effects')
+      // No effects field — removed in spec 007 (ADR-029)
+      expect(result.scene).not.toHaveProperty('effects')
+    })
+
+    it('take-turn preserves engine character stats in response', async () => {
+      sessionStorage.setItem('mock_stage', 'opening')
+      const result = await mockApi.takeTurn('3')
+      if (result.character) {
+        const { skill, stamina } = result.character
+        expect(skill.current).toBeLessThanOrEqual(skill.initial)
+        expect(stamina.current).toBeLessThanOrEqual(stamina.initial)
+        expect(skill.initial).toBeGreaterThanOrEqual(7)
+        expect(skill.initial).toBeLessThanOrEqual(12)
+      }
+    })
+
+    it('scene choices have stable IDs (not dynamically generated)', async () => {
+      sessionStorage.setItem('mock_stage', 'opening')
+      const scene = await mockApi.getScene()
+      const ids = scene?.choices.map((c) => c.id) ?? []
+      // IDs are the stable engine-assigned identifiers ("1", "2", "3")
+      expect(ids).toEqual(['1', '2', '3'])
     })
   })
 
@@ -118,18 +117,11 @@ describe('no-fabricated-values audit (SC-003)', () => {
       expect(Object.keys(attr)).toEqual(['initial', 'current'])
     })
 
-    it('CombatRound type contains only engine-produced fields', () => {
-      const round = {
-        hero_attack: 15,
-        enemy_attack: 11,
-        hero_damage: 2,
-        enemy_damage: 0,
-      }
-      // All fields must be engine-produced: no "computed_total" or similar
-      const allowedFields = new Set(['hero_attack', 'enemy_attack', 'hero_damage', 'enemy_damage', 'luck_used', 'luck_result'])
-      for (const key of Object.keys(round)) {
-        expect(allowedFields.has(key)).toBe(true)
-      }
+    it('TurnResponse has no effects field (ADR-029: combat resolved inside narrator)', () => {
+      // The Scene type has narrative + choices only (spec 007)
+      // Any effects/combat values are embedded in narrative prose, never in structured data
+      const scene = { narrative: 'The wolf lunges...', choices: [{ id: '1', label: 'Fight' }] }
+      expect(scene).not.toHaveProperty('effects')
     })
   })
 })

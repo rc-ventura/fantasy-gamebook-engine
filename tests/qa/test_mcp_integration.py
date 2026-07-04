@@ -38,7 +38,6 @@ if build_server is None:  # module exists but the composition root isn't wired y
         allow_module_level=True,
     )
 
-from gamebook.combat.implementation import CombatService  # noqa: E402
 from gamebook.storage.in_memory import InMemoryStorage  # noqa: E402
 
 SEED = 20260621
@@ -77,17 +76,16 @@ def _unwrap(value: Any) -> Any:
 def _call(server: Any, tool: str, **arguments: Any) -> Any:
     """Invoke an MCP tool by name and return its normalized result.
 
-    The tool-name parameter is ``tool`` (not ``name``) so it can't collide with a
-    tool argument literally called ``name`` (e.g. ``create_character(name=...)``).
+    Injects ``campaign_id="test"`` if not provided (ADR-018 — all tools require it).
     """
+    arguments.setdefault("campaign_id", "test")
     return _normalize(asyncio.run(server.call_tool(tool, arguments)))
 
 
 def _build() -> Any:
     storage = InMemoryStorage()
     rng = random.Random(SEED)
-    combat = CombatService(storage, rng)
-    return build_server(storage=storage, combat=combat, rng=rng)
+    return build_server(storage_factory=lambda _cid: storage, rng=rng)
 
 
 # --- Tests -------------------------------------------------------------------

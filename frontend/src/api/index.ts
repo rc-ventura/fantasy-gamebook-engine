@@ -3,6 +3,8 @@
  *
  * All HTTP calls to the backend go through these functions.
  * The mock mode is controlled by VITE_USE_MOCK=true in .env.local.
+ *
+ * Routes are /me/game/... (D1 backend-scoped, spec 006 ADR-017).
  */
 
 export {
@@ -13,15 +15,10 @@ export {
   isAuthenticated,
   // Account
   getAccount,
-  // Campaigns
-  listCampaigns,
-  createCampaign,
-  getCampaign,
-  deleteCampaign,
-  // Session lease
-  acquireSession,
-  takeoverSession,
-  releaseSession,
+  // Game (one active game per account)
+  createGame,
+  getGame,
+  deleteGame,
   // Character
   createCharacter,
   getCharacter,
@@ -29,5 +26,11 @@ export {
   takeTurn,
   getCurrentScene,
   // Save
-  saveCampaign,
+  saveGame,
+  // Graveyard
+  getGraveyard,
+  // Session lease (stub — real impl in slice 004)
+  acquireSession,
+  takeoverSession,
+  releaseSession,
 } from './client'

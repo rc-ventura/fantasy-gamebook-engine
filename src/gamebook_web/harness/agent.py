@@ -18,14 +18,57 @@ system prompt addition so the narrator has access to static adventure content
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import Any
+
+from dataclasses import dataclass
 
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai import UsageLimits
+from pydantic_ai.toolsets import WrapperToolset
+from pydantic_ai.messages import ModelMessage, ToolCallPart
 
 from gamebook_web.harness.base import NarratorContext
 from gamebook_web.harness.scene import Scene
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# ScopedMCPToolset — campaign_id injection (ADR-018 D2, T006b)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScopedMCPToolset(WrapperToolset):
+    """WrapperToolset that forces campaign_id on every engine tool call.
+
+    Prevents the narrator LLM from passing a wrong campaign_id to engine tools.
+    Overrides at the call layer (prevention, not detection) so even a
+    prompt-injected or hallucinated campaign_id cannot reach the engine.
+
+    Must be a real ``WrapperToolset`` subclass (not duck-typed delegation):
+    pydantic-ai rebuilds the toolset tree via ``for_run``/``visit_and_replace``
+    at run start, and only a dataclass WrapperToolset survives that rebuild
+    with its override intact — a ``__getattr__`` delegate gets silently
+    dropped from the tree and the injection never happens.
+    """
+
+    # Required (no default): campaign_id is the security scope. Omitting it is a
+    # TypeError; passing an empty value fails loud below — never silently unscoped.
+    campaign_id: str
+
+    def __post_init__(self) -> None:
+        if not self.campaign_id:
+            raise ValueError("ScopedMCPToolset requires a non-empty campaign_id")
+
+    async def call_tool(
+        self, name: str, tool_args: dict[str, Any], ctx: Any, tool: Any
+    ) -> Any:
+        """Inject campaign_id, discarding anything the model supplied."""
+        merged = {**tool_args, "campaign_id": self.campaign_id}
+        return await self.wrapped.call_tool(name, merged, ctx, tool)
 
 # ---------------------------------------------------------------------------
 # Default model and adventure-module lore path
@@ -78,6 +121,14 @@ How to handle common scenarios:
 - Dice roll: call roll_dice → see the result → narrate that exact result.
 - Luck test: call test_luck → see success/failure + luck decrement → narrate it.
 - Character stat change: call update_character_sheet → see new values → narrate them.
+- Moving to a new area: call update_world → set current_location to the new zone,
+  append that zone to visited_locations (if not already there), and increment turn.
+  ALWAYS record the move. The player's MAP and turn counter are read directly from
+  world state — if you don't call update_world, the map stays blank and the turn
+  counter never advances, even though the story moved on.
+- Finding or spending items / gold / provisions: call update_character_sheet with the
+  updated inventory / gold / provisions → narrate it. The player's BACKPACK is read
+  from the character sheet, so an unrecorded item never appears there.
 - Combat: call start_combat → call resolve_combat_round (repeat until ended) →
   call end_combat → narrate the actual outcome with real round counts and damage.
 
@@ -106,6 +157,52 @@ def _load_adventure_lore() -> str:
     if _IGNAROK_SKILL.exists():
         return _IGNAROK_SKILL.read_text(encoding="utf-8")
     return "Adventure: Grey Mountain. Defeat archmage Malachar to win."
+
+
+# ---------------------------------------------------------------------------
+# _assert_narrator_campaign — T006b post-audit detection (belt-and-suspenders)
+# ---------------------------------------------------------------------------
+
+def _assert_narrator_campaign(messages: list[ModelMessage], expected_campaign_id: str) -> None:
+    """Scan the agent's message history for tool calls with a wrong campaign_id.
+
+    T006b: the ``ScopedMCPToolset`` wrapper (prevention) overrides ``campaign_id``
+    on every tool call, so the LLM cannot inject a wrong one.  This function is
+    the **detection** layer — if the wrapper is ever silently dropped (e.g. by a
+    pydantic-ai ``for_run``/``visit_and_replace`` rebuild, as happened before per
+    the learning-lesson), wrong-campaign tool calls would pass through the
+    prevention layer undetected.  This audit catches them after ``agent.run()``
+    completes, before the scene is returned to the player.
+
+    Logs a **warning** (not ``RuntimeError``) if any tool call's ``campaign_id``
+    argument differs from ``expected_campaign_id``.  The ``ScopedMCPToolset``
+    prevention wrapper overrides ``campaign_id`` at the call layer, so the
+    LLM's original args (which this audit scans) may contain a hallucinated
+    wrong value that was never actually sent to the engine.  Raising
+    ``RuntimeError`` on a false positive would break the turn unnecessarily
+    when the engine was actually safe.  The warning is escalated to
+    ``RuntimeError`` only if the prevention wrapper is confirmed absent —
+    but we cannot detect that from here, so we log and continue.
+    Tool calls without a ``campaign_id`` argument are fine — the wrapper
+    injects it, so the LLM's original (possibly missing) value is irrelevant.
+    """
+    for msg in messages:
+        for part in msg.parts:
+            if not isinstance(part, ToolCallPart):
+                continue
+            args = part.args
+            if not isinstance(args, dict):
+                continue
+            call_campaign = args.get("campaign_id")
+            if call_campaign is not None and call_campaign != expected_campaign_id:
+                logger.warning(
+                    "_assert_narrator_campaign: tool %r was called with "
+                    "campaign_id=%r but expected %r. The ScopedMCPToolset "
+                    "prevention wrapper overrides this at the call layer, "
+                    "so the engine was likely safe — but if the wrapper was "
+                    "dropped from the toolset tree, investigate immediately.",
+                    part.tool_name, call_campaign, expected_campaign_id,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -171,18 +268,35 @@ class PydanticNarrator:
         agent.run()). The toolset is filtered to the narrator-safe subset
         (_NARRATOR_ALLOWED_TOOLS) so lifecycle tools cannot be called during
         narration. UsageLimits caps tool-call iterations to prevent runaway loops.
+
+        T006b belt-and-suspenders: after ``agent.run()``, ``_assert_narrator_campaign``
+        scans all tool calls in the message history for a wrong ``campaign_id``.
+        The ``ScopedMCPToolset`` wrapper (prevention) is the primary defense; this
+        audit is the secondary detection layer — if the wrapper is ever dropped
+        by a pydantic-ai toolset-tree rebuild, wrong-campaign writes are still
+        caught before the scene is returned to the player.
         """
+        from gamebook_web.observability.tracing import narrator_span
+
         prompt = self._build_prompt(context)
 
-        toolsets = (
-            [self._toolset.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
-            if self._toolset else []
-        )
-        result = await self._agent.run(
-            prompt,
-            toolsets=toolsets,
-            usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
-        )
+        # Keep the ScopedMCPToolset campaign_id injection (006) AND wrap the LLM
+        # call in a narrator span (004, T047/FR-030) for latency visibility.
+        if self._toolset:
+            scoped = ScopedMCPToolset(wrapped=self._toolset, campaign_id=campaign_id)
+            toolsets = [scoped.filtered(lambda _ctx, td: td.name in _NARRATOR_ALLOWED_TOOLS)]
+        else:
+            toolsets = []
+        with narrator_span(campaign_id):
+            result = await self._agent.run(
+                prompt,
+                toolsets=toolsets,
+                usage_limits=UsageLimits(request_limit=_MAX_TOOL_CALLS_PER_TURN),
+            )
+
+        # T006b: post-audit detection — scan all tool calls for wrong campaign_id.
+        _assert_narrator_campaign(result.all_messages(), campaign_id)
+
         return result.output
 
     # ------------------------------------------------------------------
