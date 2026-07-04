@@ -17,7 +17,6 @@ import json
 import random
 from typing import Any
 
-from gamebook.combat.implementation import CombatService
 from gamebook.storage.in_memory import InMemoryStorage
 
 
@@ -33,8 +32,8 @@ def build_test_server(seed: int) -> tuple[Any, InMemoryStorage]:
 
     storage = InMemoryStorage()
     rng = random.Random(seed)
-    combat = CombatService(storage, rng)
-    server = build_server(storage=storage, combat=combat, rng=rng)
+    # All campaign IDs share the same InMemoryStorage in tests (ADR-018 single-backend fixture)
+    server = build_server(storage_factory=lambda _cid: storage, rng=rng)
     return server, storage
 
 
@@ -66,5 +65,7 @@ def call(server: Any, tool: str, **arguments: Any) -> Any:
 
     The tool-name parameter is ``tool`` (not ``name``) so it can't collide with a
     tool argument literally called ``name`` (e.g. ``create_character(name=...)``).
+    Injects ``campaign_id="test"`` if not provided (ADR-018 — all tools require it).
     """
+    arguments.setdefault("campaign_id", "test")
     return _normalize(asyncio.run(server.call_tool(tool, arguments)))

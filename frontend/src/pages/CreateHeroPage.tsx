@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createCampaign, createCharacter, deleteCampaign } from '../api'
+import { createGame, createCharacter, deleteGame } from '../api'
 import type { CharacterSheet } from '../types'
 
 type Step = 'compose' | 'rolling' | 'preview'
@@ -11,7 +11,7 @@ export default function CreateHeroPage() {
   const [step, setStep] = useState<Step>('compose')
   const [stats, setStats] = useState<CharacterSheet | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const campaignIdRef = useRef<string | null>(null)
+  const [gameCreated, setGameCreated] = useState(false)
 
   const canRoll = name.trim().length > 0 && step !== 'rolling'
 
@@ -20,17 +20,16 @@ export default function CreateHeroPage() {
     setStep('rolling')
     setError(null)
 
-    // Delete previous attempt if re-rolling
-    if (campaignIdRef.current) {
-      await deleteCampaign(campaignIdRef.current).catch(() => null)
-      campaignIdRef.current = null
+    // Delete previous attempt if re-rolling (one active game per account)
+    if (gameCreated) {
+      await deleteGame().catch(() => null)
+      setGameCreated(false)
     }
 
     try {
-      const campaign = await createCampaign()
-      const id = campaign.id
-      campaignIdRef.current = id
-      const sheet = await createCharacter(id, name.trim())
+      await createGame()
+      setGameCreated(true)
+      const sheet = await createCharacter(name.trim())
       setStats(sheet)
       setStep('preview')
     } catch (err) {
@@ -40,15 +39,15 @@ export default function CreateHeroPage() {
   }
 
   async function handleBegin() {
-    if (!campaignIdRef.current) return
-    void navigate(`/play/${campaignIdRef.current}`)
+    if (!gameCreated) return
+    void navigate('/play')
   }
 
   async function handleBack() {
-    // Clean up campaign if created but not confirmed
-    if (campaignIdRef.current) {
-      await deleteCampaign(campaignIdRef.current).catch(() => null)
-      campaignIdRef.current = null
+    // Clean up game if created but not confirmed
+    if (gameCreated) {
+      await deleteGame().catch(() => null)
+      setGameCreated(false)
     }
     void navigate('/dashboard')
   }

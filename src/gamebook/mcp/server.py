@@ -8,12 +8,21 @@ all randomness and state flow through these tools.
 
 Layering / golden rule
 ----------------------
-``build_server`` takes only *interfaces* (``StorageBackend``, ``CombatEngine``,
-``RandomSource``) and never constructs a concrete implementation. The single
-exception is :func:`main`, the **composition root**, which is the one place
-allowed to build concretes (``JSONStorage``, ``CombatService``, ``random.Random``)
-and inject them. Those concrete imports live *inside* ``main`` precisely so that
-merely importing this module never drags a storage backend into ``sys.modules``.
+``build_server`` takes only *interfaces* (a ``storage_factory`` callable and a
+``RandomSource``) and never constructs a concrete storage implementation. The
+single exception is :func:`main`, the **composition root**, which is the one place
+allowed to build concretes (``JSONStorage``, ``PostgresStorage``, ``CombatService``,
+``random.Random``) and inject them via the factory. Those concrete imports live
+*inside* ``main`` precisely so that merely importing this module never drags a
+storage backend into ``sys.modules``.
+
+Multi-tenancy (ADR-018, Option A)
+----------------------------------
+Every MCP tool takes ``campaign_id: str`` as its **first parameter**. The tool body
+calls ``storage = storage_factory(campaign_id)`` to obtain the per-campaign backend.
+A single server process serves all campaigns; the factory caches backends keyed by
+``campaign_id``. This eliminates the cross-account data-leakage risk (A01) and
+avoids the N×50 MB memory cost of one subprocess per campaign.
 
 At module scope we import only ``domain`` (persistent entities), the stable pure
 core ``rules`` (allowed cross-import — it is not a swap boundary), and the
@@ -23,7 +32,7 @@ core ``rules`` (allowed cross-import — it is not a swap boundary), and the
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from mcp.server.fastmcp import FastMCP
 
@@ -40,7 +49,6 @@ from gamebook.rules import implementation as rules
 from gamebook.rules.interfaces import DiceResult, LuckTestResult
 
 if TYPE_CHECKING:
-    from gamebook.combat.interfaces import CombatEngine
     from gamebook.rules.interfaces import RandomSource
     from gamebook.storage.interfaces import StorageBackend
 
@@ -72,38 +80,49 @@ _INSTRUCTIONS = (
 
 
 def build_server(
-    storage: StorageBackend,
-    combat: CombatEngine,
+    storage_factory: Callable[[str], StorageBackend],
     rng: RandomSource,
 ) -> FastMCP:
     """Build the MCP server, wiring all 18 tools onto injected collaborators.
 
-    Takes interfaces only; constructs no concretes. Returns a ready-to-run
+    Takes a ``storage_factory`` callable (returns a ``StorageBackend`` scoped to
+    the given ``campaign_id``) and a ``RandomSource``. Returns a ready-to-run
     :class:`FastMCP` instance (call ``.run()`` for stdio transport).
+
+    Every tool takes ``campaign_id: str`` as its first parameter and resolves its
+    storage backend on each call via ``storage_factory(campaign_id)``. This makes
+    a single server process serve all campaigns with full isolation (ADR-018).
     """
+    # Import the concrete CombatService here (inside build_server, not at module
+    # scope) so that importing this module never drags CombatService into
+    # sys.modules — preserving the "no concretes at module scope" invariant.
+    from gamebook.combat.implementation import CombatService
 
     server: FastMCP = FastMCP(name=SERVER_NAME, instructions=_INSTRUCTIONS)
 
-    def _require_character() -> CharacterSheet:
-        sheet = storage.load_character()
+    def _require_character(campaign_id: str) -> CharacterSheet:
+        sheet = storage_factory(campaign_id).load_character()
         if sheet is None:
             raise ValueError("no character sheet exists yet; create one first")
         return sheet
 
+    def _get_combat(campaign_id: str) -> CombatService:
+        """Per-campaign CombatService wrapping the campaign's StorageBackend."""
+        return CombatService(storage_factory(campaign_id), rng)
+
     # --- Dice / luck ------------------------------------------------------
     @server.tool(name="roll_dice", description="Roll a dice expression like '2d6' or '1d6+6'.")
-    def roll_dice(notation: str) -> DiceResult:
+    def roll_dice(campaign_id: str, notation: str) -> DiceResult:
         return rules.roll_dice(notation, rng)
 
     @server.tool(
         name="test_luck",
         description="Test the hero's luck (2d6 <= current luck); always spends one luck.",
     )
-    def test_luck() -> LuckTestResult:
-        sheet = _require_character()
+    def test_luck(campaign_id: str) -> LuckTestResult:
+        storage = storage_factory(campaign_id)
+        sheet = _require_character(campaign_id)
         result = rules.test_luck(sheet.luck.current, rng)
-        # Testing luck always spends one point; floor at 0 to honour the
-        # Attribute invariant (0 <= current <= initial).
         sheet.luck = sheet.luck.model_copy(
             update={"current": max(0, result.luck_after)}
         )
@@ -115,7 +134,8 @@ def build_server(
         name="create_character",
         description="Roll a new hero's attributes and persist a living character sheet.",
     )
-    def create_character(name: str) -> CharacterSheet:
+    def create_character(campaign_id: str, name: str) -> CharacterSheet:
+        storage = storage_factory(campaign_id)
         existing = storage.load_character()
         if existing is not None and existing.alive:
             raise ValueError(
@@ -133,8 +153,8 @@ def build_server(
         return sheet
 
     @server.tool(name="read_character_sheet", description="Return the hero's full character sheet.")
-    def read_character_sheet() -> CharacterSheet:
-        return _require_character()
+    def read_character_sheet(campaign_id: str) -> CharacterSheet:
+        return _require_character(campaign_id)
 
     @server.tool(
         name="update_character_sheet",
@@ -144,8 +164,9 @@ def build_server(
             "on error the state is left unchanged."
         ),
     )
-    def update_character_sheet(changes: dict[str, Any]) -> CharacterSheet:
-        sheet = _require_character()
+    def update_character_sheet(campaign_id: str, changes: dict[str, Any]) -> CharacterSheet:
+        storage = storage_factory(campaign_id)
+        sheet = _require_character(campaign_id)
 
         unknown = set(changes) - _UPDATABLE_FIELDS
         if unknown:
@@ -166,16 +187,14 @@ def build_server(
             else:
                 data[field] = value
 
-        # ``model_validate`` runs the dominio invariants. If it raises (e.g.
-        # healing past ``initial``), nothing was persisted, so state is unchanged.
         updated = CharacterSheet.model_validate(data)
         storage.save_character(updated)
         return updated
 
     # --- World / events / summary ----------------------------------------
     @server.tool(name="read_world", description="Return the current world state.")
-    def read_world() -> World:
-        return storage.load_world()
+    def read_world(campaign_id: str) -> World:
+        return storage_factory(campaign_id).load_world()
 
     @server.tool(
         name="update_world",
@@ -187,7 +206,8 @@ def build_server(
             "and advance the turn counter."
         ),
     )
-    def update_world(changes: dict[str, Any]) -> World:
+    def update_world(campaign_id: str, changes: dict[str, Any]) -> World:
+        storage = storage_factory(campaign_id)
         world = storage.load_world()
 
         unknown = set(changes) - _UPDATABLE_WORLD_FIELDS
@@ -209,8 +229,6 @@ def build_server(
             else:
                 data[field] = value
 
-        # ``model_validate`` runs the dominio invariants (e.g. turn >= 0). If it
-        # raises, nothing was persisted, so the world is left unchanged.
         updated = World.model_validate(data)
         storage.save_world(updated)
         return updated
@@ -219,7 +237,8 @@ def build_server(
         name="register_event",
         description="Append a hard fact to the chronicle, stamped with the current turn.",
     )
-    def register_event(type: str, data: dict[str, Any]) -> Event:
+    def register_event(campaign_id: str, type: str, data: dict[str, Any]) -> Event:
+        storage = storage_factory(campaign_id)
         world = storage.load_world()
         event = Event(
             turn=world.turn,
@@ -231,55 +250,53 @@ def build_server(
         return event
 
     @server.tool(name="read_events", description="Return the full chronicle of events, in order.")
-    def read_events() -> list[Event]:
-        return storage.load_events()
+    def read_events(campaign_id: str) -> list[Event]:
+        return storage_factory(campaign_id).load_events()
 
     @server.tool(name="read_summary", description="Return the running narrative summary.")
-    def read_summary() -> str:
-        return storage.load_summary()
+    def read_summary(campaign_id: str) -> str:
+        return storage_factory(campaign_id).load_summary()
 
     @server.tool(name="update_summary", description="Replace the running narrative summary.")
-    def update_summary(text: str) -> dict[str, Any]:
-        storage.save_summary(text)
+    def update_summary(campaign_id: str, text: str) -> dict[str, Any]:
+        storage_factory(campaign_id).save_summary(text)
         return {"ok": True}
 
     # --- Combat (delegated to the combat engine) -------------------------
     @server.tool(name="start_combat", description="Start a fight against one or more living enemies.")
-    def start_combat(enemies: list[dict[str, Any]], flee_allowed: bool) -> Combat:
-        # Parse the enemy dicts; the empty / all-defeated invariant is enforced
-        # by CombatService.start_combat. We surface that ValueError cleanly
-        # (never swallow it) so an unfightable encounter can't silently soft-lock.
+    def start_combat(campaign_id: str, enemies: list[dict[str, Any]], flee_allowed: bool) -> Combat:
         parsed = [Enemy.model_validate(enemy) for enemy in enemies]
-        return combat.start_combat(parsed, flee_allowed)
+        return _get_combat(campaign_id).start_combat(parsed, flee_allowed)
 
     @server.tool(
         name="resolve_combat_round",
         description="Resolve one combat round, optionally testing luck on the hit.",
     )
-    def resolve_combat_round(combat_id: str, use_luck: bool) -> RoundOutcome:
-        return combat.resolve_round(combat_id, use_luck)
+    def resolve_combat_round(campaign_id: str, combat_id: str, use_luck: bool) -> RoundOutcome:
+        return _get_combat(campaign_id).resolve_round(combat_id, use_luck)
 
     @server.tool(name="flee_combat", description="Flee the combat (if allowed); costs 2 stamina.")
-    def flee_combat(combat_id: str) -> FleeResult:
-        return combat.flee(combat_id)
+    def flee_combat(campaign_id: str, combat_id: str) -> FleeResult:
+        return _get_combat(campaign_id).flee(combat_id)
 
     @server.tool(name="end_combat", description="Conclude a combat and return its final result.")
-    def end_combat(combat_id: str) -> FinalResult:
-        return combat.end_combat(combat_id)
+    def end_combat(campaign_id: str, combat_id: str) -> FinalResult:
+        return _get_combat(campaign_id).end_combat(combat_id)
 
     # --- End states / session --------------------------------------------
     @server.tool(
         name="archive_character",
         description="Archive the hero to the graveyard (death) or hall_of_fame (victory).",
     )
-    def archive_character(destination: str) -> dict[str, Any]:
+    def archive_character(campaign_id: str, destination: str) -> dict[str, Any]:
         outcome = _ARCHIVE_OUTCOME.get(destination)
         if outcome is None:
             raise ValueError(
                 f"invalid destination {destination!r}; "
                 "expected 'graveyard' or 'hall_of_fame'"
             )
-        sheet = _require_character()
+        storage = storage_factory(campaign_id)
+        sheet = _require_character(campaign_id)
         world = storage.load_world()
         record = ArchiveRecord(
             name=sheet.name,
@@ -293,58 +310,73 @@ def build_server(
         return {"ok": True}
 
     @server.tool(name="save_progress", description="Snapshot all state to a named slot (default 'autosave').")
-    def save_progress(slot: str | None = None) -> dict[str, Any]:
+    def save_progress(campaign_id: str, slot: str | None = None) -> dict[str, Any]:
         name = slot or _DEFAULT_SLOT
-        storage.save_slot(name)
+        storage_factory(campaign_id).save_slot(name)
         return {"ok": True, "slot": name}
 
     @server.tool(name="load_progress", description="Restore all state from a named slot (default 'autosave').")
-    def load_progress(slot: str | None = None) -> dict[str, Any]:
+    def load_progress(campaign_id: str, slot: str | None = None) -> dict[str, Any]:
         name = slot or _DEFAULT_SLOT
-        storage.load_slot(name)
+        storage_factory(campaign_id).load_slot(name)
         return {"ok": True, "slot": name}
 
     return server
 
 
 def main() -> None:
-    """Composition root: build concretes, inject them, and serve over stdio.
+    """Composition root: build concretes, inject them as a factory, and serve over stdio.
 
     This is the ONLY place allowed to import/construct concrete implementations.
     The imports are local so that importing this module never pulls a storage
     backend into ``sys.modules`` (keeps the façade import-isolated).
 
     Phase-1 path (default):
-        ``DATABASE_URL`` or ``GAMEBOOK_CAMPAIGN_ID`` absent → ``JSONStorage("estado")``.
+        ``DATABASE_URL`` or ``GAMEBOOK_CAMPAIGN_ID`` absent → ``JSONStorage``
+        scoped to ``estado/{campaign_id}``.
 
     Phase-2 path:
-        Both ``DATABASE_URL`` *and* ``GAMEBOOK_CAMPAIGN_ID`` set →
-        ``PostgresStorage(url, campaign_id)``.  The campaign row is upserted
-        automatically; no prior database setup beyond ``alembic upgrade head`` is
-        needed.
+        ``DATABASE_URL`` set → ``PostgresStorage(url, campaign_id)`` per campaign.
+        The campaign row is upserted automatically; no prior database setup beyond
+        ``alembic upgrade head`` is needed.
+
+    The factory caches backends in a dict keyed by ``campaign_id`` so repeated
+    calls for the same campaign reuse the same instance.
+    # TODO(LRU): replace the dict cache with an LRU(max_size=500) before
+    # production at scale — an unbounded dict is a memory leak when many campaigns
+    # are created across accounts.
     """
     import os
     import random
 
-    from gamebook.combat.implementation import CombatService
-
     database_url = os.environ.get("DATABASE_URL", "")
-    campaign_id = os.environ.get("GAMEBOOK_CAMPAIGN_ID", "")
 
-    if database_url and campaign_id:
-        # Phase-2: PostgresStorage scoped to the given campaign.
-        # Local import keeps the module's top-level footprint clean (ADR-009).
-        from gamebook.storage.postgres import PostgresStorage  # composition root only
+    # Per-campaign backend cache (dict MVP; see LRU TODO above).
+    _cache: dict[str, Any] = {}
 
-        storage = PostgresStorage(database_url, campaign_id)
+    if database_url:
+        from gamebook.storage.postgres import PostgresStorage
+
+        def factory(campaign_id: str) -> PostgresStorage:
+            if campaign_id not in _cache:
+                _cache[campaign_id] = PostgresStorage(database_url, campaign_id)
+            return _cache[campaign_id]
+
     else:
         from gamebook.storage.json_storage import JSONStorage
 
-        storage = JSONStorage("estado")
+        def factory(campaign_id: str) -> JSONStorage:  # type: ignore[misc]
+            if campaign_id not in _cache:
+                _cache[campaign_id] = JSONStorage(f"estado/{campaign_id}")
+            return _cache[campaign_id]
 
     rng = random.Random()
-    combat = CombatService(storage, rng)
-    build_server(storage, combat, rng).run(transport="stdio")
+    # GAMEBOOK_CAMPAIGN_ID is only used by the Phase-1 terminal harness main()
+    # to pre-warm the default campaign on startup; it is NOT read by the web path.
+    default_id = os.environ.get("GAMEBOOK_CAMPAIGN_ID", "default")
+    _ = factory(default_id)  # pre-warm default campaign backend
+
+    build_server(factory, rng).run(transport="stdio")
 
 
 if __name__ == "__main__":

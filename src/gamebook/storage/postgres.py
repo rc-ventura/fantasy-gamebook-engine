@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import uuid
 from typing import Any, Literal
@@ -50,6 +51,16 @@ from gamebook.domain.models import (
 
 _VALID_ARCHIVE_DESTINATIONS = frozenset({"graveyard", "hall_of_fame"})
 
+# Identifiers that would allow path traversal or cause storage confusion if
+# used as slot names, combat IDs, etc.
+_INVALID_IDENTIFIERS = frozenset({"", ".", ".."})
+
+
+def _validate_identifier(value: str | None, label: str = "identifier") -> None:
+    """Raise ValueError for empty, None, or path-traversal identifiers (T076)."""
+    if value is None or value in _INVALID_IDENTIFIERS or "/" in value or "\\" in value:
+        raise ValueError(f"invalid {label}: {value!r}")
+
 
 def _new_id() -> str:
     return str(uuid.uuid4())
@@ -69,9 +80,30 @@ class PostgresStorage:
         satisfied before any other method is called.
     """
 
-    def __init__(self, url: str, campaign_id: str) -> None:
+    def __init__(self, url: str, campaign_id: str, account_id: str | None = None) -> None:
         self._campaign_id = campaign_id
-        self._engine = create_async_engine(url, pool_pre_ping=True)
+        # Owning account for this campaign (FR-024).  When provided, the campaign
+        # row is created/healed with this account_id so the storage never leaves
+        # an orphan (NULL-owner) campaign that ownership checks would reject.
+        # Optional for pure-storage tests that don't exercise ownership.
+        self._account_id = account_id
+
+        # TLS enforcement (ADR-026, T072): require SSL by default.
+        # Set POSTGRES_SSL_MODE=disable for local dev/test without TLS.
+        ssl_mode = os.getenv("POSTGRES_SSL_MODE", "require")
+        connect_args: dict[str, Any] = {
+            # asyncpg default connect_timeout is None (blocks forever). Set a
+            # reasonable bound so __init__ fails fast on an unresponsive DB
+            # rather than hanging the MCP server process at startup (finding #3).
+            "timeout": float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10")),
+        }
+        if ssl_mode != "disable":
+            connect_args["ssl"] = ssl_mode  # asyncpg accepts "require" / True
+        self._engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
 
         # Private event loop in a daemon thread so we can safely submit async
         # work from any calling context (including an already-running loop).
@@ -90,32 +122,76 @@ class PostgresStorage:
     # Sync bridge
     # ------------------------------------------------------------------
 
+    _RUN_TIMEOUT = float(os.getenv("POSTGRES_OP_TIMEOUT", "30"))
+
     def _run(self, coro) -> Any:
-        """Submit *coro* to the background loop and block until it finishes."""
+        """Submit *coro* to the background loop and block until it finishes.
+
+        Raises ``TimeoutError`` after ``POSTGRES_OP_TIMEOUT`` seconds (default 30)
+        so a hung DB operation never permanently stalls the calling thread.
+        """
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        return future.result(timeout=self._RUN_TIMEOUT)
 
     def _session(self) -> AsyncSession:  # pragma: no cover — thin factory
         return AsyncSession(self._engine, expire_on_commit=False)
+
+    def close(self) -> None:
+        """Dispose the async engine and stop the daemon event loop (T074 / ADR-027).
+
+        Must be called on MCP server graceful shutdown and in live-Postgres test
+        teardown to prevent resource leaks.  Safe to call more than once.
+        """
+        async def _dispose() -> None:
+            await self._engine.dispose()
+
+        try:
+            if self._loop.is_running():
+                self._run(_dispose())
+        finally:
+            # Stop the loop even if dispose raised (finding #5 — try/finally).
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            # Wait for the thread to finish so teardown doesn't race the next
+            # PostgresStorage construction in the same test session (finding #9).
+            self._thread.join(timeout=5)
 
     # ------------------------------------------------------------------
     # Campaign bootstrap
     # ------------------------------------------------------------------
 
     async def _ensure_campaign(self) -> None:
-        """Upsert the campaign row so all FK references succeed."""
+        """Upsert the campaign row so all FK references succeed.
+
+        When an owning ``account_id`` is known (FR-024), the row is created with
+        it and — on an existing row — its owner is healed only if currently NULL
+        (``COALESCE`` never overwrites an established owner, so a mis-scoped
+        storage instance can't reassign someone else's campaign).
+        """
         async with self._session() as session:
             async with session.begin():
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO campaign (id, status, created_at, updated_at, summary_text)
-                        VALUES (:id, 'active', NOW(), NOW(), '')
-                        ON CONFLICT (id) DO NOTHING
-                        """
-                    ),
-                    {"id": self._campaign_id},
-                )
+                if self._account_id:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO campaign (id, account_id, status, created_at, updated_at, summary_text)
+                            VALUES (:id, :account_id, 'active', NOW(), NOW(), '')
+                            ON CONFLICT (id) DO UPDATE
+                              SET account_id = COALESCE(campaign.account_id, EXCLUDED.account_id)
+                            """
+                        ),
+                        {"id": self._campaign_id, "account_id": self._account_id},
+                    )
+                else:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO campaign (id, status, created_at, updated_at, summary_text)
+                            VALUES (:id, 'active', NOW(), NOW(), '')
+                            ON CONFLICT (id) DO NOTHING
+                            """
+                        ),
+                        {"id": self._campaign_id},
+                    )
 
     # ------------------------------------------------------------------
     # Character
@@ -227,8 +303,15 @@ class PostgresStorage:
         event_id = _new_id()
         async with self._session() as session:
             async with session.begin():
-                # seq = MAX(seq)+1 within this transaction (no race condition
-                # because we hold the row-level lock via the INSERT).
+                # Acquire a transaction-scoped advisory lock keyed by campaign_id
+                # hash to serialize concurrent appends for the same campaign
+                # (ADR-027, T073). The prior MAX(seq)+1 approach had a race:
+                # two concurrent transactions could compute the same MAX before
+                # either committed, producing duplicate seq values.
+                await session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:cid))"),
+                    {"cid": self._campaign_id},
+                )
                 await session.execute(
                     text(
                         """
@@ -301,6 +384,7 @@ class PostgresStorage:
     # ------------------------------------------------------------------
 
     def load_combat(self, combat_id: str) -> Combat | None:
+        _validate_identifier(combat_id, "combat_id")
         return self._run(self._load_combat(combat_id))
 
     async def _load_combat(self, combat_id: str) -> Combat | None:
@@ -361,6 +445,7 @@ class PostgresStorage:
                     )
 
     def remove_combat(self, combat_id: str) -> None:
+        _validate_identifier(combat_id, "combat_id")
         self._run(self._remove_combat(combat_id))
 
     async def _remove_combat(self, combat_id: str) -> None:
@@ -423,20 +508,14 @@ class PostgresStorage:
     # ------------------------------------------------------------------
 
     def save_slot(self, name: str) -> None:
+        _validate_identifier(name, "slot_name")
         self._run(self._save_slot(name))
 
     async def _save_slot(self, name: str) -> None:
-        """Atomically capture a snapshot and write it to the save_slot table.
-
-        Both the snapshot build (reads) and the INSERT are performed inside a
-        single session so they see a consistent point-in-time view of the
-        campaign state.  A concurrent write between the read and insert phases
-        would be serialised by Postgres isolation.
-        """
+        snapshot = await self._build_snapshot()
+        payload = json.dumps(snapshot)
         async with self._session() as session:
             async with session.begin():
-                snapshot = await self._build_snapshot_in_session(session)
-                payload = json.dumps(snapshot)
                 await session.execute(
                     text(
                         """
@@ -451,6 +530,7 @@ class PostgresStorage:
                 )
 
     def load_slot(self, name: str) -> None:
+        _validate_identifier(name, "slot_name")
         self._run(self._load_slot(name))
 
     async def _load_slot(self, name: str) -> None:
@@ -480,65 +560,70 @@ class PostgresStorage:
     # ------------------------------------------------------------------
 
     async def _build_snapshot(self) -> dict[str, Any]:
-        """Capture the full mutable campaign state as a serialisable dict."""
+        """Capture the full mutable campaign state as a serialisable dict.
+
+        All reads execute inside a single read-only transaction (T075 / ADR-027)
+        so they see a consistent point-in-time view even if concurrent writes
+        are in flight.  The ``SET TRANSACTION READ ONLY`` and every SELECT are
+        inside the same ``async with session.begin():`` block.
+        """
         async with self._session() as session:
-            return await self._build_snapshot_in_session(session)
+            async with session.begin():
+                await session.execute(text("SET TRANSACTION READ ONLY"))
 
-    async def _build_snapshot_in_session(self, session: AsyncSession) -> dict[str, Any]:
-        """Build snapshot using an existing session (for transactional save_slot)."""
-        # character
-        char_row = await session.execute(
-            text("SELECT data FROM character_sheet WHERE campaign_id = :cid"),
-            {"cid": self._campaign_id},
-        )
-        char_result = char_row.fetchone()
-        character = None if char_result is None else char_result[0]
-        if isinstance(character, str):
-            character = json.loads(character)
+                # character
+                char_row = await session.execute(
+                    text("SELECT data FROM character_sheet WHERE campaign_id = :cid"),
+                    {"cid": self._campaign_id},
+                )
+                char_result = char_row.fetchone()
+                character = None if char_result is None else char_result[0]
+                if isinstance(character, str):
+                    character = json.loads(character)
 
-        # world
-        world_row = await session.execute(
-            text("SELECT data FROM world WHERE campaign_id = :cid"),
-            {"cid": self._campaign_id},
-        )
-        world_result = world_row.fetchone()
-        world = None if world_result is None else world_result[0]
-        if isinstance(world, str):
-            world = json.loads(world)
+                # world
+                world_row = await session.execute(
+                    text("SELECT data FROM world WHERE campaign_id = :cid"),
+                    {"cid": self._campaign_id},
+                )
+                world_result = world_row.fetchone()
+                world = None if world_result is None else world_result[0]
+                if isinstance(world, str):
+                    world = json.loads(world)
 
-        # events
-        ev_rows = await session.execute(
-            text(
-                "SELECT payload FROM event WHERE campaign_id = :cid ORDER BY seq ASC"
-            ),
-            {"cid": self._campaign_id},
-        )
-        events = []
-        for (payload,) in ev_rows:
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-            events.append(payload)
+                # events
+                ev_rows = await session.execute(
+                    text(
+                        "SELECT payload FROM event WHERE campaign_id = :cid ORDER BY seq ASC"
+                    ),
+                    {"cid": self._campaign_id},
+                )
+                events = []
+                for (payload,) in ev_rows:
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                    events.append(payload)
 
-        # summary
-        sum_row = await session.execute(
-            text("SELECT summary_text FROM campaign WHERE id = :cid"),
-            {"cid": self._campaign_id},
-        )
-        sum_result = sum_row.fetchone()
-        summary = "" if sum_result is None else (sum_result[0] or "")
+                # summary
+                sum_row = await session.execute(
+                    text("SELECT summary_text FROM campaign WHERE id = :cid"),
+                    {"cid": self._campaign_id},
+                )
+                sum_result = sum_row.fetchone()
+                summary = "" if sum_result is None else (sum_result[0] or "")
 
-        # active combats
-        combat_row = await session.execute(
-            text("SELECT state FROM combat WHERE campaign_id = :cid"),
-            {"cid": self._campaign_id},
-        )
-        combat_result = combat_row.fetchone()
-        combats: dict[str, Any] = {}
-        if combat_result is not None and combat_result[0] is not None:
-            state = combat_result[0]
-            if isinstance(state, str):
-                state = json.loads(state)
-            combats = state
+                # active combats
+                combat_row = await session.execute(
+                    text("SELECT state FROM combat WHERE campaign_id = :cid"),
+                    {"cid": self._campaign_id},
+                )
+                combat_result = combat_row.fetchone()
+                combats: dict[str, Any] = {}
+                if combat_result is not None and combat_result[0] is not None:
+                    state = combat_result[0]
+                    if isinstance(state, str):
+                        state = json.loads(state)
+                    combats = state
 
         return {
             "character": character,
@@ -549,26 +634,9 @@ class PostgresStorage:
         }
 
     async def _restore_snapshot(self, snapshot: dict[str, Any]) -> None:
-        """Restore campaign state from a snapshot dict in a single transaction.
-
-        Uses ``SELECT ... FOR UPDATE`` on the campaign row so that concurrent
-        restores to the same campaign are serialised: a second restore blocks
-        until the first transaction commits, then runs its own restore on top
-        of a consistent committed state.  This prevents a double-restore race
-        where two concurrent ``load_slot`` calls could interleave writes and
-        corrupt the campaign, without ever silently skipping a requested
-        restore (which would leave the caller believing the slot loaded while
-        state was unchanged).
-        """
+        """Restore campaign state from a snapshot dict in a single transaction."""
         async with self._session() as session:
             async with session.begin():
-                # Acquire row-level lock on the campaign; plain FOR UPDATE
-                # blocks until any concurrent restore releases the lock, so the
-                # restore always runs rather than being silently skipped.
-                await session.execute(
-                    text("SELECT id FROM campaign WHERE id = :cid FOR UPDATE"),
-                    {"cid": self._campaign_id},
-                )
                 # character_sheet
                 if snapshot.get("character") is not None:
                     char_data = snapshot["character"]

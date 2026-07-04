@@ -21,6 +21,7 @@ import os
 import uuid
 from typing import Any
 
+from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -58,7 +59,16 @@ class AccountRepository:
     """Async SQLAlchemy-backed account and ownership queries."""
 
     def __init__(self, url: str) -> None:
-        self._engine = create_async_engine(url, pool_pre_ping=True)
+        # Bounded pool (L-POOL): matches LeaseService — an unbounded pool can
+        # exhaust Postgres connections under load; these limits cap worst-case
+        # connection usage per process while still allowing reasonable concurrency.
+        self._engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+        )
 
     def _session(self) -> AsyncSession:
         return AsyncSession(self._engine, expire_on_commit=False)
@@ -206,18 +216,35 @@ class AccountRepository:
             }
 
     async def create_campaign(self, account_id: str, campaign_id: str | None = None) -> dict[str, Any]:
-        """Insert a new campaign row owned by account_id."""
+        """Insert a new campaign row owned by ``account_id``.
+
+        The ``account_id`` is always set (FR-023) so no campaign is created
+        without an owner.  A duplicate ``campaign_id`` is rejected ``409``
+        (FR-023) rather than silently no-op'ing — the caller must not reuse an
+        id that already belongs to a campaign (possibly another account's).
+        """
         cid = campaign_id or str(uuid.uuid4())
         async with self._session() as session:
             async with session.begin():
-                await session.execute(
+                result = await session.execute(
                     text(
                         "INSERT INTO campaign (id, account_id, status, created_at, updated_at, summary_text) "
                         "VALUES (:id, :account_id, 'active', NOW(), NOW(), '') "
-                        "ON CONFLICT (id) DO NOTHING"
+                        "ON CONFLICT (id) DO NOTHING "
+                        "RETURNING id"
                     ),
                     {"id": cid, "account_id": account_id},
                 )
+                if result.fetchone() is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": {
+                                "code": "campaign_exists",
+                                "message": f"Campaign {cid!r} already exists.",
+                            }
+                        },
+                    )
         return {"campaign_id": cid, "status": "active", "account_id": account_id}
 
     async def set_campaign_status(
@@ -346,6 +373,27 @@ class AccountRepository:
                         "archived_at": arc[2].isoformat() if arc[2] else None,
                     })
                 campaign_data["archive"] = archive
+
+                # Save slots — named full-state snapshots (FR-026): part of the
+                # player's data, so they belong in the GDPR export.
+                slot_rows = await session.execute(
+                    text(
+                        "SELECT name, snapshot, created_at "
+                        "FROM save_slot WHERE campaign_id = :cid ORDER BY created_at ASC"
+                    ),
+                    {"cid": cid},
+                )
+                save_slots = []
+                for slot in slot_rows.fetchall():
+                    snapshot = slot[1]
+                    if isinstance(snapshot, str):
+                        snapshot = json.loads(snapshot)
+                    save_slots.append({
+                        "name": slot[0],
+                        "snapshot": snapshot,
+                        "created_at": slot[2].isoformat() if slot[2] else None,
+                    })
+                campaign_data["save_slots"] = save_slots
 
                 campaigns.append(campaign_data)
 

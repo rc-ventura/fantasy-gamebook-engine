@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 type Theme = 'ember' | 'candle'
 type PlayTab = 'story' | 'map' | 'backpack' | 'saves'
@@ -19,9 +19,7 @@ import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
 
 export default function PlayPage() {
-  const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const campaignId = id ?? ''
 
   const {
     loadState,
@@ -29,32 +27,49 @@ export default function PlayPage() {
     campaign,
     error,
     sessionConflict,
+    lastSavedAt,
+    onStart,
     onChoose,
     onFreeText,
     onTakeover,
     onReload,
     onSave,
-  } = useGame(campaignId)
+  } = useGame()
 
   const [creatingCharacter, setCreatingCharacter] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getTheme)
   const [tab, setTab] = useState<PlayTab>('story')
+  const openedRef = useRef(false)
 
   useEffect(() => { applyTheme(theme) }, [theme])
+
+  // Auto-open the adventure: once a hero exists but no scene has been narrated
+  // yet, take the opening turn so the player never lands on a blank story with
+  // no choices. Fires once per hero (re-armed if the hero is reset).
+  useEffect(() => {
+    const hasChar = !!campaign?.character
+    const hasScene = !!campaign?.current_scene
+    const ended = campaign?.status === 'ended'
+    if (!hasChar) { openedRef.current = false; return }
+    if (loadState === 'ready' && !hasScene && !ended && actionState === 'idle' && !openedRef.current) {
+      openedRef.current = true
+      void onStart()
+    }
+  }, [loadState, actionState, campaign, onStart])
 
   const handleCreateCharacter = useCallback(async () => {
     setCreatingCharacter(true)
     setCreateError(null)
     try {
-      await createCharacter(campaignId)
+      await createCharacter()
       await onReload()
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create character')
     } finally {
       setCreatingCharacter(false)
     }
-  }, [campaignId, onReload])
+  }, [onReload])
 
   // Capture before any TypeScript narrowing via early returns
   const isDataLoading = loadState === 'loading'
@@ -229,7 +244,7 @@ export default function PlayPage() {
               <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: '14px' }}>
                 <div style={{ fontFamily: 'var(--font-title)', fontWeight: 600, fontSize: '0.86rem', letterSpacing: '0.08em', color: 'var(--ink)' }}>FANTASY GAMEBOOK</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', letterSpacing: '0.06em', color: 'var(--faint)' }}>
-                  {fmtLocation(world.location)}{typeof world.flags['turn'] === 'number' ? ` · Turn ${world.flags['turn'] as number}` : ''}
+                  {fmtLocation(world.current_location)}{typeof world.turn === 'number' && world.turn > 0 ? ` · Turn ${world.turn}` : ''}
                 </div>
               </div>
             )}
@@ -295,18 +310,18 @@ export default function PlayPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '26px' }}>
                       <span style={{ fontFamily: 'var(--font-title)', fontSize: '1.4rem', color: 'var(--accent)' }}>§</span>
                       <span style={{ fontFamily: 'var(--font-title)', fontWeight: 600, fontSize: '1.05rem', letterSpacing: '0.06em', color: 'var(--ink)' }}>
-                        {fmtLocation(world.location)}
+                        {fmtLocation(world.current_location)}
                       </span>
                       <span style={{ flex: 1, height: '1px', background: 'var(--line)' }} />
-                      {typeof world.flags['turn'] === 'number' && (
+                      {typeof world.turn === 'number' && world.turn > 0 && (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', letterSpacing: '0.1em', color: 'var(--faint)' }}>
-                          TURN {world.flags['turn'] as number}
+                          TURN {world.turn}
                         </span>
                       )}
                     </div>
                   )}
 
-                  <NarratorPanel narrative={scene?.narrative} loading={isDataLoading || creatingCharacter} isTerminal={isTerminal} />
+                  <NarratorPanel narrative={scene?.narrative} loading={isDataLoading || creatingCharacter || (actionPending && !scene?.narrative)} isTerminal={isTerminal} />
 
                   {error && actionState === 'error' && (
                     <div role="alert" style={{ fontFamily: 'var(--font-body)', fontSize: '0.9rem', color: '#c0392b', padding: 'var(--space-sm) var(--space-md)', background: 'rgba(192,57,43,0.1)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 'var(--radius-sm)' }}>
@@ -339,7 +354,7 @@ export default function PlayPage() {
                 <div>
                   <h2 style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.7rem', color: 'var(--ink)', margin: '0 0 6px' }}>The Grey Mountain</h2>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: '1.05rem', color: 'var(--muted)', margin: '0 0 34px' }}>
-                    {world ? `${world.visited.length} zone${world.visited.length !== 1 ? 's' : ''} visited.` : 'No world data.'}
+                    {world ? `${world.visited_locations.length} zone${world.visited_locations.length !== 1 ? 's' : ''} visited.` : 'No world data.'}
                   </p>
                   <MapPanelComp world={world} loading={isDataLoading} />
                 </div>
@@ -381,6 +396,11 @@ export default function PlayPage() {
                   }}>
                     Save checkpoint now
                   </button>
+                  {lastSavedAt && (
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--faint)', letterSpacing: '0.06em', marginTop: '14px' }}>
+                      ✓ Saved at {new Date(lastSavedAt).toLocaleTimeString()}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

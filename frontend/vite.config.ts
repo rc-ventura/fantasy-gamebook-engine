@@ -33,6 +33,8 @@ export default defineConfig({
 
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Disable source maps in production to avoid leaking internals (T097, FR-051).
+    // In dev mode Vite serves them in-memory — no file written.
+    sourcemap: false,
   },
 })

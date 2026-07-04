@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCampaign } from '../hooks/useCampaign'
-import { getAccount, getCampaign } from '../api'
-import type { Account, CampaignState, CampaignSummary } from '../types'
+import { getAccount } from '../api'
+import type { Account, GraveyardEntry } from '../types'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
 import EmptyState from '../components/EmptyState'
@@ -47,29 +47,27 @@ const ADVENTURE_MODULES = [
   },
 ]
 
-function registryStats(campaigns: CampaignSummary[]) {
-  const total = campaigns.length
-  const active = campaigns.filter((c) => c.status === 'active').length
-  const ended = campaigns.filter((c) => c.status === 'ended').length
+function registryStats(hasActive: boolean, graveyardCount: number) {
+  const active = hasActive ? 1 : 0
+  const total = active + graveyardCount
   return [
     { label: 'Campaigns', value: total, color: 'var(--ink)' },
     { label: 'Active', value: active, color: 'var(--accent)' },
-    { label: 'Completed', value: ended, color: 'var(--muted)' },
+    { label: 'Completed', value: graveyardCount, color: 'var(--muted)' },
     { label: 'Modules', value: 1, color: 'var(--luck)' },
   ]
 }
 
-function chronicle(campaigns: CampaignSummary[]): string[] {
+function chronicle(hasActive: boolean, graveyard: GraveyardEntry[]): string[] {
   const entries: string[] = []
-  const active = campaigns.find((c) => c.status === 'active')
-  if (active) {
-    const d = new Date(active.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    entries.push(`Last session · ${d} — Grey Mountain Expedition`)
+  if (hasActive) {
+    entries.push(`Active campaign — Grey Mountain Expedition`)
   }
-  const first = campaigns.at(0)
-  if (first) {
-    const d = new Date(first.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-    entries.push(`Account created · joined the Grimoire ${d}`)
+  const latest = graveyard.at(-1)
+  if (latest?.ended_at) {
+    const d = new Date(latest.ended_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    const outcome = latest.ended_reason === 'victory' ? 'Victory' : latest.ended_reason === 'death' ? 'Fell' : 'Ended'
+    entries.push(`${outcome} · ${d} — Grey Mountain Expedition`)
   }
   if (entries.length === 0) entries.push('Your chronicle is empty — begin an adventure.')
   return entries
@@ -78,9 +76,8 @@ function chronicle(campaigns: CampaignSummary[]): string[] {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
-  const { state, campaigns, error, onDelete, onReload } = useCampaign()
+  const { state, activeGame, graveyard, error, onCreate, onDelete, onReload } = useCampaign()
   const [account, setAccount] = useState<Account | null>(null)
-  const [activeCampaignState, setActiveCampaignState] = useState<CampaignState | null>(null)
   const [theme, setTheme] = useState<Theme>(getTheme)
 
   useEffect(() => {
@@ -91,15 +88,13 @@ export default function DashboardPage() {
     getAccount().then(setAccount).catch(() => null)
   }, [])
 
-  // Fetch full state for the active campaign to show hero stats
-  useEffect(() => {
-    const active = campaigns.find((c) => c.status === 'active')
-    if (!active) { setActiveCampaignState(null); return }
-    getCampaign(active.id).then(setActiveCampaignState).catch(() => null)
-  }, [campaigns])
-
-
   function handleCreate() {
+    void navigate('/create')
+  }
+
+  async function handleForge() {
+    // Create a new game and navigate to the play page (create hero inline)
+    await onCreate()
     void navigate('/create')
   }
 
@@ -108,11 +103,10 @@ export default function DashboardPage() {
     navigate('/')
   }
 
-  const activeCampaign = campaigns.find((c) => c.status === 'active')
   const name = accountName(account)
   const initial = name.charAt(0).toUpperCase()
-  const stats = registryStats(campaigns)
-  const events = chronicle(campaigns)
+  const stats = registryStats(activeGame !== null, graveyard.length)
+  const events = chronicle(activeGame !== null, graveyard)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
@@ -201,7 +195,7 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
 
               {/* Active campaign card */}
-              {activeCampaign ? (
+              {activeGame ? (
                 <div style={{
                   background: 'var(--panel-bg)', border: '1px solid var(--accent)',
                   borderRadius: '6px', padding: '28px', position: 'relative', overflow: 'hidden',
@@ -212,23 +206,23 @@ export default function DashboardPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '20px', flexWrap: 'wrap' }}>
                     <div>
                       <h2 style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.7rem', color: 'var(--panel-ink)', margin: '0 0 6px' }}>
-                        {activeCampaignState?.character?.name ?? 'Grey Mountain Expedition'}
-                        {activeCampaignState?.world ? ` · ${activeCampaignState.world.location.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` : ''}
+                        {activeGame.character?.name ?? 'Grey Mountain Expedition'}
+                        {activeGame.world ? ` · ${activeGame.world.current_location.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` : ''}
                       </h2>
                       <div style={{ display: 'flex', gap: '18px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--panel-muted)' }}>
-                        {activeCampaignState?.character && (
+                        {activeGame.character && (
                           <>
-                            <span>Stamina <span style={{ color: 'var(--stamina)' }}>{activeCampaignState.character.stamina.current}/{activeCampaignState.character.stamina.initial}</span></span>
-                            <span>Luck <span style={{ color: 'var(--luck)' }}>{activeCampaignState.character.luck.current}/{activeCampaignState.character.luck.initial}</span></span>
-                            <span>Gold <span style={{ color: 'var(--gold)' }}>{activeCampaignState.character.gold}</span></span>
+                            <span>Stamina <span style={{ color: 'var(--stamina)' }}>{activeGame.character.stamina.current}/{activeGame.character.stamina.initial}</span></span>
+                            <span>Luck <span style={{ color: 'var(--luck)' }}>{activeGame.character.luck.current}/{activeGame.character.luck.initial}</span></span>
+                            <span>Gold <span style={{ color: 'var(--gold)' }}>{activeGame.character.gold}</span></span>
                           </>
                         )}
-                        {!activeCampaignState?.character && (
-                          <span>Last played <span style={{ color: 'var(--panel-ink)' }}>{new Date(activeCampaign.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></span>
+                        {!activeGame.character && (
+                          <span style={{ color: 'var(--panel-muted)' }}>No hero yet — forge one to begin</span>
                         )}
                       </div>
                     </div>
-                    <button onClick={() => { void navigate(`/play/${activeCampaign.id}`) }} style={{
+                    <button onClick={() => { void navigate('/play') }} style={{
                       fontFamily: 'var(--font-title)', fontWeight: 600, fontSize: '0.92rem', letterSpacing: '0.04em',
                       padding: '14px 28px', background: 'var(--accent)', color: 'var(--accent-ink)',
                       border: 'none', borderRadius: '3px', cursor: 'pointer', whiteSpace: 'nowrap',
@@ -237,7 +231,7 @@ export default function DashboardPage() {
                     </button>
                   </div>
                 </div>
-              ) : campaigns.length === 0 ? (
+              ) : graveyard.length === 0 ? (
                 <EmptyState message="No adventures yet" hint="Forge a hero to begin your journey into the Grey Mountain" icon="◆" />
               ) : null}
 
@@ -291,7 +285,7 @@ export default function DashboardPage() {
 
               {/* Forge / Graveyard */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <button onClick={() => { void handleCreate() }} style={{
+                <button onClick={() => { void handleForge() }} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
                   padding: '18px', background: 'transparent',
                   border: '1px dashed var(--line)', borderRadius: '5px',
@@ -343,27 +337,25 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* All campaigns list */}
-              {campaigns.length > 0 && (
+              {/* Active game quick actions */}
+              {activeGame && (
                 <div style={{ marginTop: '22px', borderTop: '1px solid var(--line)', paddingTop: '16px' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: '10px' }}>
-                    All campaigns
+                    Current run
                   </div>
-                  {campaigns.map((c) => (
-                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: c.status === 'active' ? 'var(--accent)' : 'var(--faint)' }}>
-                        {c.id.slice(0, 8)}… · {c.status}
-                      </span>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={() => { void navigate(`/play/${c.id}`) }} style={{ background: 'transparent', border: 'none', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', cursor: 'pointer', padding: '2px 6px' }}>
-                          Resume
-                        </button>
-                        <button onClick={() => { void onDelete(c.id) }} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', cursor: 'pointer', padding: '2px 6px' }}>
-                          ✕
-                        </button>
-                      </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--accent)' }}>
+                      {activeGame.character?.name ?? 'Unnamed hero'} · active
+                    </span>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button onClick={() => { void navigate('/play') }} style={{ background: 'transparent', border: 'none', color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', cursor: 'pointer', padding: '2px 6px' }}>
+                        Resume
+                      </button>
+                      <button onClick={() => { void onDelete() }} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', cursor: 'pointer', padding: '2px 6px' }}>
+                        ✕
+                      </button>
                     </div>
-                  ))}
+                  </div>
                 </div>
               )}
             </aside>

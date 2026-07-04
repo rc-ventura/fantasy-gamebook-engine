@@ -1,28 +1,28 @@
-"""Session-lease guard middleware (T007).
+"""Database-misconfiguration guard middleware (T007, amended by ADR-031).
 
-Intercepts all state-changing HTTP requests to campaign endpoints and
-validates the ``X-Session-Lease`` header against the active lease.
+Originally this middleware also validated ``X-Session-Lease`` on mutating
+requests, extracting ``campaign_id`` straight from the URL under the
+``/campaigns/{id}/**`` route scheme. The D1 redesign (``/me/game/**``)
+resolves ``campaign_id`` from the caller's *account*, not the URL — which
+needs the auth dependency to have already run through FastAPI's (overridable)
+DI graph. Plain ASGI middleware cannot do that safely (calling
+``get_current_account`` directly, rather than via ``Depends()``, bypasses
+``app.dependency_overrides`` and would always resolve to the dev stub — a
+silent auth bypass). Real per-request lease enforcement now lives in the
+route-level ``require_lease`` dependency (``sessions/lease.py``), applied
+directly to each mutating ``/me/game/**`` route — see ADR-031.
 
-Mutating methods: POST, DELETE, PATCH, PUT
-Exempted paths (no lease required):
-  - /health
-  - GET any path (read-only)
-  - POST /campaigns  (create campaign — no lease yet)
-  - POST /campaigns/{id}/session*  (lease endpoints themselves)
-  - POST /campaigns/{id}/character  (initial character creation; no lease yet)
-  - DELETE /campaigns/{id}  (campaign deletion — handled by account layer)
-
-All other POST/DELETE to ``/campaigns/{id}/**`` require ``X-Session-Lease``.
-
-DATABASE_URL not set → middleware passes through (dev/test with InMemoryStorage).
+What this middleware still does: fail closed if OIDC is configured but
+``DATABASE_URL`` is missing. That combination means lease state cannot be
+tracked at all in a deployment that expects real auth, which is a
+misconfiguration serious enough to reject every mutating request outright
+rather than silently disable the lease.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -31,37 +31,10 @@ from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
-# Paths that are exempt from lease checking (even if mutating)
-_EXEMPT_EXACT: frozenset[str] = frozenset({"/campaigns"})
-_EXEMPT_SUFFIX_PATTERNS: list[re.Pattern] = [
-    re.compile(r"^/campaigns/[^/]+/session(/takeover)?$"),
-    re.compile(r"^/campaigns/[^/]+/character$"),
-    re.compile(r"^/campaigns/[^/]+$"),  # DELETE /campaigns/{id} — campaign deletion
-    re.compile(r"^/me.*$"),             # /me, /me/export
-]
-
-# Campaign ID extraction from path
-_CAMPAIGN_ID_RE = re.compile(r"^/campaigns/([^/]+)(/.*)?$")
-
-# Mutating methods that require a lease
 _MUTATING_METHODS = frozenset({"POST", "DELETE", "PATCH", "PUT"})
 
 
-def _is_exempt(path: str, method: str) -> bool:
-    """Return True if this request does not need a lease check."""
-    if method == "GET":
-        return True
-    if method == "OPTIONS":
-        return True
-    if path == "/campaigns":
-        return True
-    for pattern in _EXEMPT_SUFFIX_PATTERNS:
-        if pattern.match(path):
-            return True
-    return False
-
-
-def _error_response(code: str, message: str, status_code: int = 409) -> JSONResponse:
+def _error_response(code: str, message: str, status_code: int = 503) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": message}},
@@ -69,89 +42,22 @@ def _error_response(code: str, message: str, status_code: int = 409) -> JSONResp
 
 
 class LeaseGuardMiddleware(BaseHTTPMiddleware):
-    """Validate X-Session-Lease on all state-changing campaign requests."""
+    """Fail closed on mutating requests when OIDC is configured but the
+    database (and therefore lease state) is not."""
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        path = request.url.path
         method = request.method
-
-        # Read DATABASE_URL per request (not cached at construction): this
-        # middleware is registered at import time, before the lifespan loads
-        # the environment, so caching it here would permanently disable lease
-        # enforcement whenever the URL is set later at runtime (auth bypass).
-        if not os.getenv("DATABASE_URL"):
-            # No DATABASE_URL means the in-memory backend is in use.  In a
-            # production deployment (signalled by an OIDC config being present)
-            # a missing DATABASE_URL is a misconfiguration, not a valid dev
-            # setup — fail closed so lease enforcement never silently vanishes
-            # (CWE-636).  Otherwise pass through for InMemoryStorage / tests.
-            if os.getenv("OIDC_JWKS_URI"):
-                return _error_response(
-                    "auth_unavailable",
-                    "Session enforcement is unavailable (database not configured).",
-                    status_code=503,
-                )
-            return await call_next(request)
-
-        # Skip non-mutating methods (GET, HEAD, OPTIONS, etc.) — only the
-        # state-changing methods require a lease.
-        if method not in _MUTATING_METHODS:
-            return await call_next(request)
-
-        # Skip exempt paths
-        if _is_exempt(path, method):
-            return await call_next(request)
-
-        # Only mutating methods require a lease (HEAD and other read-only or
-        # non-standard methods pass through untouched).
-        if method not in _MUTATING_METHODS:
-            return await call_next(request)
-
-        # Extract campaign_id from path
-        match = _CAMPAIGN_ID_RE.match(path)
-        if not match:
-            return await call_next(request)
-
-        campaign_id = match.group(1)
-
-        # Read the lease token header
-        lease_token = request.headers.get("X-Session-Lease")
-        if not lease_token:
+        if method in _MUTATING_METHODS and not os.getenv("DATABASE_URL") and os.getenv("OIDC_JWKS_URI"):
+            # Read DATABASE_URL per request (not cached at construction): this
+            # middleware is registered at import time, before the lifespan
+            # loads the environment, so caching would permanently disable the
+            # guard whenever the URL is set later at runtime (CWE-636).
             return _error_response(
-                "not_session_holder",
-                "X-Session-Lease header is required for state-changing operations.",
-                status_code=409,
+                "auth_unavailable",
+                "Session enforcement is unavailable (database not configured).",
+                status_code=503,
             )
-
-        # Validate with LeaseService
-        try:
-            from gamebook_web.sessions.lease import get_lease_service
-            lease_svc = get_lease_service()
-            await lease_svc.validate(campaign_id, lease_token)
-        except Exception as exc:
-            # HTTPException from validate() carries the right status/body
-            from fastapi import HTTPException
-            if isinstance(exc, HTTPException):
-                detail = exc.detail
-                if isinstance(detail, dict):
-                    return JSONResponse(status_code=exc.status_code, content=detail)
-                return _error_response("not_session_holder", str(detail), status_code=exc.status_code)
-            logger.exception("Lease validation error for campaign %s: %s", campaign_id, exc)
-            return _error_response("internal_error", "Session validation failed.", status_code=500)
-
-        response = await call_next(request)
-
-        # Renew lease TTL on successful state change
-        if response.status_code < 400:
-            try:
-                from gamebook_web.sessions.lease import get_lease_service
-                lease_svc = get_lease_service()
-                await lease_svc.renew(campaign_id, lease_token)
-            except Exception:
-                # Non-fatal — lease renewal failure doesn't break the response
-                pass
-
-        return response
+        return await call_next(request)

@@ -16,7 +16,6 @@ import re
 
 import pytest
 
-from gamebook.combat.implementation import CombatService
 from gamebook.mcp.server import build_server
 from gamebook.storage.in_memory import InMemoryStorage
 
@@ -54,8 +53,7 @@ def storage() -> InMemoryStorage:
 @pytest.fixture
 def server(storage: InMemoryStorage):
     rng = random.Random(12345)
-    combat = CombatService(storage, rng)
-    return build_server(storage, combat, rng)
+    return build_server(storage_factory=lambda _cid: storage, rng=rng)
 
 
 def call(server, tool: str, **arguments):
@@ -63,7 +61,11 @@ def call(server, tool: str, **arguments):
 
     FastMCP returns ``(content, structured)`` for model/dict returns and a bare
     content list otherwise; this normalises both to the structured value.
+
+    Injects ``campaign_id="test"`` if not provided — all tools require it as
+    their first argument (ADR-018).
     """
+    arguments.setdefault("campaign_id", "test")
     result = asyncio.run(server.call_tool(tool, arguments))
     if isinstance(result, tuple):
         structured = result[1]
