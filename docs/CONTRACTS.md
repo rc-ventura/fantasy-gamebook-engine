@@ -20,6 +20,14 @@
 > (installed in pyproject.toml: 004-T001). Auth seam swap via FastAPI dependency override
 > (ADR-017). Session lease via `session_lease` table + `LeaseGuardMiddleware` (ADR-018).
 > OTel auto-instrumentation + no-PII-in-spans rule (ADR-019).
+>
+> **Issue-9 amendment (2026-07-03):** `_configure_narrator` (`gamebook_web/api/app.py`) no
+> longer hardcodes the activation gate to `ANTHROPIC_API_KEY`. It resolves the API-key env
+> var from `NARRATOR_MODEL`'s `provider:model` prefix via `_PROVIDER_KEY_MAP` — see §0b.
+> No new dependency: `pydantic-ai` (the full, non-slim package) already installs
+> `pydantic-ai-slim` with the `openai` extra regardless of which extras are requested on
+> `pydantic-ai[...]` in `pyproject.toml` (verified via `uv tree`), so OpenAI/OpenRouter
+> models work with zero `pyproject.toml` changes.
 
 ## 0. Global rules (every teammate)
 
@@ -62,6 +70,26 @@
 
 Dev-only:
 | `pytest-asyncio` | `>=0.24.0` | Async test support for FastAPI/SQLAlchemy tests |
+
+### 0b. Narrator provider selection (env vars, added 2026-07-03, issue #9)
+
+`NARRATOR_MODEL` is a PydanticAI model string `provider:model` (default
+`anthropic:claude-opus-4-8`, ADR-011). `_configure_narrator` activates
+`PydanticNarrator` when the env var for the model's provider prefix is set,
+else falls back to `FakeNarrator` (dev/test). Provider → key mapping
+(`_PROVIDER_KEY_MAP` in `gamebook_web/api/app.py`):
+
+| Provider prefix | Model string example | API key env var | Notes |
+|---|---|---|---|
+| `anthropic` | `anthropic:claude-opus-4-8` | `ANTHROPIC_API_KEY` | Default; unchanged behaviour. |
+| `openai` | `openai:gpt-4o` | `OPENAI_API_KEY` | Routed via the `openai` SDK, already installed transitively (see amendment above). |
+| `openrouter` | `openrouter:anthropic/claude-opus-4-8` | `OPENROUTER_API_KEY` | Native PydanticAI `OpenRouterModel`/`OpenRouterProvider` — **not** the `openai:openrouter/<id>` + `OPENAI_BASE_URL` workaround; pydantic-ai 2.0+ has first-class OpenRouter support. |
+
+Setting `OPENAI_BASE_URL` still works for pointing the `openai` provider at any
+OpenAI-compatible endpoint (the `openai` SDK reads it directly) but is not required
+for OpenRouter — use the `openrouter:` prefix instead. An unset/unknown provider
+prefix resolves to no API key, so the narrator falls back to `FakeNarrator` rather
+than erroring — startup never fails from a bad `NARRATOR_MODEL` value.
 
 ### Identifier mapping (PT spec → EN code)
 `Ficha`→`CharacterSheet` · `Mundo`→`World` · `Evento`→`Event` · `Combate`→`Combat` ·

@@ -10,9 +10,25 @@ Implementation detail belongs in `tasks.md` / the implementation phase, not here
 - `uv` environment for the engine + backend (`uv run ...`), Python 3.12.
 - A running PostgreSQL instance and `DATABASE_URL`.
 - An OIDC auth service reachable, plus client config (issuer, audience, JWKS URL).
-- `ANTHROPIC_API_KEY` for the narrator (`claude-opus-4-8`).
+- `ANTHROPIC_API_KEY` for the narrator (`claude-opus-4-8`) — or an OpenAI/OpenRouter key,
+  see below (issue #9, CONTRACTS.md §0b).
 - Node toolchain for the `frontend/` SPA.
 - OTLP endpoint for telemetry (optional locally).
+
+### Narrator model/provider (CONTRACTS.md §0b)
+`NARRATOR_MODEL` selects both the model and, via its `provider:` prefix, which API key
+`_configure_narrator` looks for. No key for the selected provider → `FakeNarrator` (no LLM).
+```bash
+# Default: Anthropic
+ANTHROPIC_API_KEY=sk-ant-...                        uv run uvicorn gamebook_web.api:app
+
+# OpenAI
+NARRATOR_MODEL=openai:gpt-4o OPENAI_API_KEY=sk-...  uv run uvicorn gamebook_web.api:app
+
+# OpenRouter (native PydanticAI provider — model id is "<vendor>/<model>")
+NARRATOR_MODEL=openrouter:anthropic/claude-opus-4-8 OPENROUTER_API_KEY=sk-or-... \
+  uv run uvicorn gamebook_web.api:app
+```
 
 ## The engine still passes in isolation (Principles I, IV)
 The engine must remain green and deterministic — Phase 2 changes nothing here:
