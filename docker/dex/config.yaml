@@ -1,8 +1,13 @@
 # Dex OIDC provider config — local dev only
 # Issues RS256 JWTs for the gamebook test client.
 # DO NOT use these credentials in production.
+#
+# issuer must match OIDC_ISSUER as seen by the *validator* (the backend
+# container, which reaches Dex via the compose network as "dex:5556") —
+# not the host-published localhost:5556 used to drive the login flow from
+# outside. The iss claim is baked into every issued token.
 
-issuer: http://localhost:5556/dex
+issuer: http://dex:5556/dex
 
 storage:
   type: memory
@@ -26,11 +31,13 @@ staticClients:
 enablePasswordDB: true
 staticPasswords:
   - email: player1@example.com
-    hash: "$2y$12$EJbBgdVCUvB6Y3LV8cQJCeIbOq7RXMWFmqiD0Y.lKjW9rHAtGp9Hi"
+    # Plaintext: gamebook-test-1 (local test fixture only)
+    hash: "$2b$12$DdWCk3LJ7qcdx/GqdHKF2OAdxo4QmTIbENbZuNGn.5Aj7z.pSZzhq"
     username: player1
     userID: "player1-uid"
   - email: player2@example.com
-    hash: "$2y$12$EJbBgdVCUvB6Y3LV8cQJCeIbOq7RXMWFmqiD0Y.lKjW9rHAtGp9Hi"
+    # Plaintext: gamebook-test-1 (local test fixture only)
+    hash: "$2b$12$DdWCk3LJ7qcdx/GqdHKF2OAdxo4QmTIbENbZuNGn.5Aj7z.pSZzhq"
     username: player2
     userID: "player2-uid"
 

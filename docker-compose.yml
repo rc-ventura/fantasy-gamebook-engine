@@ -2,21 +2,23 @@
 # docker-compose.yml — local dev services for the gamebook web backend.
 #
 # Default profile: PostgreSQL only (docker compose up -d)
-# OIDC + OTLP services: docker compose --profile gameobs up -d
+# Full stack (app + db + auth + observability): docker compose --profile gameobs up -d --build
 #
-# Usage:
+# Usage (Postgres only, run backend/frontend locally):
 #   docker compose up -d
-#   DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost:5432/gamebook \
+#   DATABASE_URL=postgresql+asyncpg://gamebook:gamebook@localhost:5433/gamebook \
 #     uv run alembic upgrade head
 #   DATABASE_URL=... uv run uvicorn gamebook_web.api.app:app --reload
 #
-# With OIDC + OTel:
-#   docker compose --profile gameobs up -d
-#   OIDC_JWKS_URI=http://localhost:5556/dex/keys \
-#   OIDC_AUDIENCE=gamebook \
-#   OIDC_ISSUER=http://localhost:5556/dex \
-#   OTLP_ENDPOINT=http://localhost:4317 \
-#     uv run uvicorn gamebook_web.api.app:app --reload
+# Full stack — real Postgres + real Dex OIDC + real backend + real frontend,
+# nothing mocked:
+#   export ANTHROPIC_API_KEY=sk-...   # narrator needs a real key to generate scenes
+#   docker compose --profile gameobs up -d --build
+#   open http://localhost:8080        # frontend (nginx), proxies /api -> backend
+#
+# Postgres publishes 5433 on the host (not 5432) to avoid colliding with any
+# Postgres already running natively on the host; the app talks to it over the
+# compose network at postgres:5432 regardless.
 
 services:
   postgres:
@@ -27,7 +29,7 @@ services:
       POSTGRES_PASSWORD: gamebook
       POSTGRES_DB: gamebook
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -61,7 +63,8 @@ services:
   # Ports:
   #   4317 — OTLP/gRPC receiver
   #   4318 — OTLP/HTTP receiver
-  #   8888 — Prometheus metrics scrape endpoint
+  #   8888 — collector's own self-telemetry metrics (default, unconfigured)
+  #   8889 — our Prometheus exporter (app traces/metrics land here)
   # ---------------------------------------------------------------------------
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.105.0
@@ -71,9 +74,65 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
-      - "8888:8888"
+      - "8889:8889"
     volumes:
       - ./docker/otel/config.yaml:/etc/otel/config.yaml:ro
+
+  # ---------------------------------------------------------------------------
+  # Backend — FastAPI + PydanticAI narrator, real OIDC auth (no dev stub)
+  # Profile: gameobs
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["gameobs"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dex:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://gamebook:gamebook@postgres:5432/gamebook
+      # This compose Postgres has no TLS configured (ADR-026 requires it by
+      # default) — disable for local/dev only, never in a real deployment.
+      POSTGRES_SSL_MODE: disable
+      OIDC_JWKS_URI: http://dex:5556/dex/keys
+      OIDC_ISSUER: http://dex:5556/dex
+      OIDC_AUDIENCE: gamebook
+      OTLP_ENDPOINT: http://otel-collector:4317
+      # The compose otel-collector has no TLS configured — plaintext gRPC is
+      # fine for local dev (FR-032 refuses this combination when ENV=production).
+      OTLP_INSECURE: "1"
+      # Narrator provider (feat/009): pick one via NARRATOR_MODEL in your .env
+      # ("anthropic:claude-opus-4-8" | "openai:gpt-..." | "openrouter:...").
+      # Only the matching key needs to be set — the other two are harmless if
+      # blank. If none match, the app falls back to FakeNarrator (no LLM) —
+      # fine for auth/lease/db testing, not a real narrator test.
+      NARRATOR_MODEL: ${NARRATOR_MODEL:-anthropic:claude-opus-4-8}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ENV: development
+    ports:
+      - "8000:8000"
+
+  # ---------------------------------------------------------------------------
+  # Frontend — React/Vite SPA, built and served by nginx, proxies /api/* to
+  # the backend service by name (same-origin from the browser, no CORS needed)
+  # Profile: gameobs
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    profiles: ["gameobs"]
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
 
 volumes:
   postgres_data:

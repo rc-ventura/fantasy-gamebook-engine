@@ -1,6 +1,14 @@
 # ADR-019: Allowlist for fabricated-number detection
 
-**Status**: Accepted | **Date**: 2026-06-28 | **Branch**: `feat/006-cycle1-remediation`
+**Status**: Superseded by [ADR-033](./ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | **Date**: 2026-06-28 | **Branch**: `feat/006-cycle1-remediation`
+
+> **Superseded (2026-07-05):** ADR-033 eliminates the `effects[]` pattern entirely
+> (via ADR-029) and removes all mutation tools from the narrator. There are no
+> `Scene.effects[].params` to validate — the narrator cannot produce fabricated
+> numbers because it has no mutation tools. The `_ALLOWED_EFFECT_PARAMS` allowlist
+> validator is moot. ADR-033 retains the `tool_trace_audit` detection layer as
+> defense-in-depth against dispatcher regressions, but the allowlist for effects[]
+> params is no longer relevant.
 
 ## Context
 

@@ -17,8 +17,11 @@ exporters:
   debug:
     verbosity: detailed
 
+  # 8889, not 8888 — 8888 is the collector's own default self-telemetry
+  # metrics port (service.telemetry.metrics.address); reusing it here made
+  # the collector fail to bind at startup ("address already in use").
   prometheus:
-    endpoint: "0.0.0.0:8888"
+    endpoint: "0.0.0.0:8889"
 
 service:
   pipelines:

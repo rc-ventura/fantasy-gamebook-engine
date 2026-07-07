@@ -1,9 +1,20 @@
 # ADR-003: Adventure module encoded as a SKILL.md (swap boundary #2)
 
-**Status**: Accepted
+**Status**: Partially superseded by [ADR-033](./ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md)
 **Date**: 2026-06-21
 **Related spec**: [06-modulo-aventura](../06-modulo-aventura.md), [CONTRACTS §7](../CONTRACTS.md)
 **Code**: `.claude/skills/ignarok/SKILL.md`
+
+> **Partially superseded (2026-07-05):** ADR-033 requires the adventure module to
+> have a three-layer structure: backbone (fixed zones, boss, NPCs, victory condition
+> in YAML) + probabilistic encounters (per-zone enemy/trap tables with probabilities
+> in YAML) + narrative zones (free SKILL.md lore). The pure SKILL.md format is
+> insufficient for the backbone and encounter layers, which require structured data
+> for the deterministic dispatcher to interpret. **What remains valid:** the SKILL.md
+> format continues to serve as the lore layer for narrative zones and as the
+> Phase-1 adventure module format. The 1:1 mapping to CONTRACTS §7 remains a goal,
+> but the format shifts from pure Markdown to a hybrid (YAML for structure + SKILL.md
+> for narrative lore).
 
 ---
 

@@ -175,6 +175,7 @@ principles; when in conflict, the constitution wins.
 | [ADR-030](./docs/adrs/ADR-030-observability-and-evals-otel-stack.md) | Observability & evals — OTel stack + Pydantic Evals (spec 006 planning) | Accepted | 2026-07-01 |
 | [ADR-031](./docs/adrs/ADR-031-d1-lease-enforcement-route-level-dependency.md) | D1 lease enforcement via route-level `require_lease` dependency (amends ADR-023) | Accepted | 2026-07-02 |
 | [ADR-032](./docs/adrs/ADR-032-lease-validate-toctou-atomic-validate-and-renew.md) | Atomic validate-and-renew to close TOCTOU + constant-time account_id compare | Accepted | 2026-07-02 |
+| [ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | Engine-side guard against narrator-supplied attribute values — narrow `update_character_sheet`, add `apply_healing`/`apply_damage` (found via live gpt-4o-mini E2E test) | Proposed | 2026-07-04 |
 
 ## Learning Lessons
 

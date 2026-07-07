@@ -32,8 +32,20 @@ from pydantic_ai.messages import ModelMessage, ToolCallPart
 
 from gamebook_web.harness.base import NarratorContext
 from gamebook_web.harness.scene import Scene
+from gamebook_web.harness.tool_trace_audit import assert_tool_trace_consistency
 
 logger = logging.getLogger(__name__)
+
+# Uvicorn's default logging config only attaches handlers to ``uvicorn.*``
+# loggers — the root logger has none, so warnings from this module (including
+# the _assert_narrator_campaign and _assert_tool_trace_consistency audits)
+# would be silently discarded. Attach a StreamHandler so audit warnings reach
+# stderr where ``docker logs`` and structured log collectors can see them.
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +308,12 @@ class PydanticNarrator:
 
         # T006b: post-audit detection — scan all tool calls for wrong campaign_id.
         _assert_narrator_campaign(result.all_messages(), campaign_id)
+
+        # Tool-trace consistency audit: detect fabricated numbers in
+        # register_event data (Modes 1 & 4) — roll claims without roll_dice,
+        # state-change claims without any state tool. Same detection-only
+        # pattern as _assert_narrator_campaign (warn, don't raise).
+        assert_tool_trace_consistency(result.all_messages())
 
         return result.output
 

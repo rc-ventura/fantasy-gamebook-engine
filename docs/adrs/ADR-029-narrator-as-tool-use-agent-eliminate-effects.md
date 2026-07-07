@@ -1,10 +1,20 @@
 # ADR-029: Narrator as tool-use agent — eliminate effects[] pattern, restore Phase 1 interaction model
 
-**Status**: Accepted
+**Status**: Partially superseded by [ADR-033](./ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md)
 **Date**: 2026-06-30
 **Related**: [ADR-001](./ADR-001-combat-sub-agent-delegation-pattern.md), [ADR-011](./ADR-011-phase2-harness-pydanticai-narrator-backend.md), [ADR-019](./ADR-019-allowlist-for-fabricated-number-detection.md)
 **Depends on**: `006-cycle1-remediation` (complete)
 **Supersedes**: The `effects[]` pattern introduced in ADR-011's web implementation
+
+> **Partially superseded (2026-07-05):** ADR-033 narrows the narrator's tool access
+> from all 14 tools (including mutation) to read-only + metadata tools only. The
+> narrator no longer calls `roll_dice`, `test_luck`, `update_character_sheet`,
+> `apply_healing`, `apply_damage`, or combat tools — the deterministic dispatcher
+> owns all engine mutation. **What remains valid from this ADR:** the elimination of
+> the `effects[]` pattern, the tool-use agent pattern for read tools, and Alternative E
+> (deterministic combat loop) which ADR-033 adopts as the combat pattern for the
+> dispatcher. The atomicity trade-off discussion is still relevant for the dispatcher's
+> multi-tool sequences.
 
 ---
 

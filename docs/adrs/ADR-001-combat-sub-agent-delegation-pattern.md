@@ -1,9 +1,17 @@
 # ADR-001: Combat sub-agent delegation pattern
 
-**Status**: Accepted
+**Status**: Superseded by [ADR-033](./ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md)
 **Date**: 2026-06-21
 **Related spec**: [07-harness](../07-harness.md), [CONTRACTS §5/§6](../CONTRACTS.md)
 **Code**: `.claude/skills/game-master/SKILL.md`, `.claude/skills/combat-sub-agent/SKILL.md`
+
+> **Superseded (2026-07-05):** ADR-033 replaces the combat sub-agent with a
+> deterministic dispatcher that runs the combat loop in code (ADR-029 Alternative E
+> pattern) with zero LLM calls in the loop. The dispatcher calls
+> `start_combat` → `resolve_combat_round` × N → `end_combat` directly and passes the
+> `FinalResult` to the narrator. The combat-sub-agent SKILL pattern is no longer used
+> in the ADR-033 architecture. This ADR remains valid for the Phase-1 Claude Code
+> harness that still uses the sub-agent delegation.
 
 ---
 
