@@ -193,6 +193,7 @@ principles; when in conflict, the constitution wins.
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
 - [RTK proxy rewrites `tsc`/`npx tsc` and masks TypeScript errors — use `node_modules/.bin/tsc` directly](./docs/learning-lessons/rtk_proxy_masks_tsc_errors.md) — 2026-06-30
 - [Scoped toolset wrapper: inject security context at the wrapper, not via the LLM](./docs/learning-lessons/scoped_toolset_wrapper_for_security_context.md) — 2026-07-01
+- [Auth/redirect/token-lifecycle flows require live testing — mocks and static analysis miss CSP, CORS, and timing bugs](./docs/learning-lessons/auth_redirect_flows_require_live_testing.md) — 2026-07-08
 
 <!-- SPECKIT START -->
 **Active feature**: `008-oidc-frontend-login` — replaces the frontend paste-a-token dev
