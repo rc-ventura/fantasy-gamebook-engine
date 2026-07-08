@@ -176,6 +176,7 @@ principles; when in conflict, the constitution wins.
 | [ADR-031](./docs/adrs/ADR-031-d1-lease-enforcement-route-level-dependency.md) | D1 lease enforcement via route-level `require_lease` dependency (amends ADR-023) | Accepted | 2026-07-02 |
 | [ADR-032](./docs/adrs/ADR-032-lease-validate-toctou-atomic-validate-and-renew.md) | Atomic validate-and-renew to close TOCTOU + constant-time account_id compare | Accepted | 2026-07-02 |
 | [ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | Engine-side guard against narrator-supplied attribute values — narrow `update_character_sheet`, add `apply_healing`/`apply_damage` (found via live gpt-4o-mini E2E test) | Proposed | 2026-07-04 |
+| [ADR-034](./docs/adrs/ADR-034-oidc-frontend-spa-pkce-public-client.md) | OIDC frontend login — SPA-direct Authorization Code + PKCE, public Dex client, `id_token` as bearer credential | Accepted | 2026-07-07 |
 
 ## Learning Lessons
 
@@ -194,27 +195,36 @@ principles; when in conflict, the constitution wins.
 - [Scoped toolset wrapper: inject security context at the wrapper, not via the LLM](./docs/learning-lessons/scoped_toolset_wrapper_for_security_context.md) — 2026-07-01
 
 <!-- SPECKIT START -->
-**Active feature**: `006-cycle1-remediation` — closes SDD cycle-1 findings from five
-blocked/conditional slices. Implementation plan: `specs/006-cycle1-remediation/plan.md`.
-Key decisions: ADR-018 Option A (one subprocess + campaign_id per tool + ScopedMCPToolset),
-D1 (backend-scoped routes `/me/game/...`), spec 007 supersessions (ADR-019/028 obsolete).
+**Active feature**: `008-oidc-frontend-login` — replaces the frontend paste-a-token dev
+stub with a real browser-driven OIDC Authorization Code + PKCE flow against Dex (or any
+OIDC provider) directly from the SPA, no backend mediation. **Implemented and verified
+live** against a real Dex + real backend (`docker compose --profile gameobs`) — not
+merged to `dev` yet. Key decision: ADR-034 (SPA-direct PKCE with a public Dex client,
+`id_token` as the bearer credential, `react-oidc-context` library) — the backend's OIDC
+validation (ADR-022) needed zero changes. `docs/adrs/ADR-034-oidc-frontend-spa-pkce-public-client.md`
+documents the decision and four bugs only live E2E surfaced (CSP `connect-src`, Dex CORS
+`allowedOrigins`, a Docker `ARG`-empty-string-vs-`??` footgun, a `ProtectedRoute`
+reload race) — none were catchable by `tsc`/`eslint`/mocked unit tests.
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002-persistence-foundation` ← done (PostgresStorage; TLS/concurrency/lifecycle tracked in `006`)
-- `003-web-backend-mvp` ← done (merged to `dev`)
-- `004-accounts-hardening-obs` ← **after 006** (real OIDC + accounts + session lease + OTel)
-- `005-professional-spa` ← done (live mode gated on `006` + `007`)
-- `006-cycle1-remediation` ← **active** (implementation in progress — see plan.md + tasks.md)
-- `007-narrator-tool-use-refactor` ← done (PR #8 → `dev`; narrator calls MCP tools directly)
+- `002-persistence-foundation` ← done (PostgresStorage)
+- `003-web-backend-mvp` ← done
+- `004-accounts-hardening-obs` ← done (real OIDC + accounts + session lease + OTel; merged via `006`)
+- `005-professional-spa` ← done
+- `006-cycle1-remediation` ← done (cycle-1 SDD remediation)
+- `007-narrator-tool-use-refactor` ← done (narrator calls MCP tools directly)
+- `008-oidc-frontend-login` ← **active** (implemented + live-verified; not yet merged to `dev`)
+- `009-deterministic-turn-dispatcher` ← drafted (spec.md only, implements ADR-033; not yet planned)
 
-Dependency chain: `002` → `003` → `006` → `007` → `004` // `005` (live mode gated on `006`+`007`).
+Dependency chain: `002` → `003` → `006` → `007` → `004` → `008` (frontend needs real
+backend OIDC first). `009` is independent of `008`.
 
-**Spec 006 design artifacts**:
-- Plan: `specs/006-cycle1-remediation/plan.md`
-- Research (decisions): `specs/006-cycle1-remediation/research.md`
-- Data model: `specs/006-cycle1-remediation/data-model.md`
-- HTTP API contract: `specs/006-cycle1-remediation/contracts/http-api.md`
-- Quickstart (validation): `specs/006-cycle1-remediation/quickstart.md`
+**Spec 008 design artifacts**:
+- Plan: `specs/008-oidc-frontend-login/plan.md`
+- Research (decisions): `specs/008-oidc-frontend-login/research.md`
+- Data model: `specs/008-oidc-frontend-login/data-model.md`
+- OIDC client contract: `specs/008-oidc-frontend-login/contracts/oidc-client-contract.md`
+- Quickstart (validation): `specs/008-oidc-frontend-login/quickstart.md`
 
 Stack: FastAPI + Postgres, PydanticAI narrator on `claude-opus-4-8` calling MCP tools
 directly (ADR-029), React/Vite SPA, OpenTelemetry. Backend-scoped API: `/me/game/...`.

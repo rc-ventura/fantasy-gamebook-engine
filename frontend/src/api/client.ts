@@ -7,8 +7,8 @@
  * The frontend never manages campaign_id; the backend resolves it from the
  * authenticated account.
  *
- * Auth seam: setTokenProvider() is the only change needed when slice 004
- * delivers real OIDC — zero component changes required.
+ * Auth seam: setTokenProvider() is the only change slice 008's real OIDC
+ * needed (auth/tokenBridge.ts) — zero other component changes required.
  *
  * Mock mode: VITE_USE_MOCK=true routes all calls to mock.ts handlers.
  *
@@ -35,8 +35,9 @@ import { mockApi } from './mock'
 
 /**
  * Returns the current auth token, or null if not authenticated.
- * The default implementation uses the dev auth stub (VITE_DEV_TOKEN or sessionStorage).
- * Slice 004 replaces this via setTokenProvider() without touching any component.
+ * Default implementation (dev auth stub, DEV builds only): VITE_DEV_TOKEN or
+ * sessionStorage. Overridden at startup by auth/tokenBridge.ts to source the
+ * real OIDC id_token instead (slice 008) — see setTokenProvider() below.
  */
 let _tokenProvider: () => string | null = () => {
   const stored = sessionStorage.getItem('auth_token')
@@ -45,7 +46,7 @@ let _tokenProvider: () => string | null = () => {
   return typeof devToken === 'string' && devToken.length > 0 ? devToken : null
 }
 
-/** Swap the auth token provider (used by slice 004 real OIDC integration). */
+/** Swap the auth token provider (used by auth/tokenBridge.ts's real OIDC integration). */
 export function setTokenProvider(fn: () => string | null): void {
   _tokenProvider = fn
 }

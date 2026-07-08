@@ -6,6 +6,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# Build-time OIDC config (slice 008) — Vite bakes VITE_* vars into the bundle at
+# build time. Defaults match the local Dex instance (docker-compose `gameobs`
+# profile); a real deployment overrides these via `docker build --build-arg`.
+ARG VITE_OIDC_AUTHORITY
+ARG VITE_OIDC_CLIENT_ID
+ARG VITE_OIDC_ISSUER
+ENV VITE_OIDC_AUTHORITY=${VITE_OIDC_AUTHORITY}
+ENV VITE_OIDC_CLIENT_ID=${VITE_OIDC_CLIENT_ID}
+ENV VITE_OIDC_ISSUER=${VITE_OIDC_ISSUER}
 RUN npm run build
 
 FROM nginx:1.27-alpine

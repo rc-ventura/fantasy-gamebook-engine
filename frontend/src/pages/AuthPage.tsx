@@ -1,60 +1,55 @@
 /**
- * AuthPage — Sign-in / Register panel.
+ * AuthPage — Sign-in panel (slice 008, ADR-034).
  *
- * Auth seam: uses the dev auth stub from slice 003 until slice 004 ships real OIDC.
- * The seam design ensures the real OIDC provider swaps in without touching the play loop.
+ * Primary path (FR-001): a real "Login" redirect to the OIDC provider (Dex
+ * locally; any OIDC-compliant provider in production) — no in-app token entry,
+ * no in-app registration (account creation is the identity provider's own
+ * responsibility, per spec 008's Assumptions).
  *
- * Dev auth stub: any non-empty token is accepted (the backend validates via VITE_DEV_TOKEN).
- * In VITE_USE_MOCK mode, sign-in always succeeds with a mock token.
+ * Dev-only fallback (FR-009): the paste-a-token stub remains available behind
+ * import.meta.env.DEV for local development without a running Dex instance —
+ * absent entirely from a production build.
  *
- * Matches the prototype's centered card design on the same dark theme.
+ * Mock mode (VITE_USE_MOCK=true): sign-in always auto-succeeds, no provider
+ * involved — unaffected by this slice.
  */
 
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
-type TabId = 'signin' | 'register'
-
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
-const DEV_TOKEN = (() => {
-  const t = import.meta.env.VITE_DEV_TOKEN
-  return typeof t === 'string' && t.length > 0 ? t : 'dev-token'
-})()
+const SHOW_DEV_FALLBACK = Boolean(import.meta.env.DEV) && !USE_MOCK
 
 export default function AuthPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { signIn } = useAuth()
-  const [tab, setTab] = useState<TabId>('signin')
-  const [token, setToken] = useState('')
-  const [email, setEmail] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [devToken, setDevToken] = useState('')
+  const [showDevFallback, setShowDevFallback] = useState(false)
+  const routedError = (location.state as { error?: string } | null)?.error ?? null
+  const [error, setError] = useState<string | null>(routedError)
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleLogin() {
+    setError(null)
+    if (USE_MOCK) {
+      signIn('mock-token-dev')
+      void navigate('/dashboard')
+      return
+    }
+    signIn()
+  }
+
+  function handleDevTokenSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    setLoading(true)
-    try {
-      if (USE_MOCK) {
-        // Mock mode: sign in immediately with a mock token.
-        signIn('mock-token-dev')
-        navigate('/dashboard')
-        return
-      }
-      // Dev auth stub: accept the token provided (or the VITE_DEV_TOKEN env var).
-      const authToken = token.trim() || DEV_TOKEN
-      if (!authToken) {
-        setError('Please enter an auth token.')
-        return
-      }
-      signIn(authToken)
-      navigate('/dashboard')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign-in failed')
-    } finally {
-      setLoading(false)
+    const token = devToken.trim() || (import.meta.env.VITE_DEV_TOKEN ?? '')
+    if (!token) {
+      setError('Enter a dev token or set VITE_DEV_TOKEN.')
+      return
     }
+    signIn(token)
+    void navigate('/dashboard')
   }
 
   return (
@@ -96,10 +91,10 @@ export default function AuthPage() {
         ◆
       </div>
       <div style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.7rem', color: 'var(--ink)', marginBottom: '4px', textAlign: 'center' }}>
-        {tab === 'signin' ? 'Return to the Grimoire' : 'Join the Grimoire'}
+        Return to the Grimoire
       </div>
       <div style={{ fontFamily: 'var(--font-body)', fontStyle: 'italic', fontSize: '1.05rem', color: 'var(--muted)', marginBottom: 'var(--space-lg)', textAlign: 'center' }}>
-        {tab === 'signin' ? 'Log in to resume your campaigns.' : 'Create your account to begin.'}
+        Sign in to resume your campaigns.
       </div>
 
       {/* Card */}
@@ -117,156 +112,41 @@ export default function AuthPage() {
           boxShadow: '0 30px 70px rgba(0,0,0,.4)',
         }}
       >
+        {error && (
+          <p
+            role="alert"
+            style={{ fontFamily: 'var(--font-body)', fontSize: '0.9rem', color: '#c0392b', margin: 0 }}
+          >
+            {error}
+          </p>
+        )}
 
-        {/* Tabs */}
-        <div
-          role="tablist"
-          aria-label="Authentication mode"
+        {USE_MOCK ? (
+          <p
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--faint)', textAlign: 'center', lineHeight: 1.5 }}
+          >
+            Mock mode active — sign-in auto-succeeds.
+          </p>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={handleLogin}
           style={{
-            display: 'flex',
-            borderBottom: '1px solid var(--line)',
-            gap: 0,
+            background: 'var(--accent)',
+            color: 'var(--accent-ink)',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            padding: 'var(--space-md)',
+            fontFamily: 'var(--font-title)',
+            fontSize: '0.85rem',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            cursor: 'pointer',
           }}
         >
-          {(['signin', 'register'] as TabId[]).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={tab === t}
-              onClick={() => { setTab(t); setError(null) }}
-              style={{
-                flex: 1,
-                background: 'transparent',
-                border: 'none',
-                borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
-                color: tab === t ? 'var(--accent)' : 'var(--muted)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.7rem',
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                padding: 'var(--space-sm) 0',
-                cursor: 'pointer',
-                transition: 'all var(--transition)',
-              }}
-            >
-              {t === 'signin' ? 'Sign In' : 'Register'}
-            </button>
-          ))}
-        </div>
-
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}
-          aria-label={tab === 'signin' ? 'Sign in form' : 'Register form'}
-        >
-          {tab === 'register' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
-              <label
-                htmlFor="auth-email"
-                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}
-              >
-                Email
-              </label>
-              <input
-                id="auth-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="adventurer@example.com"
-                autoComplete="email"
-                style={{
-                  background: 'var(--bg)',
-                  border: '1px solid var(--panel-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-sm) var(--space-md)',
-                  color: 'var(--ink)',
-                  fontFamily: 'var(--font-body)',
-                  fontSize: '1rem',
-                  outline: 'none',
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--panel-border)' }}
-              />
-            </div>
-          )}
-
-          {!USE_MOCK && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
-              <label
-                htmlFor="auth-token"
-                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}
-              >
-                Dev Auth Token
-              </label>
-              <input
-                id="auth-token"
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={`Default: ${DEV_TOKEN.slice(0, 6)}…`}
-                autoComplete="current-password"
-                style={{
-                  background: 'var(--bg)',
-                  border: '1px solid var(--panel-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-sm) var(--space-md)',
-                  color: 'var(--ink)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9rem',
-                  outline: 'none',
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--accent)' }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--panel-border)' }}
-              />
-              <span
-                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--faint)', lineHeight: 1.4 }}
-              >
-                Dev auth stub — set VITE_DEV_TOKEN in .env.local.
-                Real OIDC lands in slice 004.
-              </span>
-            </div>
-          )}
-
-          {USE_MOCK && (
-            <p
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--faint)', textAlign: 'center', lineHeight: 1.5 }}
-            >
-              Mock mode active — sign-in auto-succeeds.
-            </p>
-          )}
-
-          {error && (
-            <p
-              role="alert"
-              style={{ fontFamily: 'var(--font-body)', fontSize: '0.9rem', color: '#c0392b', margin: 0 }}
-            >
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            aria-busy={loading}
-            style={{
-              background: 'var(--accent)',
-              color: 'var(--accent-ink)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--space-md)',
-              fontFamily: 'var(--font-title)',
-              fontSize: '0.85rem',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              cursor: loading ? 'wait' : 'pointer',
-              opacity: loading ? 0.6 : 1,
-              transition: 'opacity var(--transition)',
-            }}
-          >
-            {loading ? 'Entering…' : tab === 'signin' ? 'Enter the Grimoire' : 'Create Account'}
-          </button>
-        </form>
+          Login
+        </button>
 
         <p
           style={{
@@ -277,23 +157,71 @@ export default function AuthPage() {
             margin: 0,
           }}
         >
-          {tab === 'signin' ? "New to the Grey Mountain? " : 'Already have an account? '}
-          <button
-            onClick={() => { setTab(tab === 'signin' ? 'register' : 'signin'); setError(null) }}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--accent)',
-              fontFamily: 'var(--font-body)',
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              padding: 0,
-              textDecoration: 'underline',
-            }}
-          >
-            {tab === 'signin' ? 'Create one' : 'Log in'}
-          </button>
+          New to the Grey Mountain? Login takes you to sign-in — create your account there.
         </p>
+
+        {SHOW_DEV_FALLBACK && (
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 'var(--space-md)' }}>
+            <button
+              type="button"
+              onClick={() => { setShowDevFallback((v) => !v) }}
+              style={{
+                background: 'none', border: 'none', color: 'var(--faint)',
+                fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.08em',
+                textTransform: 'uppercase', cursor: 'pointer', padding: 0,
+              }}
+            >
+              {showDevFallback ? '▾' : '▸'} Dev auth stub (local only)
+            </button>
+            {showDevFallback && (
+              <form
+                onSubmit={handleDevTokenSubmit}
+                style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}
+                aria-label="Dev token sign-in"
+              >
+                <label
+                  htmlFor="auth-token"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}
+                >
+                  Dev Auth Token
+                </label>
+                <input
+                  id="auth-token"
+                  type="password"
+                  value={devToken}
+                  onChange={(e) => { setDevToken(e.target.value) }}
+                  placeholder="Default: VITE_DEV_TOKEN"
+                  autoComplete="current-password"
+                  style={{
+                    background: 'var(--bg)',
+                    border: '1px solid var(--panel-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--space-sm) var(--space-md)',
+                    color: 'var(--ink)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  type="submit"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--muted)',
+                    border: '1px solid var(--panel-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 'var(--space-sm)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Sign in with dev token
+                </button>
+              </form>
+            )}
+          </div>
+        )}
       </div>
 
       <p style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', letterSpacing: '0.06em', color: 'var(--faint)', marginTop: '20px' }}>
