@@ -72,6 +72,52 @@ appear in browser-visible network traffic.
    (`client.ts`'s `sessionStorage.getItem('auth_token')`) — same reload/tab-close
    semantics as what's already shipped, not a silent persistence upgrade.
 
+### Complete flow (frontend PKCE + backend validation, end to end)
+
+No secret appears anywhere in this diagram — the public client's proof of identity is
+the `code_verifier` (only the browser that started the flow has it), and the backend's
+proof of trust is Dex's public signing key (JWKS), not a shared secret.
+
+```mermaid
+sequenceDiagram
+    actor Player
+    participant SPA as SPA (react-oidc-context)
+    participant Dex as Dex (OIDC provider)
+    participant API as Backend (oidc_auth.py)
+
+    Player->>SPA: Click "Login"
+    SPA->>SPA: generate code_verifier + code_challenge (PKCE)<br/>generate state, store both in sessionStorage
+    SPA->>Player: redirect browser to Dex /auth<br/>(client_id, redirect_uri, code_challenge, state)
+    Player->>Dex: GET /auth?...
+    Dex->>Player: Dex's own login form
+    Player->>Dex: real credentials (never touch the SPA)
+    Dex->>Player: redirect to /callback?code=...&state=...
+    Player->>SPA: GET /callback?code=...&state=...
+    SPA->>SPA: validate state against the pending entry<br/>(replay protection — FR-008)
+    SPA->>Dex: POST /token {code, code_verifier, client_id}<br/>— no client_secret, public client
+    Dex->>Dex: verify code_verifier against the<br/>code_challenge from the /auth step
+    Dex-->>SPA: {id_token, access_token}
+    SPA->>SPA: store id_token in sessionStorage<br/>(access_token received but never used)
+    SPA->>API: any API call — Authorization: Bearer <id_token>
+    API->>Dex: GET /keys (JWKS — cached 5 min, ADR-022)
+    Dex-->>API: signing keys
+    API->>API: verify signature (RS256/ES256), iss, aud, exp, kid
+    API->>API: resolve sub → account_id<br/>(AccountRepository.get_or_create)
+    API-->>SPA: 200 OK + response
+```
+
+Local-dev-only wrinkle (not part of the decision, just a fact about running this
+against local Dex): Dex's configured `issuer` is the compose-network hostname
+`dex:5556` — the value baked into every token's `iss` claim and used by the backend
+(`OIDC_ISSUER`) — but the browser can only reach Dex at `localhost:5556`. The SPA
+resolves this by hand-seeding the `/auth` and `/token` endpoint URLs at the
+browser-reachable host instead of relying on `.well-known` discovery (which would
+return the container-network URLs verbatim); `metadata.issuer` still matches what's
+actually in the tokens. See `frontend/src/auth/oidcConfig.ts` and
+`specs/008-oidc-frontend-login/research.md`'s "browser-unreachable issuer" addendum.
+Any real (non-Dex, non-local) provider needs no such workaround — `issuer` and the
+browser-reachable authority are simply the same URL.
+
 ### Alternatives considered
 
 | Option | Rejected because |

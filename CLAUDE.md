@@ -196,38 +196,38 @@ principles; when in conflict, the constitution wins.
 - [Auth/redirect/token-lifecycle flows require live testing — mocks and static analysis miss CSP, CORS, and timing bugs](./docs/learning-lessons/auth_redirect_flows_require_live_testing.md) — 2026-07-08
 
 <!-- SPECKIT START -->
-**Active feature**: `008-oidc-frontend-login` — replaces the frontend paste-a-token dev
-stub with a real browser-driven OIDC Authorization Code + PKCE flow against Dex (or any
-OIDC provider) directly from the SPA, no backend mediation. **Implemented and verified
-live** against a real Dex + real backend (`docker compose --profile gameobs`) — not
-merged to `dev` yet. Key decision: ADR-034 (SPA-direct PKCE with a public Dex client,
-`id_token` as the bearer credential, `react-oidc-context` library) — the backend's OIDC
-validation (ADR-022) needed zero changes. `docs/adrs/ADR-034-oidc-frontend-spa-pkce-public-client.md`
-documents the decision and four bugs only live E2E surfaced (CSP `connect-src`, Dex CORS
-`allowedOrigins`, a Docker `ARG`-empty-string-vs-`??` footgun, a `ProtectedRoute`
-reload race) — none were catchable by `tsc`/`eslint`/mocked unit tests.
+**Active feature**: `009-deterministic-turn-dispatcher` — implements
+[ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md):
+splits the narrator into an intent classifier (LLM, structured output, no tools) → a
+deterministic dispatcher (code, zero LLM calls, calls MCP tools directly) → a pure
+narrator (LLM, `output_type=Scene`, zero tools) — closing an empirically-proven gap
+where the current narrator (ADR-029) can fabricate stat changes regardless of model
+strength (reproduced with both gpt-4o-mini and gpt-5-chat-latest). Planning complete
+(`tasks.md` not yet generated — run `/speckit-tasks` next). Plan:
+`specs/009-deterministic-turn-dispatcher/plan.md`. Key decisions: single
+`pydantic_graph.Graph` (already bundled with `pydantic-ai>=2.0.0`, no new dependency)
+with combat as the only cyclic node; dispatcher lives behind the existing
+`NarratorBackend` Protocol (zero FastAPI route changes); two new MCP tools
+(`apply_healing`/`apply_damage`, relative not absolute) alongside the existing 18;
+adventure module gains a three-layer structure (fixed backbone / probabilistic
+per-playthrough encounters / free narrative zones) migrated incrementally, `SKILL.md`
+retained for Layer-3 lore. MVP scope = User Story 1 (the integrity guarantee) only;
+Stories 2 (replay variance) and 4 (authoring tooling) are later phases.
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002-persistence-foundation` ← done (PostgresStorage)
-- `003-web-backend-mvp` ← done
-- `004-accounts-hardening-obs` ← done (real OIDC + accounts + session lease + OTel; merged via `006`)
-- `005-professional-spa` ← done
-- `006-cycle1-remediation` ← done (cycle-1 SDD remediation)
-- `007-narrator-tool-use-refactor` ← done (narrator calls MCP tools directly)
-- `008-oidc-frontend-login` ← **active** (implemented + live-verified; not yet merged to `dev`)
-- `009-deterministic-turn-dispatcher` ← drafted (spec.md only, implements ADR-033; not yet planned)
+- `002` through `007` ← done (persistence, backend, accounts/OIDC backend, professional SPA, narrator tool-use refactor)
+- `008-oidc-frontend-login` ← implemented + live-verified, PR #21 open against `dev` (not yet merged)
+- `009-deterministic-turn-dispatcher` ← **active** (plan.md ready; tasks.md next)
 
-Dependency chain: `002` → `003` → `006` → `007` → `004` → `008` (frontend needs real
-backend OIDC first). `009` is independent of `008`.
-
-**Spec 008 design artifacts**:
-- Plan: `specs/008-oidc-frontend-login/plan.md`
-- Research (decisions): `specs/008-oidc-frontend-login/research.md`
-- Data model: `specs/008-oidc-frontend-login/data-model.md`
-- OIDC client contract: `specs/008-oidc-frontend-login/contracts/oidc-client-contract.md`
-- Quickstart (validation): `specs/008-oidc-frontend-login/quickstart.md`
+**Spec 009 design artifacts**:
+- Plan: `specs/009-deterministic-turn-dispatcher/plan.md`
+- Research (decisions): `specs/009-deterministic-turn-dispatcher/research.md`
+- Data model: `specs/009-deterministic-turn-dispatcher/data-model.md`
+- MCP tool contract changes: `specs/009-deterministic-turn-dispatcher/contracts/mcp-tool-contract-changes.md`
+- Adventure module schema: `specs/009-deterministic-turn-dispatcher/contracts/adventure-module-schema.md`
+- Quickstart (validation): `specs/009-deterministic-turn-dispatcher/quickstart.md`
 
 Stack: FastAPI + Postgres, PydanticAI narrator on `claude-opus-4-8` calling MCP tools
-directly (ADR-029), React/Vite SPA, OpenTelemetry. Backend-scoped API: `/me/game/...`.
-Constitution: `.specify/memory/constitution.md` (v1.1.0).
+directly (ADR-029, being revised by this spec), React/Vite SPA, OpenTelemetry.
+Backend-scoped API: `/me/game/...`. Constitution: `.specify/memory/constitution.md` (v1.1.0).
 <!-- SPECKIT END -->
