@@ -176,6 +176,7 @@ principles; when in conflict, the constitution wins.
 | [ADR-031](./docs/adrs/ADR-031-d1-lease-enforcement-route-level-dependency.md) | D1 lease enforcement via route-level `require_lease` dependency (amends ADR-023) | Accepted | 2026-07-02 |
 | [ADR-032](./docs/adrs/ADR-032-lease-validate-toctou-atomic-validate-and-renew.md) | Atomic validate-and-renew to close TOCTOU + constant-time account_id compare | Accepted | 2026-07-02 |
 | [ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | Engine-side guard against narrator-supplied attribute values — narrow `update_character_sheet`, add `apply_healing`/`apply_damage` (found via live gpt-4o-mini E2E test) | Proposed | 2026-07-04 |
+| [ADR-034](./docs/adrs/ADR-034-oidc-frontend-spa-pkce-public-client.md) | OIDC frontend login — SPA-direct Authorization Code + PKCE, public Dex client, `id_token` as bearer credential | Accepted | 2026-07-07 |
 
 ## Learning Lessons
 
@@ -192,31 +193,41 @@ principles; when in conflict, the constitution wins.
 - [SQLAlchemy AsyncSession raises "transaction already begun" when `begin()` is called twice on the same session](./docs/learning-lessons/sqlalchemy_async_session_double_begin_error.md) — 2026-06-27
 - [RTK proxy rewrites `tsc`/`npx tsc` and masks TypeScript errors — use `node_modules/.bin/tsc` directly](./docs/learning-lessons/rtk_proxy_masks_tsc_errors.md) — 2026-06-30
 - [Scoped toolset wrapper: inject security context at the wrapper, not via the LLM](./docs/learning-lessons/scoped_toolset_wrapper_for_security_context.md) — 2026-07-01
+- [Auth/redirect/token-lifecycle flows require live testing — mocks and static analysis miss CSP, CORS, and timing bugs](./docs/learning-lessons/auth_redirect_flows_require_live_testing.md) — 2026-07-08
 
 <!-- SPECKIT START -->
-**Active feature**: `006-cycle1-remediation` — closes SDD cycle-1 findings from five
-blocked/conditional slices. Implementation plan: `specs/006-cycle1-remediation/plan.md`.
-Key decisions: ADR-018 Option A (one subprocess + campaign_id per tool + ScopedMCPToolset),
-D1 (backend-scoped routes `/me/game/...`), spec 007 supersessions (ADR-019/028 obsolete).
+**Active feature**: `009-deterministic-turn-dispatcher` — implements
+[ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md):
+splits the narrator into an intent classifier (LLM, structured output, no tools) → a
+deterministic dispatcher (code, zero LLM calls, calls MCP tools directly) → a pure
+narrator (LLM, `output_type=Scene`, zero tools) — closing an empirically-proven gap
+where the current narrator (ADR-029) can fabricate stat changes regardless of model
+strength (reproduced with both gpt-4o-mini and gpt-5-chat-latest). Planning complete
+(`tasks.md` not yet generated — run `/speckit-tasks` next). Plan:
+`specs/009-deterministic-turn-dispatcher/plan.md`. Key decisions: single
+`pydantic_graph.Graph` (already bundled with `pydantic-ai>=2.0.0`, no new dependency)
+with combat as the only cyclic node; dispatcher lives behind the existing
+`NarratorBackend` Protocol (zero FastAPI route changes); two new MCP tools
+(`apply_healing`/`apply_damage`, relative not absolute) alongside the existing 18;
+adventure module gains a three-layer structure (fixed backbone / probabilistic
+per-playthrough encounters / free narrative zones) migrated incrementally, `SKILL.md`
+retained for Layer-3 lore. MVP scope = User Story 1 (the integrity guarantee) only;
+Stories 2 (replay variance) and 4 (authoring tooling) are later phases.
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002-persistence-foundation` ← done (PostgresStorage; TLS/concurrency/lifecycle tracked in `006`)
-- `003-web-backend-mvp` ← done (merged to `dev`)
-- `004-accounts-hardening-obs` ← **after 006** (real OIDC + accounts + session lease + OTel)
-- `005-professional-spa` ← done (live mode gated on `006` + `007`)
-- `006-cycle1-remediation` ← **active** (implementation in progress — see plan.md + tasks.md)
-- `007-narrator-tool-use-refactor` ← done (PR #8 → `dev`; narrator calls MCP tools directly)
+- `002` through `007` ← done (persistence, backend, accounts/OIDC backend, professional SPA, narrator tool-use refactor)
+- `008-oidc-frontend-login` ← implemented + live-verified, PR #21 open against `dev` (not yet merged)
+- `009-deterministic-turn-dispatcher` ← **active** (plan.md ready; tasks.md next)
 
-Dependency chain: `002` → `003` → `006` → `007` → `004` // `005` (live mode gated on `006`+`007`).
-
-**Spec 006 design artifacts**:
-- Plan: `specs/006-cycle1-remediation/plan.md`
-- Research (decisions): `specs/006-cycle1-remediation/research.md`
-- Data model: `specs/006-cycle1-remediation/data-model.md`
-- HTTP API contract: `specs/006-cycle1-remediation/contracts/http-api.md`
-- Quickstart (validation): `specs/006-cycle1-remediation/quickstart.md`
+**Spec 009 design artifacts**:
+- Plan: `specs/009-deterministic-turn-dispatcher/plan.md`
+- Research (decisions): `specs/009-deterministic-turn-dispatcher/research.md`
+- Data model: `specs/009-deterministic-turn-dispatcher/data-model.md`
+- MCP tool contract changes: `specs/009-deterministic-turn-dispatcher/contracts/mcp-tool-contract-changes.md`
+- Adventure module schema: `specs/009-deterministic-turn-dispatcher/contracts/adventure-module-schema.md`
+- Quickstart (validation): `specs/009-deterministic-turn-dispatcher/quickstart.md`
 
 Stack: FastAPI + Postgres, PydanticAI narrator on `claude-opus-4-8` calling MCP tools
-directly (ADR-029), React/Vite SPA, OpenTelemetry. Backend-scoped API: `/me/game/...`.
-Constitution: `.specify/memory/constitution.md` (v1.1.0).
+directly (ADR-029, being revised by this spec), React/Vite SPA, OpenTelemetry.
+Backend-scoped API: `/me/game/...`. Constitution: `.specify/memory/constitution.md` (v1.1.0).
 <!-- SPECKIT END -->

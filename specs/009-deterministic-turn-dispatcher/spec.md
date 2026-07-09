@@ -203,7 +203,7 @@ clear pass/fail before it is available to players.
   (each may or may not be present, determined once per playthrough and then
   remembered), and its purely narrative areas (no predefined mechanical content, the
   story is free to invent there).
-- **Mechanical Situation Pattern**: A reusable, named kind of game-mechanical moment (a
+- **Mechanical Situation Template**: A reusable, named kind of game-mechanical moment (a
   risky attempt, a skill test, resting, moving, a fight) with bounded parameters,
   shared across every adventure rather than redefined per adventure.
 - **Turn Outcome**: What actually happened as the result of a recognized mechanical

@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import AuthPage from './pages/AuthPage'
+import CallbackPage from './pages/CallbackPage'
 import DashboardPage from './pages/DashboardPage'
 import PlayPage from './pages/PlayPage'
 import GraveyardPage from './pages/GraveyardPage'
@@ -18,7 +19,13 @@ import { useAuth } from './hooks/useAuth'
  */
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { authenticated } = useAuth()
+  const { authenticated, isLoading } = useAuth()
+  // FR-004: don't bounce a still-valid persisted session to /auth before
+  // react-oidc-context has had a chance to rehydrate it from sessionStorage
+  // (isLoading is briefly true right after a page reload).
+  if (isLoading) {
+    return null
+  }
   if (!authenticated) {
     return <Navigate to="/auth" replace />
   }
@@ -30,6 +37,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
+      <Route path="/callback" element={<CallbackPage />} />
       <Route
         path="/dashboard"
         element={

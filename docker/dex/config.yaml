@@ -14,18 +14,32 @@ storage:
 
 web:
   http: 0.0.0.0:5556
+  # CORS (slice 008): the SPA fetches the token endpoint directly from the
+  # browser (PKCE, no backend mediation) — Dex disables CORS on discovery/
+  # token/keys endpoints unless allowedOrigins is set explicitly.
+  allowedOrigins:
+    - http://localhost:5173
+    - http://localhost:8080
 
 logger:
   level: info
 
 # Static OAuth2 clients for development / testing
+#
+# Public client (slice 008, ADR-034): the SPA uses Authorization Code + PKCE
+# directly from the browser, so no client_secret exists to protect — `public:
+# true` tells Dex to accept a code_verifier instead of a secret at the token
+# endpoint. Nothing in this repo ever read the old `secret: gamebook-secret-dev`
+# (dead config); redirectURIs are corrected to the origins that actually run
+# here (Vite dev server on 5173, docker-compose `gameobs` frontend on 8080) —
+# the old localhost:3000/:8000 values matched no running service.
 staticClients:
   - id: gamebook
-    secret: gamebook-secret-dev
+    public: true
     name: "Gamebook Dev Client"
     redirectURIs:
-      - http://localhost:3000/callback
-      - http://localhost:8000/callback
+      - http://localhost:5173/callback
+      - http://localhost:8080/callback
 
 # Static test passwords — for integration tests only
 enablePasswordDB: true
