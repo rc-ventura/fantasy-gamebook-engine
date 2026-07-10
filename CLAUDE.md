@@ -2,11 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Slices 002–007 implemented and merged to `dev`
+## Status: Slices 002–007 implemented and merged to `dev`; 009 Phase 3 complete on branch
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing 18 tools, and **217+ passing tests** (42 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing **20 tools** (added `apply_healing`/`apply_damage` in spec 009), and **330 passing tests** (80 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
 
-The Phase-2 web stack (`src/gamebook_web/`) is implemented: FastAPI + PydanticAI narrator (`PydanticNarrator`) that calls MCP tools directly during `agent.run()` (ADR-029), React/Vite SPA, PostgresStorage (swap boundary #1). TypeScript: `node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit` → exit 0.
+The Phase-2 web stack (`src/gamebook_web/`) is implemented: FastAPI + **deterministic dispatcher** (`DispatcherNarrator`, spec 009 ADR-033) with a `pydantic_graph.Graph` that separates intent classification (LLM, structured output) from mechanical dispatch (pure code, 0 LLM calls) from narration (LLM, `toolsets=[]`). React/Vite SPA, PostgresStorage (swap boundary #1). TypeScript: `node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit` → exit 0.
 
 **Slice 002 (PostgresStorage):** `src/gamebook/storage/postgres.py` implements `StorageBackend` behind Postgres (swap boundary #1). Schema in `alembic/versions/0001_initial_schema.py`. Phase-2 MCP path available when `DATABASE_URL` + `GAMEBOOK_CAMPAIGN_ID` are set.
 
@@ -196,28 +196,22 @@ principles; when in conflict, the constitution wins.
 - [Auth/redirect/token-lifecycle flows require live testing — mocks and static analysis miss CSP, CORS, and timing bugs](./docs/learning-lessons/auth_redirect_flows_require_live_testing.md) — 2026-07-08
 
 <!-- SPECKIT START -->
-**Active feature**: `009-deterministic-turn-dispatcher` — implements
-[ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md):
-splits the narrator into an intent classifier (LLM, structured output, no tools) → a
-deterministic dispatcher (code, zero LLM calls, calls MCP tools directly) → a pure
-narrator (LLM, `output_type=Scene`, zero tools) — closing an empirically-proven gap
-where the current narrator (ADR-029) can fabricate stat changes regardless of model
-strength (reproduced with both gpt-4o-mini and gpt-5-chat-latest). Planning complete
-(`tasks.md` not yet generated — run `/speckit-tasks` next). Plan:
-`specs/009-deterministic-turn-dispatcher/plan.md`. Key decisions: single
-`pydantic_graph.Graph` (already bundled with `pydantic-ai>=2.0.0`, no new dependency)
-with combat as the only cyclic node; dispatcher lives behind the existing
-`NarratorBackend` Protocol (zero FastAPI route changes); two new MCP tools
-(`apply_healing`/`apply_damage`, relative not absolute) alongside the existing 18;
-adventure module gains a three-layer structure (fixed backbone / probabilistic
-per-playthrough encounters / free narrative zones) migrated incrementally, `SKILL.md`
-retained for Layer-3 lore. MVP scope = User Story 1 (the integrity guarantee) only;
-Stories 2 (replay variance) and 4 (authoring tooling) are later phases.
+**Active feature**: `009-deterministic-turn-dispatcher` — **Phase 3 (MVP / User Story 1)
+complete**. T001–T027 done; T028 (live validation with 2 models) pending (requires API
+keys). Phases 4–7 (T029–T044 — US2/US3/US4 + polish) not yet started.
+
+Architecture implemented: `pydantic_graph.Graph` with 5 nodes —
+`ClassifyIntent` (LLM, structured output, no tools) → `MechanicalDispatch` (pure code,
+`call_engine()`) → `CombatRound` (cyclic, pure code) → `Narrate` (LLM, `toolsets=[]`);
+`NarrativeFree` (pure code) → `Narrate`. `DispatcherNarrator` wraps the graph behind the
+existing `NarratorBackend` Protocol (zero route changes). Two new MCP tools
+(`apply_healing`/`apply_damage`) + `backbone.yaml` adventure structure + `templates.yaml`
+shared library. **330 tests pass, 80 skipped** (Postgres/live-LLM).
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
 - `002` through `007` ← done (persistence, backend, accounts/OIDC backend, professional SPA, narrator tool-use refactor)
 - `008-oidc-frontend-login` ← implemented + live-verified, PR #21 open against `dev` (not yet merged)
-- `009-deterministic-turn-dispatcher` ← **active** (plan.md ready; tasks.md next)
+- `009-deterministic-turn-dispatcher` ← **active** (Phase 3 MVP done, T028 + Phases 4–7 remain)
 
 **Spec 009 design artifacts**:
 - Plan: `specs/009-deterministic-turn-dispatcher/plan.md`

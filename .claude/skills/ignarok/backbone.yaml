@@ -1,0 +1,69 @@
+# Ignarok adventure module — Layer 1 (fixed backbone) + Layer 2 (probabilistic encounters).
+# Layer 3 (free narrative) is the default for every zone absent from both sections below.
+#
+# Spec: specs/009-deterministic-turn-dispatcher/contracts/adventure-module-schema.md
+# Shared template library: adventure_modules/templates.yaml
+
+backbone:
+  zones:
+    - stone_archway       # entry gate at the mountain's base (difficulty 1)
+    - shattered_trailhead # collapsed switchback path, rusted winch (difficulty 1)
+    - dark_ravine         # narrow descent scarred by rockfall (difficulty 2)
+    - drowned_mines       # flooded gallery tunnels, black water (difficulty 2)
+    - sunless_caverns     # natural cathedral lit by pale fungus (difficulty 3)
+    - thrall_halls        # Malachar's worked corridors, enslaved minds (difficulty 4)
+    - arcane_vaults       # warded laboratories, glyph-trapped floors (difficulty 5)
+    - malachars_sanctum   # ritual chamber at the mountain's heart (difficulty 6, boss)
+
+  key_npcs:
+    - malachar
+    - toll_lurker
+    - mind_thrall
+
+  boss: malachar
+  victory_condition: { flag: malachar_defeated }
+  opening_location: stone_archway
+
+# Layer 2 — rolled once per zone per playthrough, result persisted to World.flags.
+# Zones absent here default to Layer 3 (fully narrative-free, no dice).
+probabilistic_encounters:
+  stone_archway:
+    # Always present — the mountain's first threshold is always guarded.
+    - id: archway_guardian
+      probability: 1.0
+      template: combat
+      params:
+        enemies:
+          - { name: "Stone Archway Guardian", skill: 5, stamina: 5 }
+        flee_allowed: false
+
+  dark_ravine:
+    # A rockfall-scarred passage with a danger that may or may not be triggered.
+    - id: ravine_rockfall
+      probability: 0.7
+      template: risky_action
+      params:
+        risk_amount: 2
+        risk_source: environment
+
+  drowned_mines:
+    # The flooded crossing — a toll-lurker may or may not be present.
+    - id: toll_lurker_encounter
+      probability: 0.8
+      template: combat
+      params:
+        enemies:
+          - { name: "Toll-Lurker", skill: 6, stamina: 6 }
+        flee_allowed: true
+
+# Zones explicitly authored as Layer 3 (free narrative, no dice by design).
+# Zones absent from both sections above also default to Layer 3 — listed here
+# only when the author wants to make the intent explicit (e.g. during review).
+narrative_zones: []
+
+# FR-011 — set only by an actual human reviewer after examining the content.
+# A passing structural validator (tests/qa/test_adventure_structure.py) is
+# necessary but not sufficient for release — these fields record the human sign-off.
+# T040 sets them once the content above has been reviewed.
+reviewed_by: null
+reviewed_at: null

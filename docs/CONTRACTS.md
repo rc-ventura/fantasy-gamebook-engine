@@ -67,6 +67,7 @@
 | `opentelemetry-exporter-otlp-proto-grpc` | `>=1.30.0` | OTLP/gRPC exporter to operator-chosen backend (004-T019) |
 | `opentelemetry-instrumentation-fastapi` | `>=0.50b0` | Auto-instrumentation for FastAPI (004-T019, ADR-019) |
 | `opentelemetry-instrumentation-httpx` | `>=0.50b0` | Auto-instrumentation for httpx (JWKS calls visible in traces; 004-T019) |
+| `pyyaml` | `>=6.0.3` | `backbone.yaml`/`templates.yaml` parsing for the adventure-structure loader (spec 009, §16) — was previously present only transitively (via `mcp[cli]`); promoted to a direct dependency since core code now imports it directly |
 
 Dev-only:
 | `pytest-asyncio` | `>=0.24.0` | Async test support for FastAPI/SQLAlchemy tests |
@@ -312,7 +313,11 @@ class CombatEngine(Protocol):
 
 ## 6. `mcp/server.py` — MCP tool contract (stdio transport, server name `gamebook`)
 
-Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`update_world` added in cycle 2 per ADR-010). **Every tool takes `campaign_id: str` as its first parameter** (ADR-018 Option A — one server process, all campaigns isolated by `campaign_id`; the harness/narrator injects it via `ScopedMCPToolset`):
+Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 20 tools (`update_world`
+added in cycle 2 per ADR-010; `apply_healing`/`apply_damage` added in spec 009 per
+ADR-033 — see §16). **Every tool takes `campaign_id: str` as its first parameter**
+(ADR-018 Option A — one server process, all campaigns isolated by `campaign_id`; the
+harness/narrator injects it via `ScopedMCPToolset`):
 
 | tool | params | returns |
 |---|---|---|
@@ -321,6 +326,8 @@ Tool names MUST match `^[a-z0-9_]+$` (no hyphens). Exactly these 18 tools (`upda
 | `create_character` | `campaign_id: str, name: str` | `CharacterSheet` (rolls attributes, persists, alive) |
 | `read_character_sheet` | `campaign_id: str` | `CharacterSheet` |
 | `update_character_sheet` | `campaign_id: str, changes: dict` | `CharacterSheet` (validates invariants) |
+| `apply_healing` | `campaign_id: str, amount: int, source: str` | `CharacterSheet` (relative; §16) |
+| `apply_damage` | `campaign_id: str, amount: int, source: str` | `CharacterSheet` (relative; §16) |
 | `read_world` | `campaign_id: str` | `World` |
 | `update_world` | `campaign_id: str, changes: dict` | `World` (patch + allowlist; persists via `save_world`) |
 | `register_event` | `campaign_id: str, type: str, data: dict` | the created `Event` |
@@ -789,3 +796,59 @@ Forbidden: character name, inventory, narrative text, world flags, OIDC `sub` or
 ### Error handling rule
 
 On unhandled exception: set span status `ERROR` with `exception.type` only (no message, no traceback). Return `{"error": {"code": "internal_error", "message": "An error occurred"}}` to the client — never the raw exception.
+
+---
+
+## 16. Deterministic Turn Dispatcher & Adventure Structure (spec 009, ADR-033)
+
+Closes the fabrication gap in §10's narrator contract: the narrator (`PydanticNarrator`
+successor) no longer calls MCP tools at all. A `pydantic_graph.Graph`
+(`harness/dispatcher.py`) sits between the player's input and the narrator: an intent
+classifier (LLM, structured output, no tools) names the action; a deterministic
+dispatcher (plain code, `call_engine()`/`direct_call_tool`, zero LLM calls) runs the
+actual engine checks; the narrator (LLM, `output_type=Scene`, `toolsets=[]`) only
+narrates the settled result. See `docs/adrs/ADR-033-*.md` and
+`specs/009-deterministic-turn-dispatcher/` for full rationale.
+
+### New MCP tools: `apply_healing` / `apply_damage`
+
+Relative deltas on `stamina.current` — **not** absolute values like
+`update_character_sheet`. `amount` MUST be a positive int (`amount <= 0` is rejected).
+Clamped to `[0, initial]` by the same `Attribute` invariant `update_character_sheet`
+already enforces. `apply_damage` sets `alive=False` if `stamina.current` reaches `0`.
+Bounds the blast radius of any tool exposed to an LLM to a template's declared range,
+rather than any in-bounds absolute value (defense in depth vs. `update_character_sheet`
+alone).
+
+### Narrator toolset (supersedes §10's tool-calling narrator)
+
+The narrator's `Agent` receives `toolsets=[]` — zero tools, mutating or read-only. It
+receives the turn's `TurnOutcome` (below) and the existing `NarratorContext` fields as
+prompt content instead. `update_character_sheet`, `roll_dice`, `test_luck`, and the
+combat tools remain in the 20-tool contract for the **dispatcher** and lifecycle
+call-sites (`create_character`, etc.) — they are simply no longer LLM-reachable via the
+narrator's toolset.
+
+### Adventure structure files (swap boundary #2 extension — `SKILL.md` retained)
+
+Two new file kinds, loaded by `harness/adventure_structure.py`:
+
+- **`backbone.yaml`** (per module, co-located with that module's `SKILL.md` in
+  `.claude/skills/<module>/`): the fixed backbone (`zones`, `key_npcs`, `boss`,
+  `victory_condition`, `opening_location`), `probabilistic_encounters` (Layer 2, rolled
+  once per zone per playthrough and persisted to `World.flags["encounter.<zone>.<id>"]`
+  via `update_world`), `narrative_zones` (Layer 3, explicitly free), and the FR-011
+  human-review gate fields `reviewed_by: str | None` / `reviewed_at: str | None`. A
+  module with no `backbone.yaml` is fully Layer 3 by default (incremental migration).
+- **`templates.yaml`** (shared across every module, at the top-level
+  `adventure_modules/templates.yaml` — **not** under `.claude/skills/`, whose contract is
+  "each subdirectory is a Claude Code Skill" and doesn't fit a bare shared-data file):
+  the reusable `MechanicalSituationTemplate` library (`risky_action`, `skill_check`,
+  `rest_heal`, `move`, `combat`), each with bounded `params` and a `mandatory_checks`
+  list. `comparator` operations are a closed enum (`eq/ne/lt/le/gt/ge`) — **never**
+  `eval()`/`exec()`.
+
+Full schema: `specs/009-deterministic-turn-dispatcher/contracts/adventure-module-schema.md`
+and `data-model.md`. Structural validation (FR-010/011, both structure and the
+review-gate fields) is enforced by `tests/qa/test_adventure_structure.py`, part of the
+mandatory pre-merge suite alongside the plugability audit.

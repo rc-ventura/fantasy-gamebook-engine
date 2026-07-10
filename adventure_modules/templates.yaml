@@ -1,0 +1,69 @@
+# Shared mechanical situation template library (spec 009, ADR-033).
+#
+# Referenced by every adventure module's backbone.yaml — not per-module. See
+# docs/CONTRACTS.md §16 and specs/009-deterministic-turn-dispatcher/contracts/
+# adventure-module-schema.md for the full contract.
+#
+# ${param_name} is a closed, structured substitution against the resolved
+# `params` dict — never eval()/exec()/arbitrary string interpolation.
+# `comparator.op` is restricted to eq/ne/lt/le/gt/ge.
+
+templates:
+  risky_action:
+    description: >
+      A risky attempt with no dice roll of its own — test luck; success avoids
+      the consequence, failure takes damage.
+    params:
+      risk_amount: { type: int, min: 1, max: 3 }
+      risk_source: { type: enum, values: [trap, magical_trap, environment, curse] }
+    mandatory_checks:
+      - tool: test_luck
+        on_success: []
+        on_failure:
+          - tool: apply_damage
+            args: { amount: "${risk_amount}", source: "${risk_source}" }
+
+  skill_check:
+    description: >
+      Roll 2d6 against the hero's current skill; failure takes damage.
+    params:
+      risk_amount: { type: int, min: 1, max: 4 }
+      risk_source: { type: enum, values: [trap, magical_trap, environment, curse] }
+    mandatory_checks:
+      - tool: roll_dice
+        args: { notation: "2d6" }
+        comparator: { op: le, left: "${result.total}", right: "${skill.current}" }
+        on_success: []
+        on_failure:
+          - tool: apply_damage
+            args: { amount: "${risk_amount}", source: "${risk_source}" }
+
+  rest_heal:
+    description: "Resting to recover — deterministic healing, no roll."
+    params: {}
+    mandatory_checks:
+      - tool: apply_healing
+        args: { amount: 2, source: rest }
+
+  move:
+    description: "Move to a new location."
+    params:
+      destination: { type: str }
+    mandatory_checks:
+      - tool: update_world
+        args: { current_location: "${destination}" }
+
+  combat:
+    description: >
+      Start a fight. The dispatcher's CombatRound graph node loops
+      resolve_combat_round until Combat ends — the round-by-round exchange is
+      not expressible as a flat mandatory_checks list, so this template only
+      covers the start_combat call; MechanicalDispatch special-cases
+      template == "combat" to route into CombatRound instead of straight to
+      Narrate (see data-model.md's node table).
+    params:
+      enemies: { type: list }
+      flee_allowed: { type: bool }
+    mandatory_checks:
+      - tool: start_combat
+        args: { enemies: "${enemies}", flee_allowed: "${flee_allowed}" }

@@ -101,10 +101,9 @@ services:
       OIDC_JWKS_URI: http://dex:5556/dex/keys
       OIDC_ISSUER: http://dex:5556/dex
       OIDC_AUDIENCE: gamebook
-      OTLP_ENDPOINT: http://otel-collector:4317
-      # The compose otel-collector has no TLS configured — plaintext gRPC is
-      # fine for local dev (FR-032 refuses this combination when ENV=production).
-      OTLP_INSECURE: "1"
+      # HTTP OTLP — gRPC silently drops spans with http:// prefix in this SDK version.
+      # Collector accepts both protocols; we standardise on HTTP for simplicity.
+      OTLP_ENDPOINT: http://otel-collector:4318
       # Narrator provider (feat/009): pick one via NARRATOR_MODEL in your .env
       # ("anthropic:claude-opus-4-8" | "openai:gpt-..." | "openrouter:...").
       # Only the matching key needs to be set — the other two are harmless if

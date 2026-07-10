@@ -19,13 +19,16 @@ import pytest
 from gamebook.mcp.server import build_server
 from gamebook.storage.in_memory import InMemoryStorage
 
-# The exact 17 tools mandated by CONTRACTS §6, in contract order.
+# The exact 20 tools mandated by CONTRACTS §6, in contract order
+# (apply_healing/apply_damage added spec 009, ADR-033).
 EXPECTED_TOOLS = [
     "roll_dice",
     "test_luck",
     "create_character",
     "read_character_sheet",
     "update_character_sheet",
+    "apply_healing",
+    "apply_damage",
     "read_world",
     "update_world",
     "register_event",
@@ -84,10 +87,10 @@ def call(server, tool: str, **arguments):
 
 
 # --------------------------------------------------------------------------- discovery
-def test_server_builds_and_lists_all_17_tools(server):
+def test_server_builds_and_lists_all_20_tools(server):
     names = [tool.name for tool in asyncio.run(server.list_tools())]
     assert sorted(names) == sorted(EXPECTED_TOOLS)
-    assert len(names) == 18
+    assert len(names) == 20
 
 
 def test_tool_names_match_required_pattern(server):

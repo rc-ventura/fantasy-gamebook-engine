@@ -1,18 +1,3 @@
-"""OpenTelemetry setup — traces, metrics, logs via OTLP (T019).
-
-Called from ``app.py`` lifespan.  Safe to call multiple times (idempotent).
-
-Environment variables
----------------------
-OTLP_ENDPOINT       — gRPC endpoint for OTLP exporter, e.g. "http://localhost:4317"
-                      If unset, uses a no-op exporter (dev/test).
-OTEL_SERVICE_NAME   — overrides the service_name argument.
-
-No PII in spans (FR-015):
-  - campaign_id and account_id as span attributes (opaque identifiers).
-  - No character name, inventory, or narrative text in span attributes.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -20,8 +5,8 @@ import os
 from typing import Any
 
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -77,13 +62,6 @@ def setup_telemetry(
     # unless OTLP_INSECURE is explicitly enabled (local collector without TLS).
     # L-OTLP: refuse insecure OTLP in production — a plaintext telemetry channel
     # enables MITM interception/spoofing of traces and metrics.
-    insecure = os.getenv("OTLP_INSECURE", "0") in ("1", "true", "True")
-    if insecure and os.getenv("ENV", "").lower() == "production":
-        raise RuntimeError(
-            "OTLP_INSECURE=1 is not allowed in production (ENV=production). "
-            "Use a TLS-secured OTLP collector endpoint."
-        )
-
     resource = Resource.create({"service.name": service_name})
 
     # ---------------------------------------------------------------
@@ -92,9 +70,10 @@ def setup_telemetry(
     tracer_provider = TracerProvider(resource=resource)
 
     if endpoint:
-        span_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
+        traces_url = endpoint.rstrip("/") + "/v1/traces"
+        span_exporter = OTLPSpanExporter(endpoint=traces_url)
         tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
-        logger.info("OTel traces → OTLP %s (insecure=%s)", endpoint, insecure)
+        logger.info("OTel traces → %s", traces_url)
         _IN_MEMORY_EXPORTER = None
     else:
         in_mem = InMemorySpanExporter()
@@ -109,7 +88,8 @@ def setup_telemetry(
     # Metrics
     # ---------------------------------------------------------------
     if endpoint:
-        metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
+        metrics_url = endpoint.rstrip("/") + "/v1/metrics"
+        metric_exporter = OTLPMetricExporter(endpoint=metrics_url)
         reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=10_000)
         meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     else:

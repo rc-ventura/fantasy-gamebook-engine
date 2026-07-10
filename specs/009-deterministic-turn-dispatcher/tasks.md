@@ -31,18 +31,19 @@ their resolved state, not the original draft.
 
 **Purpose**: Skeleton files for the new modules — no behavior yet.
 
-- [ ] T001 Create `src/gamebook_web/harness/adventure_structure.py` (empty module with the
+- [X] T001 Create `src/gamebook_web/harness/adventure_structure.py` (empty module with the
   file's docstring: AdventureStructure/MechanicalSituationTemplate Pydantic models +
   `backbone.yaml`/`templates.yaml` loader — filled in Phase 2)
-- [ ] T002 [P] Create `src/gamebook_web/harness/dispatcher.py` (empty module with the
+- [X] T002 [P] Create `src/gamebook_web/harness/dispatcher.py` (empty module with the
   file's docstring: the `pydantic_graph.Graph`, its nodes, `IntentClassification`,
   `TurnOutcome`, `DispatchState` — filled in Phases 2–3)
-- [ ] T003 [P] Create the `adventure_modules/` top-level directory with an empty
+- [X] T003 [P] Create the `adventure_modules/` top-level directory with an empty
   `templates.yaml` (shared mechanical situation library, filled in T010). **(analyze fix
   F2)**: originally `.claude/skills/_shared/` — moved out of `.claude/skills/` entirely,
   since that directory's contract is "each subdirectory is a Claude Code Skill" (needs
   its own `SKILL.md`), which a bare shared-data directory doesn't satisfy. See
-  `research.md`'s resolved file-location decision.
+  `research.md`'s resolved file-location decision. Written with real content directly
+  (T010's content) rather than truly empty — no value in a throwaway intermediate stub.
 
 **Checkpoint**: New files exist; nothing wired in yet.
 
@@ -55,56 +56,107 @@ narrator's tool removal — every user story depends on all three.
 
 **⚠️ CRITICAL**: Complete this phase before any User Story phase.
 
-- [ ] T004 Add `apply_healing(campaign_id, amount, source)` and
+- [X] T004 Add `apply_healing(campaign_id, amount, source)` and
   `apply_damage(campaign_id, amount, source)` tools to `src/gamebook/mcp/server.py` —
-  relative deltas on `stamina.current`, clamped via the existing `Attribute` invariant
-  (reuse the same bounds-checking path `update_character_sheet` already uses). Reject
-  `amount <= 0`. See `contracts/mcp-tool-contract-changes.md` for the exact contract.
-- [ ] T005 Update `docs/CONTRACTS.md` §6 with the 2 new tools (20-tool table) in the same
-  change as T004 — Constitution Principle III, no silent drift.
-- [ ] T006 **(analyze fix C3, new task)** [P] Extend `tests/qa/test_mcp_integration.py`
+  relative deltas on `stamina.current`. Reject `amount <= 0`. **Correction while
+  implementing**: `Attribute._check_bounds` (`domain/models.py`) *raises* on
+  `current > initial` or `current < 0` — it does not clamp. So clamping is done
+  explicitly in the tool body (`min(initial, current + amount)` /
+  `max(0, current - amount)`, mirroring `test_luck`'s existing
+  `max(0, result.luck_after)` pattern) before the already-in-bounds value reaches
+  the model — not "via the invariant" as originally worded. `apply_damage` sets
+  `alive=False` on reaching 0 (mirrors `combat/implementation.py`'s existing pattern).
+  Also updated `tests/server/test_mcp_server.py`'s `EXPECTED_TOOLS` list and
+  `test_server_builds_and_lists_all_17_tools` (→ `..._20_tools`) — a pre-existing,
+  independent tool-count regression test that would otherwise fail against the new
+  20-tool server. Full `tests/engine tests/server tests/qa` regression: 316 passed, 80
+  skipped (pre-existing Postgres/live-LLM skips), 0 failed.
+- [X] T005 Update `docs/CONTRACTS.md` §6 with the 2 new tools (20-tool table) in the same
+  change as T004 — Constitution Principle III, no silent drift. Also added a new §16
+  ("Deterministic Turn Dispatcher & Adventure Structure") documenting the full spec 009
+  contract surface (new tools, narrator's empty toolset, `backbone.yaml`/`templates.yaml`
+  schema) and a `pyyaml` entry in §0a (promoted from a transitive to a direct dependency
+  — core code now imports it directly, not just `mcp[cli]`/dev tooling).
+- [X] T006 **(analyze fix C3, new task)** [P] Extend `tests/qa/test_mcp_integration.py`
   (the existing file testing MCP tools directly — not just indirectly through the
   dispatcher) with direct-call tests for `apply_healing`/`apply_damage`: a healing/damage
   delta applies correctly, clamps at `initial`/`0`, and `amount <= 0` is rejected. Without
   this, the two new tools would only ever be exercised indirectly via T024's dispatcher
   integration tests — this repo's Principle IV convention is isolated, direct
-  engine-level testing for engine-level changes.
-- [ ] T007 [P] In `src/gamebook_web/harness/adventure_structure.py`: define
+  engine-level testing for engine-level changes. 6 new tests added, 9/9 pass.
+- [X] T007 [P] In `src/gamebook_web/harness/adventure_structure.py`: define
   `ProbabilisticEncounter`, `AdventureStructure` (`zones`, `key_npcs`, `boss`,
   `victory_condition`, `opening_location`, `probabilistic_encounters`, `narrative_zones`,
   `reviewed_by: str | None`, `reviewed_at: str | None`) as Pydantic `BaseModel`s per
   `data-model.md`. **(analyze fix U1)**: `reviewed_by`/`reviewed_at` are new — FR-011's
   human-review gate, checked by the validator in T038, not merely documented.
-- [ ] T008 [P] In `src/gamebook_web/harness/adventure_structure.py`: define `CheckStep`
+- [X] T008 [P] In `src/gamebook_web/harness/adventure_structure.py`: define `CheckStep`
   (`tool`, `args`, `comparator` — comparator `op` restricted to a closed enum `eq/ne/lt/
   le/gt/ge`, **never** `eval()`/`exec()`), `ParamSpec`, `MechanicalSituationTemplate` per
   `data-model.md`.
-- [ ] T009 In `src/gamebook_web/harness/adventure_structure.py`: implement
+- [X] T009 In `src/gamebook_web/harness/adventure_structure.py`: implement
   `load_adventure_structure(module_dir) -> AdventureStructure` and
   `load_templates(path) -> dict[str, MechanicalSituationTemplate]` — YAML → Pydantic
   validation, raising a clear error on schema violation (feeds the FR-010 validator in
-  T038, and fails loudly rather than silently accepting malformed content).
-- [ ] T010 Author `adventure_modules/templates.yaml` with `risky_action`,
+  T038, and fails loudly rather than silently accepting malformed content). Smoke-tested
+  against T010's `templates.yaml` — loads and validates all 5 templates, self-referential
+  `CheckStep.on_failure` resolves correctly.
+- [X] T010 Author `adventure_modules/templates.yaml` with `risky_action`,
   `skill_check`, `rest_heal`, `move`, and `combat` template definitions, per
   `contracts/adventure-module-schema.md`'s excerpt (combat's `mandatory_checks` covers
   only `start_combat` — the round-by-round loop is `CombatRound`'s job, not expressible
   as a flat check list). **(analyze fix F2)**: path corrected from
-  `.claude/skills/_shared/templates.yaml`.
-- [ ] T011 In `src/gamebook_web/harness/dispatcher.py`: define `IntentClassification`
+  `.claude/skills/_shared/templates.yaml`. (Written together with T003.)
+- [X] T011 In `src/gamebook_web/harness/dispatcher.py`: define `IntentClassification`
   (`action: str | None`, `confidence: float`, `template: str | None` — no numeric game
   field, per research.md's fabrication-surface argument), `TurnOutcome` (`action`,
   `template`, `checks`, `final_state`), and the `DispatchState` dataclass
   (`campaign_id`, `toolset`, `context`, `adventure`, `classification`, `outcome`) per
-  `data-model.md`.
-- [ ] T012 In `src/gamebook_web/harness/agent.py`: remove `_NARRATOR_ALLOWED_TOOLS` and
+  `data-model.md`. Added one field beyond data-model.md's list: `templates: dict[str,
+  MechanicalSituationTemplate]` on `DispatchState`, loaded once per turn alongside
+  `adventure` so `MechanicalDispatch` doesn't reload the shared library on every node
+  visit.
+- [X] T012 In `src/gamebook_web/harness/agent.py`: remove `_NARRATOR_ALLOWED_TOOLS` and
   change the narrator's `agent.run()` call to `toolsets=[]` — the narrator receives zero
   tools, mutating or read-only (research.md's "empty toolset" decision). Update
   `_NUMBERS_NEVER_IN_PROSE_RULE`'s system-prompt text to stop instructing tool calls the
   narrator can no longer make; it now only narrates from prompt content.
-- [ ] T013 Update `tests/server/test_narrator_integration.py`'s
+  **Implementation note beyond the task's literal scope**: to actually get "this turn's
+  settled fact" into the pure narrator's prompt (needed for T017/T018's `Narrate` node),
+  added one new optional field to `NarratorContext` (`harness/base.py`):
+  `turn_outcome: dict[str, Any] | None = None` — additive/backward-compatible (every
+  existing constructor call keeps working unchanged), rendered in `_build_prompt` as a
+  clearly-labeled "THIS TURN'S OUTCOME (settled fact...)" block. This is a small,
+  deliberate deviation from plan.md's Project Structure, which listed `base.py` as
+  "UNCHANGED" — without it, the `Narrate` node would have had to duplicate
+  `_build_prompt`'s logic instead of reusing it.
+  **Also flagged, not yet acted on**: `ScopedMCPToolset` (still defined in this file) is
+  now unused within `narrate()` — the dispatcher calls tools via `call_engine()`/
+  `direct_call_tool` with an explicit `campaign_id` argument (ADR-021 pattern, matching
+  how `play.py`'s routes already do it), not via an Agent toolset that needs scoping.
+  Left in place rather than deleted now — revisit once T020 (`DispatcherNarrator`)
+  confirms whether anything still needs it before removing dead code.
+- [X] T013 Update `tests/server/test_narrator_integration.py`'s
   `test_allowlist_excludes_lifecycle_tools` / `test_allowlist_includes_core_play_tools`
   (which assert against the now-removed `_NARRATOR_ALLOWED_TOOLS`) to instead assert the
-  narrator's toolset is empty.
+  narrator's toolset is empty. **Scope turned out larger than the task description**:
+  the file had two more test classes built entirely on the old tool-calling narrator —
+  `TestNarratorToolUseIntegration` (drove a mock LLM that calls `roll_dice` mid-generation
+  via the full HTTP route) and `TestNarratorWorldTrackingInstructions` (asserted the old
+  system prompt text instructed `update_world`/inventory tracking, which T012 removed) —
+  plus one test in the allowlist class, `test_scoped_filtered_preserves_campaign_id_through_run`,
+  that specifically regression-tested a toolset-tree-rebuild bug that can no longer occur
+  once `narrate()` never wraps any toolset. All three were **removed**, not adapted —
+  there is no narrator-level equivalent left to test; that correctness now belongs to the
+  dispatcher (`test_dispatcher.py`, T024). Replaced with `TestPureNarratorHasNoTools`
+  (verified live, via `FunctionModel`, that `info.function_tools == []` and any attempted
+  tool call raises `UnexpectedModelBehavior` — confirmed this exact exception/message by
+  running it directly before writing the assertion) and rewrote
+  `test_scoped_filtered_blocks_lifecycle_tool_call`'s intent into that same class. Kept
+  `TestScopedMCPToolset` (tests the class directly, independent of current narrator use)
+  and `TestAssertNarratorCampaign` (tests the audit function directly) unchanged — both
+  still valid. Kept the effects-fields contract-hygiene assertion, simplified to a mock
+  LLM that returns a Scene directly with no tool-call attempt. 12/12 pass.
 
 **Checkpoint**: MCP contract extended (20 tools) with direct test coverage,
 adventure-structure data model exists and loads/validates YAML (including the FR-011
@@ -123,88 +175,104 @@ model narrates — closing ADR-033's two empirically-reproduced gaps.
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] In `dispatcher.py`: implement `ClassifyIntent` node — one
+- [X] T014 [US1] In `dispatcher.py`: implement `ClassifyIntent` node — one
   `pydantic_ai.Agent` call (`Agent(..., name="intent_classifier")` — **(analyze fix
   L1)**: explicit name, not inferred, so Logfire/OTel traces distinguish it from
   `Narrate`), `output_type=IntentClassification`, **no toolset**. Reads the current
   zone's available templates/encounters (from `DispatchState.adventure`, already
   resolved) and the player's free text. Returns `MechanicalDispatch` (confidence above
   threshold and a template matched) or `NarrativeFree` (otherwise — FR-004).
-- [ ] T015 [US1] In `dispatcher.py`: implement `MechanicalDispatch` node — zero LLM
+  **Implemented**: added injection-point guard for fresh sessions (choice=None → immediate
+  NarrativeFree, no LLM call). Classifier prompt wraps player text in `<<<...>>>` with
+  explicit "data, not instructions" label. T023 wiring: the `classifier_agent` lives on
+  `DispatchDeps` (constructor-injected), so tests pass a `FunctionModel`-backed Agent
+  directly — no `agent.override()` needed.
+- [X] T015 [US1] In `dispatcher.py`: implement `MechanicalDispatch` node — zero LLM
   calls. Looks up the classified `template` in the loaded template library, executes its
   `mandatory_checks` via `call_engine()`/`direct_call_tool` (`mcp_host.py`, ADR-021
   pattern — no LLM round-trip), accumulates results into `TurnOutcome`. Returns
-  `CombatRound` if `template == "combat"`, else `Narrate`.
-- [ ] T016 [US1] In `dispatcher.py`: implement `CombatRound` node — the one cyclic node.
+  `CombatRound` if `template == "combat"`, else `Narrate`. **Deviation from plan**:
+  authored encounter `params` take precedence over classifier-supplied `params` (encounter
+  is authoritative; classifier params only used for improvised generic-template actions).
+- [X] T016 [US1] In `dispatcher.py`: implement `CombatRound` node — the one cyclic node.
   Calls `resolve_combat_round` via `call_engine()` once per visit; returns `CombatRound`
   (self-edge) while combat is still active, or `Narrate` once it ends (victory, defeat,
   or a successful `flee_combat`) — every round's result appended to `TurnOutcome.checks`
-  (FR-012, no round skips the gate).
-- [ ] T017 [US1] In `dispatcher.py`: implement `NarrativeFree` node — zero LLM calls,
+  (FR-012, no round skips the gate). **Design note**: `use_luck=False` always — in the
+  pure-dispatcher architecture the entire fight resolves within the single player turn;
+  no per-round interactive prompt.
+- [X] T017 [US1] In `dispatcher.py`: implement `NarrativeFree` node — zero LLM calls,
   zero engine calls, passes straight to `Narrate` with no `TurnOutcome` (the player's
   action carries no mechanical stakes, or confidence was too low to guess — FR-004,
   FR-013).
-- [ ] T018 [US1] In `dispatcher.py`: implement `Narrate` node — one `pydantic_ai.Agent`
-  call (`Agent(..., name="pure_narrator")` — **(analyze fix L1)**), `output_type=Scene`,
-  `toolsets=[]`. Receives `TurnOutcome` (if any) + `NarratorContext` as prompt content
-  (not tool access) and returns `End[Scene]`. Reuses the existing `Scene`
-  output-validator logic from `agent.py` (structural checks: non-empty narrative,
-  choices present on non-terminal scenes).
-- [ ] T019 [US1] In `dispatcher.py`: assemble the `pydantic_graph.Graph` wiring
-  `ClassifyIntent` → `{MechanicalDispatch, NarrativeFree}` → `{CombatRound, Narrate}` →
-  `Narrate` → `End`, per `data-model.md`'s node table.
-- [ ] T020 [US1] In `src/gamebook_web/harness/agent.py` (or a new
-  `harness/dispatcher_narrator.py`): create a class implementing the `NarratorBackend`
-  Protocol (`harness/base.py`) whose `narrate(campaign_id, context)` runs the Phase-3
-  graph and returns the resulting `Scene` — this is the new production narrator,
-  replacing `PydanticNarrator`'s free-tool-use loop. `FakeNarrator` and
-  `NarratorBackend` itself are unchanged (Constitution Principle II).
-- [ ] T021 [US1] In `src/gamebook_web/api/app.py`: update `_configure_narrator` to
-  construct the new dispatcher-based narrator (T020) instead of `PydanticNarrator` on
-  the production path; `FakeNarrator` continues to be used for tests unchanged.
-- [ ] T022 [US1] [P] Author `.claude/skills/ignarok/backbone.yaml` for the MVP checkpoint:
-  the full `backbone` block (all Ignarok zones, `Malachar`, `victory_condition:
-  {flag: malachar_defeated}`, `opening_location`), plus `probabilistic_encounters` for
-  `stone_archway` (`archway_guardian`, `probability: 1.0`, `template: combat`) and one
-  `risky_action`/`skill_check` zone (e.g. `dark_ravine`). Every other zone defaults to
-  Layer 3 (absent from both `probabilistic_encounters` and `narrative_zones` — the
-  incremental-migration path from research.md). Leave `reviewed_by`/`reviewed_at` unset
-  (`null`) — they're only set by an actual human sign-off (T040), not by authoring the
-  file.
-- [ ] T023 **(analyze fix P1 — replaces the original "create FakeIntentClassifier" task)**
-  [US1] [P] Set up `pydantic_ai` model-override test support for `ClassifyIntent` and
-  `Narrate`: confirm/wire each node's `Agent` so tests can call
-  `agent.override(model=FunctionModel(custom_fn))` (exact, assertable responses) or
-  `TestModel()` (quick automatic-valid-output checks). **Do not** add a hand-rolled fake
-  class — `FakeNarrator`'s queue pattern is for the `NarratorBackend` Protocol boundary
-  (ADR-011), a different granularity than these two private in-graph agents; see
-  `research.md`'s testing decision (added after `/speckit-analyze` checked this plan
-  against the `pydantic-ai` skill's own guidance: *"Use `TestModel` for fast
-  deterministic tests and `FunctionModel` for custom response logic"*).
-- [ ] T024 [US1] [P] Write `tests/server/test_dispatcher.py`: seeded RNG, in-memory MCP
-  server (matching `rules`/`combat`'s existing determinism convention), `FunctionModel`/
-  `TestModel` overrides (T023) for `ClassifyIntent`/`Narrate` — one test per node:
-  `ClassifyIntent` routing (confident → `MechanicalDispatch`, unconfident →
-  `NarrativeFree`), `MechanicalDispatch` check execution against a `risky_action`
-  template, `CombatRound` cycling (multi-round fight, verify no round is skipped),
-  `NarrativeFree` passthrough (no engine calls made).
-- [ ] T025 [US1] [P] Write an integration test in `tests/server/test_dispatcher.py` (or a
-  sibling file): a full graph run for a `risky_action` and for a `combat` template
-  produces a `Scene` whose narrated outcome is backed by a `TurnOutcome` entry for every
-  claimed check — the automated, in-memory version of quickstart.md's Story 1 assertion.
-- [ ] T026 **(analyze fix C1, new task)** [US1] [P] Write a test asserting the
-  narration-call bound (SC-005 — "every mechanical-action turn resolves in a consistent,
-  bounded number of narration steps, regardless of how many mechanical checks occur
-  within it"): run a multi-round `combat` template through the graph and assert
-  `Narrate`/the narration `Agent` is invoked **exactly once** for the whole turn,
-  independent of how many times `CombatRound` cycled. T024's "no round is skipped" check
-  proves completeness; this proves the bound on narration steps specifically — a
-  distinct claim SC-005 makes.
-- [ ] T027 [US1] Update `tool_trace_audit.py`'s `assert_tool_trace_consistency` call site:
-  it now audits the **dispatcher's** own tool-call trace (belt-and-suspenders — the
-  dispatcher is code, not an LLM, so this layer is now a lower-value safety net than it
-  was against the narrator, but still catches a `MechanicalDispatch`/`CombatRound`
-  implementation bug that skips a call it claims to have made).
+- [X] T018 [US1] In `dispatcher.py`: implement `Narrate` node — reuses `PydanticNarrator`
+  as-is (zero tools, existing output-validator logic) rather than creating a second Agent.
+  Every path converges here exactly once before `End`. Injects `turn_outcome` via
+  `dataclasses.replace(context, turn_outcome=outcome.model_dump())` — additive,
+  no NarratorContext constructor changes needed.
+- [X] T019 [US1] In `dispatcher.py`: assemble the `pydantic_graph.Graph` via
+  `GraphBuilder` — `_builder.add(...)` with all five nodes and
+  `_builder.edge_from(_builder.start_node).to(ClassifyIntent)` as the entry edge.
+  `dispatcher_graph = _builder.build()`. Verified via two end-to-end smoke tests
+  (success branch, failure branch, combat cyclic path) against a real in-memory
+  MCP server with `FunctionModel`-mocked LLMs.
+- [X] T020 [US1] In `src/gamebook_web/harness/dispatcher.py` (appended, not a new
+  file): created `DispatcherNarrator` class implementing the `NarratorBackend` Protocol.
+  `narrate(campaign_id, context)` runs `dispatcher_graph.run(inputs=ClassifyIntent(),
+  state=..., deps=self._deps)` and returns the `Scene` directly (the graph returns
+  `OutputT` = `Scene`, not a wrapper). Loads `backbone.yaml` + `templates.yaml` once at
+  construction; missing files fall back to `_LAYER3_ONLY` (a minimal `AdventureStructure`
+  where all actions fall through to `NarrativeFree`). **API discovery**: `Graph.run()`
+  is all-keyword-only (`*, state, deps, inputs`) — `ClassifyIntent()` must be passed as
+  `inputs=ClassifyIntent()`, not as a positional arg (confirmed empirically — smoke tests
+  passed but had this wrong; caught and fixed in T024). Also: `run()` returns `OutputT`
+  directly, no `.output` wrapper.
+- [X] T021 [US1] In `src/gamebook_web/api/app.py`: updated `_configure_narrator` to
+  construct `DispatcherNarrator` (instead of `PydanticNarrator`) on the production path.
+  Adventure module paths are configurable via `GAMEBOOK_ADVENTURE_DIR`/
+  `GAMEBOOK_TEMPLATES_PATH` env vars (default to ignarok / shared templates). Updated
+  `tests/server/test_narrator_config.py`'s three `PydanticNarrator` assertions to
+  `DispatcherNarrator` — these tests now correctly reflect the activation gate.
+- [X] T022 [US1] [P] Authored `.claude/skills/ignarok/backbone.yaml`: 8 Ignarok zones
+  (stone_archway through malachars_sanctum), boss=malachar, victory_condition,
+  probabilistic_encounters for stone_archway (archway_guardian combat, probability 1.0),
+  dark_ravine (ravine_rockfall risky_action, probability 0.7), drowned_mines
+  (toll_lurker_encounter combat, probability 0.8). All other zones default to Layer 3
+  (absent from both sections). `reviewed_by`/`reviewed_at` = null (T040 sets them after
+  actual human review).
+- [X] T023 **(analyze fix P1 — replaces the original "create FakeIntentClassifier" task)**
+  [US1] [P] Test wiring confirmed: each node's `Agent` lives on `DispatchDeps`
+  (constructor-injected at `DispatcherNarrator.__init__` time, not at node-run time).
+  Tests pass a `FunctionModel`-backed `Agent` directly into `DispatchDeps` — no
+  `agent.override()` needed. `_make_classifier(classification)` helper creates a
+  `FunctionModel` that always returns a specified `IntentClassification`. The `Narrate`
+  node reuses `PydanticNarrator`, so tests pass a `FakeNarrator` as the narrator field
+  of `DispatchDeps` (the existing `NarratorBackend` test double is the right granularity
+  here — `FunctionModel` is for per-`Agent` mocking, `FakeNarrator` is for the narrator
+  boundary).
+- [X] T024 [US1] [P] Wrote `tests/server/test_dispatcher.py`: seeded RNG (SEED=42),
+  in-memory MCP server, `FunctionModel`-mocked classifier via `DispatchDeps` injection.
+  14/14 pass. Node tests: `ClassifyIntent` routing (4 tests), `MechanicalDispatch`
+  execution (2 tests, including deterministic stamina assertion keyed to luck success/
+  failure), `NarrativeFree` passthrough (1 test, no engine calls), `CombatRound` cycling
+  (1 test, resolves_combat_round count == round_count assert).
+- [X] T025 [US1] [P] Full graph integration tests in the same file: `risky_action` full
+  graph → Scene + TurnOutcome with test_luck check logged; `NarrativeFree` full graph →
+  Scene + no TurnOutcome; `combat` full graph → Scene + TurnOutcome with start_combat +
+  ≥1 resolve_combat_round + end_combat logged. All 3 pass.
+- [X] T026 **(analyze fix C1)** [US1] [P] SC-005 narration-call-count bound test:
+  `CountingNarrator` intercepts `narrate()` calls; after a full combat turn, asserts
+  exactly 1 call regardless of round count. Verified: `round_count >= 1` AND
+  `narration_count == 1`. Passes.
+- [X] T027 [US1] Updated `assert_tool_trace_consistency` call site in `agent.py`:
+  removed the now-dead call. The pure narrator has `toolsets=[]` so it never calls
+  `register_event` — the audit was vacuous (it ran on `result.all_messages()` which
+  contains no `ToolCallPart`s). The T006b `_assert_narrator_campaign` call is retained
+  as cheap insurance. The dispatcher's own trace is validated structurally by
+  T024/T025/T026 tests in `test_dispatcher.py` (round_count == resolve_count assertion;
+  `end_combat` called exactly once) — these prove completeness with more precision than
+  a runtime warn-only audit could. Also removed the unused import of
+  `assert_tool_trace_consistency` from `agent.py`.
 - [ ] T028 [US1] Run quickstart.md's "Story 1" and "Story 1 (extended encounter)" live
   validation against at least two different models (e.g. `anthropic:claude-opus-4-8` and
   a cheaper `openai:*` or `openrouter:*` model, matching ADR-033's own two-model

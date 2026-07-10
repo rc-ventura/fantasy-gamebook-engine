@@ -1,14 +1,3 @@
-"""Adventure-module config (swap boundary #2, FR-005).
-
-The engine and API must not hard-code adventure-specific facts. The victory
-condition is a World flag whose *name* belongs to the adventure module (the
-Ignarok debut module uses ``malachar_defeated`` — see
-``.claude/skills/ignarok/SKILL.md``). Swapping the adventure means swapping
-this config, not editing the play loop.
-
-``GAMEBOOK_VICTORY_FLAG`` overrides the flag name at deploy time so a new
-adventure module can plug in without a code change.
-"""
 
 from __future__ import annotations
 
@@ -22,10 +11,11 @@ class AdventureConfig:
 
     name: str
     victory_flag: str
+    opening_location: str = ""
 
 
 # Debut adventure module: Ignarok (docs/06-adventure-module.md).
-IGNAROK = AdventureConfig(name="ignarok", victory_flag="malachar_defeated")
+IGNAROK = AdventureConfig(name="ignarok", victory_flag="malachar_defeated", opening_location="stone_archway")
 
 
 def get_adventure_config() -> AdventureConfig:

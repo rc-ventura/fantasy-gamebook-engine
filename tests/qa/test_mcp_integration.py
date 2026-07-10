@@ -180,3 +180,63 @@ def test_create_character_rejects_overwriting_a_living_hero() -> None:
         _call(server, "create_character", name="Second")
 
     assert _call(server, "read_character_sheet")["name"] == "First"
+
+
+# --- apply_healing / apply_damage (spec 009, ADR-033) ------------------------
+# Relative deltas, not absolute values — the dispatcher's fix for narrator
+# fabrication Mode 2. Direct engine-level coverage, independent of the
+# dispatcher graph that will be the tools' only real caller (Principle IV).
+
+def test_apply_damage_applies_a_relative_delta() -> None:
+    server = _build()
+    created = _call(server, "create_character", name="Berta")
+    initial = created["stamina"]["initial"]
+
+    damaged = _call(server, "apply_damage", amount=2, source="trap")
+    assert damaged["stamina"]["current"] == initial - 2
+    assert damaged["stamina"]["initial"] == initial  # unchanged
+    assert damaged["alive"] is True
+
+
+def test_apply_damage_clamps_at_zero_and_kills() -> None:
+    server = _build()
+    created = _call(server, "create_character", name="Cassia")
+    initial = created["stamina"]["initial"]
+
+    lethal = _call(server, "apply_damage", amount=initial + 50, source="curse")
+    assert lethal["stamina"]["current"] == 0
+    assert lethal["alive"] is False
+
+
+def test_apply_healing_applies_a_relative_delta() -> None:
+    server = _build()
+    created = _call(server, "create_character", name="Doran")
+    # Damage first so there is room to heal into.
+    _call(server, "apply_damage", amount=3, source="trap")
+
+    healed = _call(server, "apply_healing", amount=2, source="rest")
+    assert healed["stamina"]["current"] == created["stamina"]["initial"] - 1
+
+
+def test_apply_healing_clamps_at_initial_no_over_heal() -> None:
+    server = _build()
+    created = _call(server, "create_character", name="Elowen")
+    initial = created["stamina"]["initial"]
+
+    over_healed = _call(server, "apply_healing", amount=50, source="rest")
+    assert over_healed["stamina"]["current"] == initial
+
+
+@pytest.mark.parametrize("tool", ["apply_healing", "apply_damage"])
+def test_apply_healing_and_damage_reject_non_positive_amount(tool: str) -> None:
+    server = _build()
+    _call(server, "create_character", name="Faelan")
+
+    with pytest.raises(Exception):
+        _call(server, tool, amount=0, source="rest")
+    with pytest.raises(Exception):
+        _call(server, tool, amount=-1, source="rest")
+
+    # State left untouched by the rejected calls.
+    unchanged = _call(server, "read_character_sheet")
+    assert unchanged["stamina"]["current"] == unchanged["stamina"]["initial"]

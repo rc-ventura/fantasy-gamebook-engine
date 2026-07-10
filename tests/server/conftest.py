@@ -149,7 +149,7 @@ def engine_server(engine_storage: InMemoryStorage) -> Any:
 @pytest.fixture
 def fake_narrator():
     """Default FakeNarrator with an empty queue (uses built-in defaults)."""
-    from gamebook_web.harness.base import FakeNarrator
+    from gamebook_web.harness.narrator import FakeNarrator
     return FakeNarrator()
 
 
