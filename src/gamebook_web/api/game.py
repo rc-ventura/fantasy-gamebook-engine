@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, status
 from pydantic_ai.mcp import MCPToolset
 
-from gamebook_web.accounts import get_account_repository_if_configured
 from gamebook_web.api.deps import assert_not_ended, get_active_campaign
 from gamebook_web.api.schemas import CreateGameRequest, GameResponse, GraveyardEntry, SaveResponse
 from gamebook_web.auth.dev_auth import Account, get_current_account
@@ -29,19 +28,15 @@ async def create_game(
     from gamebook_web.observability.tracing import get_metrics
 
     registry: CampaignRegistry = get_campaign_registry(request)
-    existing = registry.get_active_for_account(account.account_id)
+    existing = await registry.get_active_for_account(account.account_id)
     if existing is not None:
-        registry.set_ended(existing.campaign_id)
+        await registry.set_ended(existing.campaign_id)
         get_metrics().active_campaigns.add(-1)
     name = (body.name if body else None)
-    state = registry.create(account.account_id, name=name)
-    # Persist ownership (issue #19): engine tool calls carry only campaign_id
-    # (ADR-018), so PostgresStorage creates campaign rows lazily with
-    # account_id = NULL. Without this write, GDPR erasure and campaign listing
-    # (WHERE account_id = :account_id) never match campaigns created here.
-    repo = get_account_repository_if_configured()
-    if repo is not None:
-        await repo.create_campaign(account.account_id, state.campaign_id)
+    # registry.create persists the owned campaign row through the repository
+    # when one is configured (issues #19 and #14/#25): engine tool calls carry
+    # only campaign_id (ADR-018), so this is the one place ownership is written.
+    state = await registry.create(account.account_id, name=name)
     get_metrics().active_campaigns.add(1)
     return GameResponse(status=state.status, campaign_id=state.campaign_id, name=state.name)
 
@@ -52,7 +47,7 @@ async def get_game(
     account: Account = Depends(get_current_account),
 ) -> dict[str, Any]:
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     campaign_id = state.campaign_id
     toolset: MCPToolset = get_engine_toolset(request)
 
@@ -86,9 +81,9 @@ async def delete_game(
     from gamebook_web.observability.tracing import get_metrics
 
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     was_active = state.status != "ended"
-    registry.set_ended(state.campaign_id)
+    await registry.set_ended(state.campaign_id)
     if was_active:
         get_metrics().active_campaigns.add(-1)
 
@@ -99,7 +94,7 @@ async def save_game(
     account: Account = Depends(get_current_account),
 ) -> SaveResponse:
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     assert_not_ended(state)
     toolset: MCPToolset = get_engine_toolset(request)
     campaign_id = state.campaign_id
@@ -114,7 +109,7 @@ async def get_graveyard(
     account: Account = Depends(get_current_account),
 ) -> list[GraveyardEntry]:
     registry: CampaignRegistry = get_campaign_registry(request)
-    ended = registry.list_ended_for_account(account.account_id)
+    ended = await registry.list_ended_for_account(account.account_id)
     return [
         GraveyardEntry(
             campaign_id=c.campaign_id,

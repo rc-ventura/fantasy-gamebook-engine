@@ -95,7 +95,13 @@ def _install_auth_override(app: FastAPI) -> None:
 def _init_app_state(app: FastAPI) -> None:
     """Initialize campaign registry and narrator if not already set by tests."""
     if getattr(app.state, "campaign_registry", None) is None:
-        app.state.campaign_registry = CampaignRegistry()
+        # DB-backed when DATABASE_URL is configured (issues #14/#25): campaign
+        # existence/status survive restarts and are shared across replicas.
+        from gamebook_web.accounts import get_account_repository_if_configured
+
+        app.state.campaign_registry = CampaignRegistry(
+            repository=get_account_repository_if_configured()
+        )
 
     if getattr(app.state, "narrator", None) is None:
         _configure_narrator(app)

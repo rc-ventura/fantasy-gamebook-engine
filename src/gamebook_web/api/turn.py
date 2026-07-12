@@ -34,7 +34,7 @@ async def take_turn(
     from gamebook_web.observability.tracing import get_metrics, turn_span
 
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     assert_not_ended(state)
 
     campaign_id = state.campaign_id
@@ -167,7 +167,7 @@ async def check_terminal_state(
             await call_engine(toolset, "archive_character", campaign_id=campaign_id, destination="graveyard")
         except Exception as exc:
             logger.warning("archive_character failed: %s", exc)
-        registry.set_ended(campaign_id, reason="death")
+        await registry.set_ended(campaign_id, reason="death")
         get_metrics().active_campaigns.add(-1)
         return
 
@@ -178,5 +178,5 @@ async def check_terminal_state(
                 await call_engine(toolset, "archive_character", campaign_id=campaign_id, destination="hall_of_fame")
             except Exception as exc:
                 logger.warning("archive_character (victory) failed: %s", exc)
-            registry.set_ended(campaign_id, reason="victory")
+            await registry.set_ended(campaign_id, reason="victory")
             get_metrics().active_campaigns.add(-1)

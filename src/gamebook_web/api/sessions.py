@@ -59,10 +59,10 @@ def _to_session_response(result: dict[str, Any]) -> dict[str, str]:
     return {"session_token": result["lease_token"], "expires_at": result["expires_at"]}
 
 
-def _active_campaign_id(request: Request, account: Account) -> str:
+async def _active_campaign_id(request: Request, account: Account) -> str:
     """Resolve the account's active campaign_id (D1), or 404 if none."""
     registry = get_campaign_registry(request)
-    state = registry.get_active_for_account(account.account_id)
+    state = await registry.get_active_for_account(account.account_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -91,7 +91,7 @@ async def acquire_session(
         audit_event("session.acquired", account_id=account.account_id)
         return _stub_lease()
 
-    campaign_id = _active_campaign_id(request, account)
+    campaign_id = await _active_campaign_id(request, account)
     from gamebook_web.sessions.lease import get_lease_service
 
     result = await get_lease_service().acquire(campaign_id, account.account_id)
@@ -115,7 +115,7 @@ async def takeover_session(
         audit_event("session.takeover", account_id=account.account_id)
         return _stub_lease()
 
-    campaign_id = _active_campaign_id(request, account)
+    campaign_id = await _active_campaign_id(request, account)
     from gamebook_web.sessions.lease import get_lease_service
 
     current_token = body.current_token if body else None
@@ -136,7 +136,7 @@ async def release_session(
         audit_event("session.released", account_id=account.account_id)
         return
 
-    campaign_id = _active_campaign_id(request, account)
+    campaign_id = await _active_campaign_id(request, account)
     if not x_session_lease:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
