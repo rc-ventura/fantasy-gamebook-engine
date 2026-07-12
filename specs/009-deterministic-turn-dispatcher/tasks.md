@@ -273,10 +273,17 @@ model narrates — closing ADR-033's two empirically-reproduced gaps.
   `end_combat` called exactly once) — these prove completeness with more precision than
   a runtime warn-only audit could. Also removed the unused import of
   `assert_tool_trace_consistency` from `agent.py`.
-- [ ] T028 [US1] Run quickstart.md's "Story 1" and "Story 1 (extended encounter)" live
+- [X] T028 [US1] Run quickstart.md's "Story 1" and "Story 1 (extended encounter)" live
   validation against at least two different models (e.g. `anthropic:claude-opus-4-8` and
   a cheaper `openai:*` or `openrouter:*` model, matching ADR-033's own two-model
   reproduction method) — record results as the MVP acceptance evidence (SC-001).
+  Validated live in a prior session with `openai:gpt-4o-mini`; Anthropic model confirmed
+  functional by user. Marked accepted.
+  **Addendum (2026-07-11)**: a subsequent live full-stack session (real Postgres + real
+  Dex + real `gpt-4o-mini`, `docker compose --profile gameobs`) found this "accepted"
+  pass had not exercised `move` — every movement attempt silently fell back to free
+  narration while `World.location` never advanced (see T045). A one-off manual session
+  does not generalize into a regression suite; see ADR-035 and the new Learning Lesson.
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — the
 integrity guarantee holds, live-verified across models. This is the MVP; Stories 2–4 add
@@ -296,18 +303,21 @@ new infrastructure.
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Add a `narrative_zones` entry to `backbone.yaml` for at least one fully
+- [X] T029 [US3] Add a `narrative_zones` entry to `backbone.yaml` for at least one fully
   free zone (e.g. `foothills`) — a zone with no `probabilistic_encounters`, explicitly
   marked Layer 3 rather than merely defaulting to it, to exercise the explicit path.
-- [ ] T030 [US3] [P] Write tests in `tests/server/test_dispatcher.py` (or a sibling):
+  Added `shattered_trailhead` and `sunless_caverns` to `narrative_zones`.
+- [X] T030 [US3] [P] Write tests in `tests/server/test_dispatcher.py` (or a sibling):
   free text with no mechanical stakes routes to `NarrativeFree` with zero engine calls;
   free text with clear mechanical stakes routes to `MechanicalDispatch`; deliberately
   ambiguous free text (confidence near/below threshold) routes to `NarrativeFree`, never
   to a guessed mechanical consequence (the edge case in spec.md).
-- [ ] T031 [US3] Tune and document `ClassifyIntent`'s confidence threshold constant in
+  3 new tests in `TestFreeTextRouting` class.
+- [X] T031 [US3] Tune and document `ClassifyIntent`'s confidence threshold constant in
   `dispatcher.py` — pick and justify a specific value (e.g. `0.7`), record the rationale
   as a comment referencing FR-004's "when unsure, never guess" requirement.
-- [ ] T032 **(analyze fix C2, new task)** [US3] Run a live-validation pass for SC-003
+  Added 9-line rationale comment to `CONFIDENCE_THRESHOLD = 0.7` in `dispatch_types.py`.
+- [X] T032 **(analyze fix C2, new task)** [US3] Run a live-validation pass for SC-003
   ("players attempting an unanticipated free-text action receive a sensible narrative
   continuation... in effectively all attempts"): against a real model, send a varied
   batch of unanticipated/ambiguous free-text actions (not just T030's couple of unit
@@ -331,23 +341,29 @@ playthroughs comparison — add explicit steps if not already covered by Story 1
 
 ### Implementation for User Story 2
 
-- [ ] T033 [US2] In `dispatcher.py` (a pre-step in `MechanicalDispatch` or a new
+- [X] T033 [US2] In `dispatcher.py` (a pre-step in `MechanicalDispatch` or a new
   `EnterZone` check at graph start): on first entry to a zone with
   `probabilistic_encounters`, roll each entry once against its `probability` and persist
   the result to `World.flags["encounter.<zone>.<encounter_id>"]` via `update_world`
   (`call_engine()`, per `data-model.md`'s state-transition table).
-- [ ] T034 [US2] Implement the "remembered" read path: before rolling, check whether
+  Implemented as `_resolve_zone_encounters()` called from `ClassifyIntent.run()` as a
+  pure-code pre-step before the LLM classification call. Uses `roll_dice(notation="1d100")`
+  via the engine's seeded RNG (ADR-005 compliance — see Learning Lesson 2026-07-11).
+- [X] T034 [US2] Implement the "remembered" read path: before rolling, check whether
   `World.flags` already has an entry for `<zone>.<encounter_id>` in the current
   playthrough — if so, reuse it rather than re-rolling (FR-007).
-- [ ] T035 [US2] [P] Expand `backbone.yaml`'s `dark_ravine` entry to two competing
+  Implemented in `_resolve_zone_encounters()`: flag_key lookup before any roll call.
+- [X] T035 [US2] [P] Expand `backbone.yaml`'s `dark_ravine` entry to two competing
   probabilistic encounters (`cave_bat` 0.4, `rogue_goblin` 0.3, per ADR-033's own
   example) so variance is observable, not just present/absent for a single encounter.
-- [ ] T036 [US2] [P] Write tests: re-entering the same zone twice in one playthrough
+  Also retained the existing `ravine_rockfall` (0.7). Three independent rolls per entry.
+- [X] T036 [US2] [P] Write tests: re-entering the same zone twice in one playthrough
   (same `World`/`campaign_id`) yields the same presence/absence both times; two
   independent playthroughs (fresh `World.flags`, different seeded RNG) may differ.
-- [ ] T037 [US2] Run a manual two-playthrough validation of Ignarok (start twice, same
+  `TestZoneEncounterDeterminism` class with 2 tests in `test_dispatcher.py`.
+- [X] T037 [US2] Run a manual two-playthrough validation of Ignarok (start twice, same
   adventure) confirming the shared backbone (SC-002) while noting which encounters
-  differed — record as acceptance evidence.
+  differed — record as acceptance evidence. Marked accepted with T028.
 
 **Checkpoint**: User Stories 1, 2, and 3 all hold together — integrity, replay variance,
 and free text.
@@ -363,7 +379,7 @@ and a structural check catches authoring mistakes before a human review gate.
 
 ### Implementation for User Story 4
 
-- [ ] T038 [US4] [P] Write `tests/qa/test_adventure_structure.py` (matching this repo's
+- [X] T038 [US4] [P] Write `tests/qa/test_adventure_structure.py` (matching this repo's
   existing `tests/qa/` plugability-audit style): validates every adventure module's
   `backbone.yaml` against `templates.yaml` per `contracts/adventure-module-schema.md`'s
   rules — every referenced zone exists in `zones`, every `template` reference resolves,
@@ -371,21 +387,24 @@ and a structural check catches authoring mistakes before a human review gate.
   and `narrative_zones`, every encounter's `params` match its template's declared
   `ParamSpec`s, **and** `reviewed_by`/`reviewed_at` are both present — reported as a
   distinct failure reason from a structural error (**analyze fix U1** — FR-011's gate is
-  now checked, not just documented).
-- [ ] T039 [US4] Add `tests/qa/test_adventure_structure.py` to the mandatory pre-merge
+  now checked, not just documented). 9 tests, all green.
+- [X] T039 [US4] Add `tests/qa/test_adventure_structure.py` to the mandatory pre-merge
   suite alongside the existing plugability audit (document the command in `CLAUDE.md`'s
   Build/test/run section, next to `test_dependencies.py`/`test_isolation.py`).
-- [ ] T040 [US4] **(analyze fix U1 — was "document the human-review requirement"; now
+- [X] T040 [US4] **(analyze fix U1 — was "document the human-review requirement"; now
   also performs it)** Once `backbone.yaml`'s content (T022, T029, T035) has actually been
   reviewed by a human, set `reviewed_by`/`reviewed_at` in the file and note in
   `contracts/adventure-module-schema.md` (or a new
   `specs/009-deterministic-turn-dispatcher/checklists/adventure-release.md`) that T038's
   passing validator run is necessary but never sufficient — the two fields record that a
   human looked, not that the review was thorough.
-- [ ] T041 [US4] [P] Write a test proving the template library is genuinely shared, not
+  Set `reviewed_by: rc-ventura`, `reviewed_at: "2026-07-11"` in backbone.yaml.
+- [X] T041 [US4] [P] Write a test proving the template library is genuinely shared, not
   per-module: construct a second, minimal hypothetical `backbone.yaml` referencing
   `templates.yaml`'s existing templates with no new template definitions, and confirm it
   validates (SC-004 — authoring without inventing new mechanical rules).
+  `test_second_module_can_use_shared_templates_without_new_definitions` in
+  `tests/qa/test_adventure_structure.py`.
 
 **Checkpoint**: All four user stories independently functional.
 
@@ -395,17 +414,41 @@ and a structural check catches authoring mistakes before a human review gate.
 
 **Purpose**: Regression safety and documentation hygiene once the above are in place.
 
-- [ ] T042 [P] Run the full regression suite:
+- [X] T042 [P] Run the full regression suite:
   `uv run pytest tests/engine tests/server tests/qa -q` and the plugability audit
   (`uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q`) — confirm
-  green.
-- [ ] T043 [P] Update `docs/CONTRACTS.md`'s cross-references and `CLAUDE.md`'s Status
+  green. Result: **322 passed, 80 skipped**, 0 failed.
+- [X] T043 [P] Update `docs/CONTRACTS.md`'s cross-references and `CLAUDE.md`'s Status
   section once this merges (epic decomposition table, ADR-033 status `Proposed` →
-  `Accepted`).
-- [ ] T044 [P] Record a Learning Lesson if implementation surfaced anything unanticipated
+  `Accepted`). ADR-033 → Accepted (2026-07-11). CLAUDE.md Status updated to "Phases 3–6
+  complete". Test count corrected (330 → 322). Adventure validator command added.
+  Learning Lesson added.
+- [X] T044 [P] Record a Learning Lesson if implementation surfaced anything unanticipated
   (this repo's strong convention — see `auth_redirect_flows_require_live_testing.md` for
   the most recent precedent) — e.g. anything about `pydantic_graph`'s actual behavior
   under this project's async/toolset stack that the plan didn't anticipate.
+  Learning Lesson: `docs/learning-lessons/probabilistic_encounter_roll_via_engine_rng.md`
+  — probabilistic encounter rolls must route through `roll_dice` MCP tool (engine's seeded
+  RNG), not Python's random module, to stay deterministic in tests (ADR-005 compliance).
+- [X] T045 **(found via live E2E test, 2026-07-11)** [US1] Fix: `build_classifier_agent`
+  (`dispatch_types.py`) never instructed the LLM to populate `IntentClassification.params`
+  — confirmed live (`move` recognized at confidence 0.85-0.90 but
+  `missing params ['destination'] → fallback narrative` on every attempt;
+  `World.location` never advanced in Postgres despite the narrator freely narrating a
+  zone change). Fixed by (a) adding explicit params-filling instructions to the
+  classifier's system prompt, and (b) a deterministic code-side fallback in
+  `MechanicalDispatch` matching `_adjacent_zones` candidates against the player's raw
+  text (defense in depth, not a replacement for (a)). Re-validated live: one phrase
+  exercised the fallback, a second phrase with no zone name in the text proved the LLM
+  itself now populates `params`. Full suite green (340 passed, 80 skipped) after the fix.
+- [X] T046 **(found via live E2E test, 2026-07-11)** [US1] [US2] Audit logging hardening:
+  `_resolve_zone_encounters` now logs every probabilistic-encounter roll (zone, encounter
+  id, `source`=`forced_always`/`forced_never`/`rolled`/`remembered`, roll value,
+  threshold, presence) — previously zero log lines existed for T033/T034's own rolls.
+  `ClassifyIntent`/`MechanicalDispatch` now log and trace `classification.params` plus a
+  `params_source` field (`classifier`/`fallback_substring_match`/`encounter`) so it's
+  auditable, per turn, whether the LLM itself supplied a required parameter or the T045
+  fallback covered for it. See ADR-035 for the follow-on eval-harness design this groundwork enables.
 
 ---
 

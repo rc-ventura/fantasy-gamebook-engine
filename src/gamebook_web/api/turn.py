@@ -61,18 +61,32 @@ async def take_turn(
             if isinstance(world, dict) and world.get("turn") is not None:
                 span.set_attribute("turn_number", world["turn"])
 
+            # Recover the full label of the selected choice from the previous
+            choice_label: str | None = None
+            if choice is not None:
+                prev = state.current_scene
+                if prev:
+                    for c in prev.get("choices", []):
+                        if str(c.get("id")) == str(choice):
+                            choice_label = c.get("label")
+                            break
+
             ctx = NarratorContext(
                 character=character,
                 world=world,
                 summary=summary,
                 recent_events=recent_events,
                 choice=choice,
+                choice_label=choice_label,
             )
 
             try:
                 scene: Scene = await narrator.narrate(campaign_id, ctx)
             except Exception as exc:
-                logger.error("Narrator failed for campaign %s: %s", campaign_id, type(exc).__name__)
+                logger.error(
+                    "Narrator failed for campaign %s: %s: %s",
+                    campaign_id, type(exc).__name__, exc,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail={"error": {"code": "invalid_scene", "message": "Narrator failed to produce a valid scene"}},

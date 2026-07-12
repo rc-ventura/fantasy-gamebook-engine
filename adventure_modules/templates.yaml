@@ -51,7 +51,7 @@ templates:
       destination: { type: str }
     mandatory_checks:
       - tool: update_world
-        args: { current_location: "${destination}" }
+        args: { changes: { current_location: "${destination}" } }
 
   combat:
     description: >

@@ -27,6 +27,8 @@ class NarratorContext:
     # action was classified as mechanical — None for a narrative-free turn.
     turn_outcome: dict[str, Any] | None = None
     choice: str | int | None = None
+    # Full label of the chosen option recovered from the previous Scene, so the
+    choice_label: str | None = None
 
 
 @runtime_checkable

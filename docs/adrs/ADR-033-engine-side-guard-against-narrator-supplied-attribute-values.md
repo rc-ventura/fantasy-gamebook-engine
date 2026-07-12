@@ -1,7 +1,7 @@
 # ADR-033: Pure narrator + deterministic dispatcher — eliminate narrator fabrication by construction
 
-**Status**: Proposed
-**Date**: 2026-07-04 (original), 2026-07-05 (revised — full architectural shift)
+**Status**: Accepted
+**Date**: 2026-07-04 (original), 2026-07-05 (revised — full architectural shift), 2026-07-11 (accepted — spec 009 Phases 3–6 implemented and green)
 **Related**: [ADR-018](./ADR-018-multi-tenant-engine-per-call-campaign-id.md) (`ScopedMCPToolset` — prevention, not detection), [ADR-029](./ADR-029-narrator-as-tool-use-agent-eliminate-effects.md) (tool-use agent pattern + Alternativa E — deterministic combat loop), `docs/CONTRACTS.md` §2 (`Attribute` invariant) and §6 (`update_character_sheet` patch semantics), `.specify/memory/constitution.md` Principle I (Numbers Never in Prose)
 **Code**: `src/gamebook/mcp/server.py` (`update_character_sheet`, combat tools), `src/gamebook_web/harness/agent.py` (`PydanticNarrator`, `_NARRATOR_ALLOWED_TOOLS`), `src/gamebook_web/harness/tool_trace_audit.py` (detection layer), `src/gamebook/domain/models.py` (`Attribute._check_bounds`)
 

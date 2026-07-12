@@ -38,13 +38,28 @@ probabilistic_encounters:
         flee_allowed: false
 
   dark_ravine:
-    # A rockfall-scarred passage with a danger that may or may not be triggered.
+    # A rockfall-scarred passage: one terrain hazard and two creature threats,
+    # each rolled independently — creating eight distinct zone states per campaign.
     - id: ravine_rockfall
       probability: 0.7
       template: risky_action
       params:
         risk_amount: 2
         risk_source: environment
+    - id: cave_bat
+      probability: 0.4
+      template: combat
+      params:
+        enemies:
+          - { name: "Cave Bat", skill: 4, stamina: 3 }
+        flee_allowed: true
+    - id: rogue_goblin
+      probability: 0.3
+      template: combat
+      params:
+        enemies:
+          - { name: "Rogue Goblin", skill: 5, stamina: 4 }
+        flee_allowed: true
 
   drowned_mines:
     # The flooded crossing — a toll-lurker may or may not be present.
@@ -56,14 +71,28 @@ probabilistic_encounters:
           - { name: "Toll-Lurker", skill: 6, stamina: 6 }
         flee_allowed: true
 
+  malachars_sanctum:
+    # The boss fight — always present, no fleeing, sets the adventure's
+    # victory_condition flag on a hero win (CombatRound reads sets_flag_on_win).
+    - id: malachar_final_battle
+      probability: 1.0
+      template: combat
+      sets_flag_on_win: malachar_defeated
+      params:
+        enemies:
+          - { name: "Malachar", skill: 10, stamina: 12 }
+        flee_allowed: false
+
 # Zones explicitly authored as Layer 3 (free narrative, no dice by design).
 # Zones absent from both sections above also default to Layer 3 — listed here
-# only when the author wants to make the intent explicit (e.g. during review).
-narrative_zones: []
+# to make the author's intent explicit and to exercise the narrative-zone path
+# in the structural validator (tests/qa/test_adventure_structure.py).
+narrative_zones:
+  - shattered_trailhead   # atmospheric transition; no dice — tension is spatial
+  - sunless_caverns       # discovery zone; encounters are purely narrative encounters
 
 # FR-011 — set only by an actual human reviewer after examining the content.
 # A passing structural validator (tests/qa/test_adventure_structure.py) is
 # necessary but not sufficient for release — these fields record the human sign-off.
-# T040 sets them once the content above has been reviewed.
-reviewed_by: null
-reviewed_at: null
+reviewed_by: rc-ventura
+reviewed_at: "2026-07-11"

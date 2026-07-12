@@ -20,6 +20,7 @@ class ProbabilisticEncounter(BaseModel):
     probability: float = Field(ge=0.0, le=1.0)
     template: str  # references templates.yaml
     params: dict[str, Any] = Field(default_factory=dict)
+    sets_flag_on_win: str | None = None
 
 
 class AdventureStructure(BaseModel):

@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Slices 002–007 implemented and merged to `dev`; 009 Phase 3 complete on branch
+## Status: Slices 002–008 implemented and merged to `dev`; 009 Phases 3–7 complete on branch (not yet merged)
 
-The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing **20 tools** (added `apply_healing`/`apply_damage` in spec 009), and **330 passing tests** (80 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
+The engine is built and green: a Python package under `src/gamebook/` (modules `domain`, `rules`, `storage`, `combat`, `mcp`), an MCP server exposing **20 tools** (added `apply_healing`/`apply_damage` in spec 009), and **340 passing tests** (80 skipped = Postgres/live-LLM) across `tests/engine`, `tests/server`, `tests/qa`. The Phase-1 harness (Game Master) lives as Claude Code skills/commands under `.claude/`.
 
 The Phase-2 web stack (`src/gamebook_web/`) is implemented: FastAPI + **deterministic dispatcher** (`DispatcherNarrator`, spec 009 ADR-033) with a `pydantic_graph.Graph` that separates intent classification (LLM, structured output) from mechanical dispatch (pure code, 0 LLM calls) from narration (LLM, `toolsets=[]`). React/Vite SPA, PostgresStorage (swap boundary #1). TypeScript: `node_modules/.bin/tsc -p frontend/tsconfig.app.json --noEmit` → exit 0.
 
@@ -21,6 +21,7 @@ Note: the project directory name has a **trailing space** (`fantasy-gamebook-eng
 Everything goes through `uv` (deps already installed — don't `uv add` without updating CONTRACTS.md):
 - `uv run pytest -q` — full suite. Scope it: `uv run pytest tests/engine -q` (pure rules), `tests/server` (storage + MCP), `tests/qa` (plugability/isolation/e2e).
 - `uv run pytest tests/qa/test_dependencies.py tests/qa/test_isolation.py -q` — the golden-rule plugability audit (catches any module reaching past an interface).
+- `uv run pytest tests/qa/test_adventure_structure.py -q` — adventure module structural validator (spec 009 US4): checks every `backbone.yaml` against `templates.yaml`, validates zone references, template resolution, probabilities, and human review sign-off (FR-010/FR-011).
 - `uv run python -m gamebook.mcp.server` — start the MCP server over stdio (registered for Claude Code in `.mcp.json`; exits cleanly on EOF).
 - `rules`/`combat` tests use a seeded RNG and in-memory storage: deterministic, no disk, no AI.
 
@@ -175,8 +176,9 @@ principles; when in conflict, the constitution wins.
 | [ADR-030](./docs/adrs/ADR-030-observability-and-evals-otel-stack.md) | Observability & evals — OTel stack + Pydantic Evals (spec 006 planning) | Accepted | 2026-07-01 |
 | [ADR-031](./docs/adrs/ADR-031-d1-lease-enforcement-route-level-dependency.md) | D1 lease enforcement via route-level `require_lease` dependency (amends ADR-023) | Accepted | 2026-07-02 |
 | [ADR-032](./docs/adrs/ADR-032-lease-validate-toctou-atomic-validate-and-renew.md) | Atomic validate-and-renew to close TOCTOU + constant-time account_id compare | Accepted | 2026-07-02 |
-| [ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | Engine-side guard against narrator-supplied attribute values — narrow `update_character_sheet`, add `apply_healing`/`apply_damage` (found via live gpt-4o-mini E2E test) | Proposed | 2026-07-04 |
+| [ADR-033](./docs/adrs/ADR-033-engine-side-guard-against-narrator-supplied-attribute-values.md) | Engine-side guard against narrator-supplied attribute values — narrow `update_character_sheet`, add `apply_healing`/`apply_damage` (found via live gpt-4o-mini E2E test) | Accepted | 2026-07-11 |
 | [ADR-034](./docs/adrs/ADR-034-oidc-frontend-spa-pkce-public-client.md) | OIDC frontend login — SPA-direct Authorization Code + PKCE, public Dex client, `id_token` as bearer credential | Accepted | 2026-07-07 |
+| [ADR-035](./docs/adrs/ADR-035-pydantic-evals-offline-ci-gated-classifier-regression-harness.md) | Pydantic Evals as an offline, CI-gated regression harness for the classifier — not a runtime/online mechanism (concretizes ADR-030 decision #3; found via live gpt-4o-mini E2E test) | Accepted | 2026-07-11 |
 
 ## Learning Lessons
 
@@ -194,24 +196,51 @@ principles; when in conflict, the constitution wins.
 - [RTK proxy rewrites `tsc`/`npx tsc` and masks TypeScript errors — use `node_modules/.bin/tsc` directly](./docs/learning-lessons/rtk_proxy_masks_tsc_errors.md) — 2026-06-30
 - [Scoped toolset wrapper: inject security context at the wrapper, not via the LLM](./docs/learning-lessons/scoped_toolset_wrapper_for_security_context.md) — 2026-07-01
 - [Auth/redirect/token-lifecycle flows require live testing — mocks and static analysis miss CSP, CORS, and timing bugs](./docs/learning-lessons/auth_redirect_flows_require_live_testing.md) — 2026-07-08
+- [Probabilistic encounter rolls must use the engine's seeded RNG (`roll_dice` MCP call), not Python's `random` module — keeps all game randomness under one seed, tests stay deterministic](./docs/learning-lessons/probabilistic_encounter_roll_via_engine_rng.md) — 2026-07-11
+- [One live-validation session is not a regression suite — a classifier field silently unpopulated shipped past a task marked "accepted"](./docs/learning-lessons/one_live_validation_session_is_not_a_regression_suite.md) — 2026-07-11
+- [The narrator can loop inside a zone indefinitely without ever narrating toward an exit — mechanically correct classification, narratively stuck](./docs/learning-lessons/narrator_can_loop_in_a_zone_without_offering_an_exit.md) — 2026-07-11
 
 <!-- SPECKIT START -->
-**Active feature**: `009-deterministic-turn-dispatcher` — **Phase 3 (MVP / User Story 1)
-complete**. T001–T027 done; T028 (live validation with 2 models) pending (requires API
-keys). Phases 4–7 (T029–T044 — US2/US3/US4 + polish) not yet started.
+For additional context about technologies to be used, project structure, shell commands,
+and other important information, read the current plan at
+specs/009-deterministic-turn-dispatcher/plan.md
+<!-- SPECKIT END -->
 
-Architecture implemented: `pydantic_graph.Graph` with 5 nodes —
+**Active feature**: `009-deterministic-turn-dispatcher` — **Phases 3–7 complete**
+(T001–T046, all `[X]`). Live-tested end-to-end against the full stack (real Postgres,
+real Dex OIDC, real `openai:gpt-4o-mini`) on 2026-07-11, which found and fixed a real
+gap T028's earlier manual validation missed: `build_classifier_agent` never instructed
+the LLM to populate `IntentClassification.params`, so `move` silently never dispatched
+(`World.location` never advanced while the narrator freely narrated zone changes). Fixed
+(T045) via an explicit prompt instruction + a deterministic code-side fallback in
+`MechanicalDispatch`. T046 added audit logging: `params`/`params_source`
+(`classifier`/`fallback_substring_match`/`encounter`) traced in `ClassifyIntent`/
+`MechanicalDispatch`, and every probabilistic-encounter roll logged in
+`_resolve_zone_encounters` (zone, encounter id, source, roll, threshold, presence). See
+`docs/learning-lessons/one_live_validation_session_is_not_a_regression_suite.md`.
+
+Architecture implemented: `pydantic_graph.Graph` with 4 nodes —
 `ClassifyIntent` (LLM, structured output, no tools) → `MechanicalDispatch` (pure code,
-`call_engine()`) → `CombatRound` (cyclic, pure code) → `Narrate` (LLM, `toolsets=[]`);
-`NarrativeFree` (pure code) → `Narrate`. `DispatcherNarrator` wraps the graph behind the
-existing `NarratorBackend` Protocol (zero route changes). Two new MCP tools
-(`apply_healing`/`apply_damage`) + `backbone.yaml` adventure structure + `templates.yaml`
-shared library. **330 tests pass, 80 skipped** (Postgres/live-LLM).
+`call_engine()`) → `CombatRound` (cyclic, pure code) → `Narrate` (LLM, `toolsets=[]`).
+Zone-entry encounter rolling in `ClassifyIntent` (T033/T034): rolls each
+`ProbabilisticEncounter` once on first entry, persists to `World.flags`, reuses on
+re-entry. `DispatcherNarrator` wraps the graph behind the existing `NarratorBackend`
+Protocol (zero route changes). Two new MCP tools (`apply_healing`/`apply_damage`) +
+`backbone.yaml` adventure structure + `templates.yaml` shared library.
+**340 tests pass, 80 skipped** (Postgres/live-LLM). Adventure module structural
+validator at `tests/qa/test_adventure_structure.py` (T038/T039/T041).
+
+**Follow-on work** (ADR-035, tracked separately — not blocking 009's completion): a
+`pydantic-evals` offline, CI-gated regression harness for the classifier (dataset case
+#1 = the `move`/`destination` bug above), plus GitHub issues #22–#27 covering telemetry
+privacy, the incomplete ADR-030 observability stack, the dead `register_event` audit
+trail, `CampaignRegistry`'s in-memory persistence gap, a CSP font-loading bug, and an
+open narrator-fidelity issue (fabricates a combat event not backed by `TurnOutcome`).
 
 The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
-- `002` through `007` ← done (persistence, backend, accounts/OIDC backend, professional SPA, narrator tool-use refactor)
-- `008-oidc-frontend-login` ← implemented + live-verified, PR #21 open against `dev` (not yet merged)
-- `009-deterministic-turn-dispatcher` ← **active** (Phase 3 MVP done, T028 + Phases 4–7 remain)
+- `002` through `008` ← done and merged to `dev` (persistence, backend, accounts/OIDC backend, professional SPA, narrator tool-use refactor, OIDC frontend login — PR #21 merged 2026-07-09)
+- `009-deterministic-turn-dispatcher` ← **complete** (Phases 3–7 done, T001–T046; live E2E-tested 2026-07-11; not yet committed/merged)
+- `010-combat-dedicated-screen` ← spec drafted (spec.md written 2026-07-10); planning not yet started
 
 **Spec 009 design artifacts**:
 - Plan: `specs/009-deterministic-turn-dispatcher/plan.md`
@@ -224,4 +253,3 @@ The epic decomposition (see `specs/001-web-platform-migration/spec.md`):
 Stack: FastAPI + Postgres, PydanticAI narrator on `claude-opus-4-8` calling MCP tools
 directly (ADR-029, being revised by this spec), React/Vite SPA, OpenTelemetry.
 Backend-scoped API: `/me/game/...`. Constitution: `.specify/memory/constitution.md` (v1.1.0).
-<!-- SPECKIT END -->

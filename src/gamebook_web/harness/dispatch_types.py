@@ -61,6 +61,7 @@ class DispatchDeps:
     narrator: NarratorBackend
 
 
+# Minimum classifier confidence required to route a turn through MechanicalDispatch.
 CONFIDENCE_THRESHOLD = 0.7
 
 
@@ -75,9 +76,15 @@ def build_classifier_agent(model: str) -> Agent[None, IntentClassification]:
             "list of available mechanical actions for their current location. "
             "You never decide outcomes and never state a number — you only name "
             "which action (if any) the player's text corresponds to, and how "
-            "confident you are. If no action clearly applies, or you are not "
-            "confident, set action to null: the story continues freely rather "
-            "than guessing at a mechanical consequence (a non-negotiable rule)."
+            "confident you are. "
+            "If the matched action's candidate line names required parameters "
+            "(e.g. 'destination=one of [...]'), populate `params` with the exact "
+            "value from that list matching the player's stated intent — never a "
+            "value outside the given options. "
+            "If no action clearly applies, or a required parameter can't be "
+            "determined with confidence, set action to null: the story continues "
+            "freely rather than guessing at a mechanical consequence (a "
+            "non-negotiable rule)."
         ),
     )
 
@@ -85,6 +92,10 @@ def build_classifier_agent(model: str) -> Agent[None, IntentClassification]:
     def _validate_classification(c: IntentClassification) -> IntentClassification:
         if not (0.0 <= c.confidence <= 1.0):
             raise ModelRetry(f"confidence {c.confidence} is out of range [0, 1] — retry.")
+        # LLM sometimes writes the word "null" as a string instead of omitting
+        # the field — normalize so downstream code only sees None or a real action id.
+        if c.action == "null":
+            c = c.model_copy(update={"action": None, "template": None, "confidence": 0.0})
         if c.action is not None and not c.action.strip():
             raise ModelRetry("action must be a non-empty string or null — retry.")
         return c

@@ -25,6 +25,20 @@ def resolve_template_value(value: Any, resolve_ctx: dict[str, Any]) -> Any:
     return obj
 
 
+def deep_resolve(value: Any, resolve_ctx: dict[str, Any]) -> Any:
+    """Recursively resolve `"${...}"` expressions in nested dicts and lists.
+
+    Needed for templates whose args contain nested dicts (e.g. ``update_world``
+    expects ``changes: {field: value}``).  Leaf strings are resolved via
+    ``resolve_template_value``; dicts and lists are traversed depth-first.
+    """
+    if isinstance(value, dict):
+        return {k: deep_resolve(v, resolve_ctx) for k, v in value.items()}
+    if isinstance(value, list):
+        return [deep_resolve(item, resolve_ctx) for item in value]
+    return resolve_template_value(value, resolve_ctx)
+
+
 COMPARATORS: dict[str, Callable[[Any, Any], bool]] = {
     "eq": lambda a, b: a == b,
     "ne": lambda a, b: a != b,
@@ -51,6 +65,10 @@ def clamp_params(raw: dict[str, Any], spec: dict[str, ParamSpec]) -> dict[str, A
         elif param_spec.type == "enum":
             values = param_spec.values or []
             resolved[name] = value if value in values else (values[0] if values else None)
+        elif param_spec.type == "bool":
+            resolved[name] = value if isinstance(value, bool) else False
+        elif param_spec.type == "list":
+            resolved[name] = []
         else:
             resolved[name] = value
     return resolved
@@ -68,7 +86,7 @@ async def run_check_step(
     branch) via `call_engine()` — zero LLM calls, matching ADR-033's
     "deterministic dispatcher (code, 0 LLM calls)" diagram exactly.
     """
-    args = {k: resolve_template_value(v, resolve_ctx) for k, v in step.args.items()}
+    args = {k: deep_resolve(v, resolve_ctx) for k, v in step.args.items()}
     result = await call_engine(toolset, step.tool, campaign_id=campaign_id, **args)
     checks_log.append({"tool": step.tool, "args": args, "result": result})
 
