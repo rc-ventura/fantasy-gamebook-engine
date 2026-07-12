@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, status
 from pydantic_ai.mcp import MCPToolset
 
+from gamebook_web.accounts import get_account_repository_if_configured
 from gamebook_web.api.deps import assert_not_ended, get_active_campaign
 from gamebook_web.api.schemas import CreateGameRequest, GameResponse, GraveyardEntry, SaveResponse
 from gamebook_web.auth.dev_auth import Account, get_current_account
@@ -34,6 +35,13 @@ async def create_game(
         get_metrics().active_campaigns.add(-1)
     name = (body.name if body else None)
     state = registry.create(account.account_id, name=name)
+    # Persist ownership (issue #19): engine tool calls carry only campaign_id
+    # (ADR-018), so PostgresStorage creates campaign rows lazily with
+    # account_id = NULL. Without this write, GDPR erasure and campaign listing
+    # (WHERE account_id = :account_id) never match campaigns created here.
+    repo = get_account_repository_if_configured()
+    if repo is not None:
+        await repo.create_campaign(account.account_id, state.campaign_id)
     get_metrics().active_campaigns.add(1)
     return GameResponse(status=state.status, campaign_id=state.campaign_id, name=state.name)
 
