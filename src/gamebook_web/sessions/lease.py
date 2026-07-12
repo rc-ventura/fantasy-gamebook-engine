@@ -578,6 +578,11 @@ async def require_lease(
     missing or stale token is rejected ``409``, and a successful request
     renews the lease TTL.
 
+    Failure posture: once a lease exists, this check **fails closed**. If the
+    validate-and-renew round-trip errors for infrastructure reasons (DB blip,
+    pool timeout), the request is rejected ``503 lease_check_unavailable``
+    rather than proceeding unverified (issue #17).
+
     ``account`` is resolved via ``Depends(get_current_account)`` — the same
     dependency object every route already uses — so FastAPI's
     ``app.dependency_overrides`` (dev stub → real OIDC in production) applies
@@ -629,12 +634,33 @@ async def require_lease(
             "lease.denied", level=logging.WARNING, campaign_id=campaign_id, reason="validate_failed"
         )
         raise
-    except Exception:
-        # Non-HTTP exceptions (DB connectivity, etc.) are non-fatal — the
-        # request proceeds without lease renewal rather than failing hard
-        # on an infrastructure blip.  This is intentionally narrower than
-        # the previous ``except Exception: pass`` which also swallowed 409s.
-        logger.warning("lease validate_and_renew error for campaign %s", campaign_id, exc_info=True)
+    except Exception as exc:
+        # Fail closed (issue #17): a non-HTTP failure here (DB connectivity,
+        # pool timeout, …) means the lease could not be validated at all.
+        # Letting the mutation proceed would suspend the single-active-writer
+        # guarantee for exactly the window where concurrent writers are most
+        # likely to race (an infrastructure blip). 503 tells the client to
+        # retry; availability is traded away deliberately — see ADR-023/031.
+        audit_event(
+            "lease.denied",
+            level=logging.ERROR,
+            campaign_id=campaign_id,
+            reason="check_unavailable",
+        )
+        logger.error(
+            "lease validate_and_renew failed for campaign %s — rejecting request",
+            campaign_id,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "code": "lease_check_unavailable",
+                    "message": "Session lease could not be validated; retry shortly.",
+                }
+            },
+        ) from exc
 
 
 # FastAPI dependency marker for routes: ``Depends(require_lease)``.
