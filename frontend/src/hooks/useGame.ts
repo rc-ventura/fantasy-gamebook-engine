@@ -16,11 +16,12 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { CampaignState, TurnResponse } from '../types'
+import type { CampaignState, TurnRequest, TurnResponse } from '../types'
 import { ApiError } from '../types'
 import {
   getGame,
   takeTurn,
+  takeTurnStream,
   acquireSession,
   takeoverSession,
   releaseSession,
@@ -65,6 +66,13 @@ export interface GameState {
   sessionConflict: boolean
   /** ISO timestamp of the last successful save, or null. */
   lastSavedAt: string | null
+  /**
+   * Narrative text accumulated so far from a streaming turn (issue #20) —
+   * null when no turn is in flight or streaming produced nothing yet.
+   * Components may render this instead of campaign.current_scene.narrative
+   * while actionState is 'pending' for a live-updating story.
+   */
+  streamingNarrative: string | null
   /** Open the adventure: take the first turn with no choice (fetches the opening scene). */
   onStart: () => Promise<void>
   /** Take a turn by choosing a numbered option. */
@@ -86,6 +94,7 @@ export function useGame(): GameState {
   const [error, setError] = useState<string | null>(null)
   const [sessionConflict, setSessionConflict] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  const [streamingNarrative, setStreamingNarrative] = useState<string | null>(null)
   const sessionTokenRef = useRef<string | null>(null)
   const leaseExpiresAtRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -170,36 +179,40 @@ export function useGame(): GameState {
     })
   }
 
-  // ── Open the adventure (first turn, no choice) ────────────────────────────
+  // ── Take a turn (shared by onStart / onChoose / onFreeText) ──────────────
 
-  const onStart = useCallback(async (): Promise<void> => {
-    if (isLeaseExpired()) { redirectToAuth(); return }
-    setActionState('pending')
-    setError(null)
-    try {
-      // No choice — the backend narrates the opening scene for a fresh turn.
-      const res = await takeTurn({})
-      applyTurnResponse(res)
-      setActionState('idle')
-    } catch (err) {
-      if (isAuthError(err)) { redirectToAuth(); return }
-      if (err instanceof ApiError && err.code === 'not_session_holder') {
-        setSessionConflict(true)
-      }
-      setError(sanitizeError(err, 'Failed to open the adventure'))
-      setActionState('error')
-    }
-  }, [])
-
-  // ── Take turn ─────────────────────────────────────────────────────────────
-
-  const onChoose = useCallback(
-    async (choiceId: string): Promise<void> => {
+  /**
+   * Runs one turn, preferring the streaming endpoint (issue #20) so the
+   * narrative appears as it's generated instead of after a single 10-30s
+   * wait. `streamingNarrative` accumulates deltas for components to render
+   * live; it's cleared once the turn settles (success or error).
+   *
+   * Fallback: only a genuinely *unclassified* failure (network hiccup mid-
+   * stream, a malformed/short-cut stream) retries via the plain takeTurn().
+   * A classified ApiError (auth, session conflict, no_active_campaign,
+   * run_ended, invalid_scene, ...) means the plain endpoint would fail
+   * identically for the same request — surfacing it directly avoids a
+   * pointless extra round trip and duplicate narrator call.
+   */
+  const runTurn = useCallback(
+    async (turnReq: TurnRequest, failureMessage: string): Promise<void> => {
       if (isLeaseExpired()) { redirectToAuth(); return }
       setActionState('pending')
       setError(null)
+      setStreamingNarrative(null)
       try {
-        const res = await takeTurn({ choice: choiceId })
+        let res: TurnResponse
+        try {
+          res = await takeTurnStream(turnReq, (delta) => {
+            setStreamingNarrative((prev) => (prev ?? '') + delta)
+          })
+        } catch (streamErr) {
+          if (streamErr instanceof ApiError && streamErr.code !== 'unknown') {
+            throw streamErr
+          }
+          setStreamingNarrative(null)
+          res = await takeTurn(turnReq)
+        }
         applyTurnResponse(res)
         setActionState('idle')
       } catch (err) {
@@ -207,33 +220,30 @@ export function useGame(): GameState {
         if (err instanceof ApiError && err.code === 'not_session_holder') {
           setSessionConflict(true)
         }
-        setError(sanitizeError(err, 'Failed to take turn'))
+        setError(sanitizeError(err, failureMessage))
         setActionState('error')
+      } finally {
+        setStreamingNarrative(null)
       }
     },
     []
   )
 
+  // No choice — the backend narrates the opening scene for a fresh turn.
+  const onStart = useCallback(
+    (): Promise<void> => runTurn({}, 'Failed to open the adventure'),
+    [runTurn]
+  )
+
+  const onChoose = useCallback(
+    (choiceId: string): Promise<void> => runTurn({ choice: choiceId }, 'Failed to take turn'),
+    [runTurn]
+  )
+
+  // Free text is also sent as `choice` — backend accepts both IDs and prose.
   const onFreeText = useCallback(
-    async (text: string): Promise<void> => {
-      if (isLeaseExpired()) { redirectToAuth(); return }
-      setActionState('pending')
-      setError(null)
-      try {
-        // Free text is also sent as `choice` — backend accepts both IDs and prose
-        const res = await takeTurn({ choice: text })
-        applyTurnResponse(res)
-        setActionState('idle')
-      } catch (err) {
-        if (isAuthError(err)) { redirectToAuth(); return }
-        if (err instanceof ApiError && err.code === 'not_session_holder') {
-          setSessionConflict(true)
-        }
-        setError(sanitizeError(err, 'Failed to take turn'))
-        setActionState('error')
-      }
-    },
-    []
+    (text: string): Promise<void> => runTurn({ choice: text }, 'Failed to take turn'),
+    [runTurn]
   )
 
   // ── Session takeover ──────────────────────────────────────────────────────
@@ -281,6 +291,7 @@ export function useGame(): GameState {
     error,
     sessionConflict,
     lastSavedAt,
+    streamingNarrative,
     onStart,
     onChoose,
     onFreeText,

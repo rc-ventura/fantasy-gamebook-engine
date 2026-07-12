@@ -24,6 +24,7 @@ export {
   getCharacter,
   // Play loop
   takeTurn,
+  takeTurnStream,
   getCurrentScene,
   // Save
   saveGame,

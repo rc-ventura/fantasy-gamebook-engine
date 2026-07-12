@@ -175,6 +175,104 @@ export async function takeTurn(turnReq: TurnRequest): Promise<TurnResponse> {
   return request<TurnResponse>('POST', '/me/game/turn', turnReq)
 }
 
+/**
+ * POST /me/game/turn/stream — SSE variant of takeTurn (issue #20).
+ *
+ * Calls `onDelta` with each narrative text chunk as the narrator generates
+ * it; resolves with the same TurnResponse shape takeTurn() returns once the
+ * stream's `done` event arrives. Throws ApiError for any failure — a
+ * pre-stream HTTP error (same codes/semantics as takeTurn, e.g.
+ * no_active_campaign/run_ended) or a mid-stream `error` event (narrator
+ * failure). Callers that want a fallback should retry with takeTurn() on
+ * catch (see useGame.ts's runTurn()).
+ *
+ * Mock mode has no real streaming to simulate — it resolves mockApi.takeTurn()
+ * and reports the whole narrative as a single delta, so callers don't need a
+ * separate code path for VITE_USE_MOCK=true.
+ */
+export async function takeTurnStream(
+  turnReq: TurnRequest,
+  onDelta: (text: string) => void
+): Promise<TurnResponse> {
+  if (USE_MOCK) {
+    const res = await mockApi.takeTurn(turnReq.choice)
+    onDelta(res.scene.narrative)
+    return res
+  }
+
+  const token = _tokenProvider()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  let response: Response
+  try {
+    response = await fetch(`${BASE_URL}/me/game/turn/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(turnReq),
+    })
+  } catch (err) {
+    throw new ApiError(0, 'unknown', err instanceof Error ? err.message : 'Network error')
+  }
+
+  if (!response.ok || !response.body) {
+    // Same error-body parsing as request<T>() — a 404/409/etc here means the
+    // route rejected the turn BEFORE entering the SSE generator (headers
+    // aren't committed as 200 yet), identical to what takeTurn() would throw.
+    let code: ApiErrorCode = 'unknown'
+    let message = `HTTP ${response.status.toString()}`
+    try {
+      const text = await response.text()
+      const data: unknown = JSON.parse(text)
+      const apiErr = data as ApiErrorBody
+      code = (apiErr.error.code as ApiErrorCode | undefined) ?? 'unknown'
+      message = apiErr.error.message ?? message
+    } catch {
+      // Ignore JSON parse errors — use defaults
+    }
+    throw new ApiError(response.status, code, message)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let sepIndex = buffer.indexOf('\n\n')
+    while (sepIndex !== -1) {
+      const block = buffer.slice(0, sepIndex)
+      buffer = buffer.slice(sepIndex + 2)
+      const lines = block.split('\n')
+      const eventLine = lines.find((l) => l.startsWith('event: '))
+      const dataLine = lines.find((l) => l.startsWith('data: '))
+      if (eventLine && dataLine) {
+        const eventType = eventLine.slice('event: '.length)
+        const data: unknown = JSON.parse(dataLine.slice('data: '.length))
+
+        if (eventType === 'delta') {
+          onDelta((data as { text: string }).text)
+        } else if (eventType === 'done') {
+          return data as TurnResponse
+        } else if (eventType === 'error') {
+          const apiErr = data as ApiErrorBody
+          throw new ApiError(
+            200, // headers already committed 200 — the real failure travels inside the stream
+            (apiErr.error.code as ApiErrorCode | undefined) ?? 'unknown',
+            apiErr.error.message ?? 'Streaming turn failed'
+          )
+        }
+      }
+      sepIndex = buffer.indexOf('\n\n')
+    }
+  }
+
+  throw new ApiError(0, 'unknown', 'Stream ended without a done event')
+}
+
 /** GET /me/game/scene — re-fetch the current scene (for resume/refresh). */
 export async function getCurrentScene(): Promise<{ scene: Scene | null }> {
   if (USE_MOCK) return { scene: await mockApi.getScene() }
