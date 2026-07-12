@@ -55,6 +55,8 @@ from gamebook_web.harness.graph import (
     DispatcherNarrator,
     MechanicalDispatch,
     Narrate,
+    _adjacent_zones,
+    _DICE_TEMPLATES,
     _LAYER3_ONLY,
     dispatcher_graph,
 )
@@ -108,6 +110,22 @@ def _minimal_adventure() -> AdventureStructure:
                 )
             ],
         },
+    )
+
+
+def _linear_adventure(*, narrative_zones: list[str] | None = None) -> AdventureStructure:
+    """A 3-zone linear adventure (a → b → c) for adjacency/narrative-zone tests.
+
+    `b` sits between `a` and `c` — the minimal shape that can distinguish
+    "adjacent" from "not adjacent" (a 2-zone adventure can't: every zone is
+    trivially adjacent to the only other one).
+    """
+    return AdventureStructure(
+        zones=["zone_a", "zone_b", "zone_c"],
+        boss="malachar",
+        victory_condition={"flag": "malachar_defeated"},
+        opening_location="zone_a",
+        narrative_zones=narrative_zones or [],
     )
 
 
@@ -730,3 +748,829 @@ class TestDispatcherNarrator:
         assert scene == _STUB_SCENE
         assert outcome is None
         assert outcome is None
+
+
+# ---------------------------------------------------------------------------
+# T030 — US3: Free text without forced menu
+# ---------------------------------------------------------------------------
+
+class TestFreeTextRouting:
+    """T030: free-text turns that lack mechanical stakes are narrated freely;
+    low-confidence / ambiguous inputs never trigger a guessed mechanical action.
+    """
+
+    def test_player_choice_with_no_matching_encounter_routes_to_narrative(self):
+        """A player choice in a zone with no encounters → Narrate, zero engine checks."""
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+
+                # Classifier returns an action that matches no template/encounter.
+                classification = IntentClassification(
+                    action="look around",
+                    confidence=0.9,
+                    template=None,  # no template → no mechanical dispatch
+                )
+                fake_narrator = FakeNarrator(scenes=[_STUB_SCENE])
+                deps = DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=fake_narrator,
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    # shattered_trailhead has no probabilistic_encounters in minimal adventure
+                    context=NarratorContext(
+                        choice="I examine the rusted winch carefully",
+                        world={"current_location": "shattered_trailhead"},
+                    ),
+                    adventure=AdventureStructure(
+                        zones=["shattered_trailhead"],
+                        boss="malachar",
+                        victory_condition={"flag": "malachar_defeated"},
+                        opening_location="shattered_trailhead",
+                        narrative_zones=["shattered_trailhead"],
+                    ),
+                    templates=_load_ignarok_templates(),
+                )
+                scene = await dispatcher_graph.run(
+                    inputs=ClassifyIntent(), state=state, deps=deps
+                )
+                return scene, state.outcome
+
+        scene, outcome = asyncio.run(run())
+        assert scene == _STUB_SCENE
+        assert outcome is None, "free-text in a narrative zone must not produce a TurnOutcome"
+
+    def test_low_confidence_classification_routes_to_narrative_not_mechanical(self):
+        """Confidence below CONFIDENCE_THRESHOLD → Narrate, even if action is named."""
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+
+                # Action is named and a template exists, but confidence is below threshold.
+                below_threshold = CONFIDENCE_THRESHOLD - 0.1
+                classification = IntentClassification(
+                    action="ravine_rockfall",
+                    confidence=below_threshold,
+                    template="risky_action",
+                )
+                fake_narrator = FakeNarrator(scenes=[_STUB_SCENE])
+                deps = DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=fake_narrator,
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="maybe I should try to cross the ravine?",
+                        world={"current_location": "dark_ravine"},
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                scene = await dispatcher_graph.run(
+                    inputs=ClassifyIntent(), state=state, deps=deps
+                )
+                return scene, state.outcome
+
+        scene, outcome = asyncio.run(run())
+        assert scene == _STUB_SCENE
+        assert outcome is None, (
+            f"confidence below {CONFIDENCE_THRESHOLD} must not trigger mechanical dispatch"
+        )
+
+    def test_null_action_with_player_choice_routes_to_narrative(self):
+        """Classifier returns action=None for unanticipated free text → Narrate."""
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+
+                classification = IntentClassification(action=None, confidence=0.0)
+                fake_narrator = FakeNarrator(scenes=[_STUB_SCENE])
+                deps = DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=fake_narrator,
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="I sing a drinking song to pass the time",
+                        world={"current_location": "dark_ravine"},
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                scene = await dispatcher_graph.run(
+                    inputs=ClassifyIntent(), state=state, deps=deps
+                )
+                return scene, state.outcome
+
+        scene, outcome = asyncio.run(run())
+        assert scene == _STUB_SCENE
+        assert outcome is None, "null action must not produce a TurnOutcome (FR-004)"
+
+
+# ---------------------------------------------------------------------------
+# T036 — US2: Zone re-entry determinism (encounter presence remembered)
+# ---------------------------------------------------------------------------
+
+class TestZoneEncounterDeterminism:
+    """T036: probabilistic encounters are rolled once per playthrough and
+    remembered — re-entering the same zone returns the same encounter list;
+    a fresh playthrough (different RNG seed) may differ.
+    """
+
+    def test_reentry_same_zone_same_playthrough_yields_same_encounters(self):
+        """Re-entering dark_ravine in the same campaign uses persisted flags."""
+        async def run():
+            from gamebook_web.harness.encounter_resolver import resolve_zone_encounters
+            from gamebook_web.harness.adventure_structure import load_adventure_structure
+            from pathlib import Path
+
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+
+                # Load the real Ignarok encounters for dark_ravine.
+                ignarok_dir = Path(__file__).parents[2] / "adventure_modules" / "ignarok"
+                adventure = load_adventure_structure(ignarok_dir)
+                dark_ravine_encounters = adventure.probabilistic_encounters.get("dark_ravine", [])
+
+                # First entry: no flags yet → some encounters will be rolled.
+                first_active = await resolve_zone_encounters(
+                    dark_ravine_encounters,
+                    "dark_ravine",
+                    toolset,
+                    CAMPAIGN,
+                    {},  # empty flags — first entry
+                )
+
+                # Read back the flags that were persisted to World.
+                world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+                persisted_flags = world.get("flags", {}) if isinstance(world, dict) else {}
+
+                # Second entry: supply the persisted flags → must get identical result.
+                second_active = await resolve_zone_encounters(
+                    dark_ravine_encounters,
+                    "dark_ravine",
+                    toolset,
+                    CAMPAIGN,
+                    persisted_flags,
+                )
+
+                return [e.id for e in first_active], [e.id for e in second_active]
+
+        first_ids, second_ids = asyncio.run(run())
+        assert first_ids == second_ids, (
+            f"Re-entering the same zone must yield the same encounter list.\n"
+            f"First entry:  {first_ids}\n"
+            f"Second entry: {second_ids}"
+        )
+
+    def test_two_independent_playthroughs_may_differ(self):
+        """Two campaigns with different RNG seeds can produce different encounter sets."""
+        async def run():
+            from gamebook_web.harness.encounter_resolver import resolve_zone_encounters
+            from gamebook_web.harness.adventure_structure import load_adventure_structure
+            from pathlib import Path
+            from gamebook.mcp.server import build_server
+
+            ignarok_dir = Path(__file__).parents[2] / "adventure_modules" / "ignarok"
+            adventure = load_adventure_structure(ignarok_dir)
+            dark_ravine_encounters = adventure.probabilistic_encounters.get("dark_ravine", [])
+
+            results = []
+            # Try 10 seeds; collect unique encounter-set fingerprints.
+            seen: set[tuple] = set()
+            for seed in range(10):
+                local_storage = InMemoryStorage()
+                server = build_server(storage_factory=lambda _: local_storage, rng=random.Random(seed))
+                async with MCPToolset(server) as toolset:
+                    await toolset.direct_call_tool(
+                        "create_character",
+                        {"campaign_id": CAMPAIGN, "name": "Hero"},
+                    )
+                    active = await resolve_zone_encounters(
+                        dark_ravine_encounters,
+                        "dark_ravine",
+                        toolset,
+                        CAMPAIGN,
+                        {},
+                    )
+                    seen.add(tuple(sorted(e.id for e in active)))
+            return seen
+
+        unique_outcomes = asyncio.run(run())
+        assert len(unique_outcomes) > 1, (
+            "Two independent playthroughs with different RNG seeds should "
+            "produce different encounter sets across 10 trials.\n"
+            f"Only one unique outcome found: {unique_outcomes}\n"
+            "(This may indicate the probability constants are all 0 or 1.)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression tests — 2026-07-11 live-testing bug hunt (see tasks.md Phase 8)
+#
+# Every fix below was found via a real container play session, not unit
+# testing — each test here pins the exact failure mode so it can't silently
+# regress.
+# ---------------------------------------------------------------------------
+
+
+class TestAdjacentZonesHelper:
+    """`_adjacent_zones` — pure function, the adjacency model for "move"."""
+
+    def test_middle_zone_has_both_neighbors(self):
+        assert _adjacent_zones(["a", "b", "c"], "b") == ["a", "c"]
+
+    def test_first_zone_has_only_next(self):
+        assert _adjacent_zones(["a", "b", "c"], "a") == ["b"]
+
+    def test_last_zone_has_only_previous(self):
+        assert _adjacent_zones(["a", "b", "c"], "c") == ["b"]
+
+    def test_current_zone_never_included_in_its_own_neighbors(self):
+        neighbors = _adjacent_zones(["a", "b", "c"], "b")
+        assert "b" not in neighbors
+
+    def test_unknown_location_falls_back_to_full_zone_list(self):
+        """Corrupted/uninitialized current_location — don't strand the player."""
+        assert _adjacent_zones(["a", "b", "c"], "nowhere") == ["a", "b", "c"]
+
+
+class TestMoveDestinationGuards:
+    """MechanicalDispatch's "move" guards — regression coverage for the
+    2026-07-11 bug hunt: destination must resolve via a nested `changes` dict
+    (not a top-level `update_world` arg), must be adjacent to current_location
+    (not a same-zone no-op, not a far teleport), and a missing destination
+    must never reach the engine as None.
+    """
+
+    def test_move_to_adjacent_zone_actually_updates_world(self):
+        """The original 422 bug: `update_world` needs `changes={...}`, not a
+        top-level `current_location` kwarg. This proves the full path — MCP
+        call succeeds AND world.current_location is actually persisted.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="move", confidence=0.9, template="move",
+                    params={"destination": "dark_ravine"},
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="head into the ravine",
+                        world={"current_location": "stone_archway"},
+                        character=sheet,
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                await node.run(ctx)
+                world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+                return world
+
+        world = asyncio.run(run())
+        assert world["current_location"] == "dark_ravine"
+
+    def test_move_to_non_adjacent_zone_falls_back_to_narrative(self):
+        """Far-jump guard — e.g. stone_archway straight to malachars_sanctum,
+        skipping the authored progression.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                await toolset.direct_call_tool(
+                    "update_world",
+                    {"campaign_id": CAMPAIGN, "changes": {"current_location": "zone_a"}},
+                )
+                classification = IntentClassification(
+                    action="move", confidence=0.9, template="move",
+                    params={"destination": "zone_c"},  # not adjacent to zone_a
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="rush to the sanctum",
+                        world={"current_location": "zone_a"},
+                        character=sheet,
+                    ),
+                    adventure=_linear_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+                return type(result).__name__, world["current_location"]
+
+        result_type, location = asyncio.run(run())
+        assert result_type == "Narrate"
+        assert location == "zone_a", "world state must not change on a rejected move"
+
+    def test_move_to_current_zone_is_rejected_as_a_no_op(self):
+        """Self-loop guard — a "move" whose destination is where the player
+        already stands must not silently succeed as a no-op turn.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="move", confidence=0.9, template="move",
+                    params={"destination": "zone_b"},  # same as current
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="continue climbing",
+                        world={"current_location": "zone_b"},
+                        character=sheet,
+                    ),
+                    adventure=_linear_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                return type(result).__name__
+
+        result_type = asyncio.run(run())
+        assert result_type == "Narrate"
+
+    def test_move_with_missing_destination_falls_back_to_narrative(self):
+        """Classifier omitted the destination param entirely (str param → None
+        via clamp_params) — must not reach the engine as a None value.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="move", confidence=0.9, template="move", params={},
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="let's go",
+                        world={"current_location": "zone_a"},
+                        character=sheet,
+                    ),
+                    adventure=_linear_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                return type(result).__name__
+
+        result_type = asyncio.run(run())
+        assert result_type == "Narrate"
+
+
+class TestCombatEncounterGuard:
+    """MechanicalDispatch's "combat" guard — regression coverage for the SDD
+    final review cycle 1 (2026-07-11) security finding: unlike "move" (an
+    unconditional, server-derived adjacency check), "combat" had no equivalent
+    guard requiring dispatch to originate from a matched, author-defined
+    ProbabilisticEncounter. `clamp_params` does not bound list/bool params
+    (`enemies`, `flee_allowed`), so a classifier emitting `action="combat"`
+    with no matching encounter — plausible since "combat" is a real key in
+    `ctx.state.templates` and template-derives automatically even though it's
+    deliberately excluded from the LLM's candidate list — could route
+    classifier-invented enemies straight to `start_combat` unchecked.
+    """
+
+    def test_combat_with_no_matching_encounter_falls_back_to_narrative(self):
+        """The exploit path: classifier names "combat" directly (or an action
+        that isn't any authored encounter id in the current zone) with
+        attacker-favorable enemies. Must never reach start_combat.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="combat", confidence=0.9, template="combat",
+                    params={
+                        "enemies": [{"name": "GodMode", "skill": 1, "stamina": 999}],
+                        "flee_allowed": True,
+                    },
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="I start a fight",
+                        world={"current_location": "dark_ravine"},  # no combat encounter here
+                        character=sheet,
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                return type(result).__name__, state.outcome
+
+        result_type, outcome = asyncio.run(run())
+        assert result_type == "Narrate"
+        assert outcome is None, "start_combat must never be reached — no TurnOutcome was produced"
+
+    def test_combat_with_matching_encounter_still_dispatches(self):
+        """Sanity check: the guard must not break the legitimate path — an
+        authored encounter (archway_guardian, stone_archway) still dispatches
+        to CombatRound as before.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="archway_guardian", confidence=0.9, template="combat",
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="fight the guardian",
+                        world={"current_location": "stone_archway"},
+                        character=sheet,
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                return type(result).__name__
+
+        result_type = asyncio.run(run())
+        assert result_type == "CombatRound"
+
+
+class TestNarrativeZoneDiceGuard:
+    """MechanicalDispatch rejects dice-based templates in narrative_zones —
+    even if the classifier ignored ClassifyIntent's candidate-list filter.
+    Defense-in-depth counterpart to ClassifyIntent's own candidate filtering.
+    """
+
+    def test_skill_check_in_narrative_zone_falls_back_to_narrative(self):
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="skill_check", confidence=0.9, template="skill_check",
+                    params={"risk_amount": 1, "risk_source": "trap"},
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="examine the trailhead closely",
+                        world={"current_location": "zone_b"},
+                        character=sheet,
+                    ),
+                    adventure=_linear_adventure(narrative_zones=["zone_b"]),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                return type(result).__name__
+
+        result_type = asyncio.run(run())
+        assert result_type == "Narrate"
+
+    def test_dice_templates_constant_matches_expected_set(self):
+        """Pin the exact set — a future template addition must update this
+        deliberately, not silently start (or stop) rolling dice in Layer 3.
+        """
+        assert _DICE_TEMPLATES == {"skill_check", "risky_action"}
+
+    def test_move_still_available_in_narrative_zone(self):
+        """narrative_zones excludes DICE templates only — move (no roll) must
+        still let the player leave the zone.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                sheet = await _seed_character(toolset)
+                classification = IntentClassification(
+                    action="move", confidence=0.9, template="move",
+                    params={"destination": "zone_c"},
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="move on",
+                        world={"current_location": "zone_b"},
+                        character=sheet,
+                    ),
+                    adventure=_linear_adventure(narrative_zones=["zone_b"]),
+                    templates=_load_ignarok_templates(),
+                )
+                node = MechanicalDispatch(classification=classification)
+                ctx = GraphRunContext(state=state, deps=DispatchDeps(
+                    classifier_agent=_make_classifier(classification),
+                    narrator=_make_fake_narrator(),
+                ))
+                result = await node.run(ctx)
+                world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+                return type(result).__name__, world["current_location"]
+
+        result_type, location = asyncio.run(run())
+        assert result_type == "CombatRound" or result_type == "Narrate"
+        # move is not combat, so it must reach Narrate with the world updated —
+        # asserting the concrete expectation, not the loose "either" above.
+        assert result_type == "Narrate"
+        assert location == "zone_c"
+
+
+class TestCombatWinFlagAndFieldMapping:
+    """CombatRound's engine field mapping (RoundOutcome.hitter/damage_applied,
+    FinalResult.winner — not the phantom hero_won_round/hero_damage/hero_won
+    fields it used to read) and the sets_flag_on_win victory-flag mechanism.
+    """
+
+    async def _run_combat_to_completion(
+        self, *, enemy_skill: int, enemy_stamina: int, sets_flag_on_win: str | None,
+    ) -> tuple[dict, dict]:
+        server, storage = _fresh_in_memory_server()
+        async with MCPToolset(server) as toolset:
+            await toolset.direct_call_tool(
+                "create_character", {"campaign_id": CAMPAIGN, "name": "Champion"},
+            )
+            combat = await toolset.direct_call_tool(
+                "start_combat",
+                {
+                    "campaign_id": CAMPAIGN,
+                    "enemies": [{"name": "Foe", "skill": enemy_skill, "stamina": enemy_stamina}],
+                    "flee_allowed": False,
+                },
+            )
+            outcome = TurnOutcome(
+                action="malachar_final_battle", template="combat",
+                checks=[{"tool": "start_combat", "result": combat}],
+            )
+            state = DispatchState(
+                campaign_id=CAMPAIGN, toolset=toolset,
+                context=NarratorContext(choice="fight", world={}),
+                adventure=_minimal_adventure(), templates=_load_ignarok_templates(),
+                outcome=outcome,
+            )
+            deps = DispatchDeps(
+                classifier_agent=_make_classifier(
+                    IntentClassification(action="malachar_final_battle", confidence=0.9, template="combat")
+                ),
+                narrator=_make_fake_narrator(),
+            )
+            ctx = GraphRunContext(state=state, deps=deps)
+            node: CombatRound | Narrate = CombatRound(
+                combat_id=combat["combat_id"], outcome=outcome, sets_flag_on_win=sets_flag_on_win,
+            )
+            for _ in range(50):
+                result = await node.run(ctx)
+                if isinstance(result, Narrate):
+                    break
+                node = result
+            final_check = next(c for c in state.outcome.checks if c["tool"] == "end_combat")
+            world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+            return final_check["result"], world
+
+    def test_hero_win_sets_the_declared_victory_flag(self):
+        """Weak enemy (skill 1, stamina 2) vs a fresh hero — hero wins."""
+        final_result, world = asyncio.run(self._run_combat_to_completion(
+            enemy_skill=1, enemy_stamina=2, sets_flag_on_win="malachar_defeated",
+        ))
+        assert final_result["winner"] == "hero"
+        assert world.get("flags", {}).get("malachar_defeated") is True
+
+    def test_hero_win_without_sets_flag_on_win_does_not_touch_world_flags(self):
+        """Non-boss combat (e.g. archway_guardian) has no sets_flag_on_win —
+        winning must not set any flag.
+        """
+        final_result, world = asyncio.run(self._run_combat_to_completion(
+            enemy_skill=1, enemy_stamina=2, sets_flag_on_win=None,
+        ))
+        assert final_result["winner"] == "hero"
+        assert world.get("flags", {}).get("malachar_defeated") is not True
+
+    def test_hero_loss_does_not_set_victory_flag(self):
+        """A hero reduced to near-death before a strong fight loses — the
+        victory flag must never be set on a loss.
+        """
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await toolset.direct_call_tool(
+                    "create_character", {"campaign_id": CAMPAIGN, "name": "Doomed"},
+                )
+                # Weaken the hero deterministically before the fight so a
+                # high-skill, high-stamina enemy wins within the round cap.
+                await toolset.direct_call_tool(
+                    "apply_damage",
+                    {"campaign_id": CAMPAIGN, "amount": 100, "source": "trap"},
+                )
+                combat = await toolset.direct_call_tool(
+                    "start_combat",
+                    {
+                        "campaign_id": CAMPAIGN,
+                        "enemies": [{"name": "Malachar", "skill": 10, "stamina": 12}],
+                        "flee_allowed": False,
+                    },
+                )
+                outcome = TurnOutcome(
+                    action="malachar_final_battle", template="combat",
+                    checks=[{"tool": "start_combat", "result": combat}],
+                )
+                state = DispatchState(
+                    campaign_id=CAMPAIGN, toolset=toolset,
+                    context=NarratorContext(choice="fight", world={}),
+                    adventure=_minimal_adventure(), templates=_load_ignarok_templates(),
+                    outcome=outcome,
+                )
+                deps = DispatchDeps(
+                    classifier_agent=_make_classifier(
+                        IntentClassification(action="malachar_final_battle", confidence=0.9, template="combat")
+                    ),
+                    narrator=_make_fake_narrator(),
+                )
+                ctx = GraphRunContext(state=state, deps=deps)
+                node: CombatRound | Narrate = CombatRound(
+                    combat_id=combat["combat_id"], outcome=outcome,
+                    sets_flag_on_win="malachar_defeated",
+                )
+                for _ in range(50):
+                    result = await node.run(ctx)
+                    if isinstance(result, Narrate):
+                        break
+                    node = result
+                final_check = next(c for c in state.outcome.checks if c["tool"] == "end_combat")
+                world = await toolset.direct_call_tool("read_world", {"campaign_id": CAMPAIGN})
+                return final_check["result"], world
+
+        final_result, world = asyncio.run(run())
+        assert final_result["winner"] == "enemy"
+        assert world.get("flags", {}).get("malachar_defeated") is not True
+
+
+class TestChoiceLabelInClassifierPrompt:
+    """ClassifyIntent recovers the previous scene's choice label and includes
+    it in the classifier prompt — fixes confidence=0.0 on numeric choice IDs
+    like "2" that carry no semantic signal on their own.
+    """
+
+    def test_choice_label_appears_in_classifier_prompt(self):
+        captured: list[str] = []
+
+        def _capture(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            captured.append(str(messages))
+            return ModelResponse(
+                parts=[ToolCallPart(
+                    tool_name="final_result",
+                    args=IntentClassification(action=None, confidence=0.0).model_dump(),
+                )]
+            )
+
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="2",
+                        choice_label="Try to slip past the guardian",
+                        world={"current_location": "dark_ravine"},
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                deps = DispatchDeps(
+                    classifier_agent=Agent(
+                        FunctionModel(_capture), name="intent_classifier",
+                        output_type=IntentClassification,
+                    ),
+                    narrator=_make_fake_narrator(),
+                )
+                node = ClassifyIntent()
+                ctx = GraphRunContext(state=state, deps=deps)
+                await node.run(ctx)
+
+        asyncio.run(run())
+        assert any("Try to slip past the guardian" in c for c in captured)
+        assert any("2 —" in c for c in captured)
+
+    def test_bare_choice_used_when_no_label_available(self):
+        """No previous scene / no matching choice id → falls back to the bare
+        choice value, no crash, no "None" leaking into the prompt as text.
+        """
+        captured: list[str] = []
+
+        def _capture(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            captured.append(str(messages))
+            return ModelResponse(
+                parts=[ToolCallPart(
+                    tool_name="final_result",
+                    args=IntentClassification(action=None, confidence=0.0).model_dump(),
+                )]
+            )
+
+        async def run():
+            server, storage = _fresh_in_memory_server()
+            async with MCPToolset(server) as toolset:
+                await _seed_character(toolset)
+                state = DispatchState(
+                    campaign_id=CAMPAIGN,
+                    toolset=toolset,
+                    context=NarratorContext(
+                        choice="2",
+                        choice_label=None,
+                        world={"current_location": "dark_ravine"},
+                    ),
+                    adventure=_minimal_adventure(),
+                    templates=_load_ignarok_templates(),
+                )
+                deps = DispatchDeps(
+                    classifier_agent=Agent(
+                        FunctionModel(_capture), name="intent_classifier",
+                        output_type=IntentClassification,
+                    ),
+                    narrator=_make_fake_narrator(),
+                )
+                node = ClassifyIntent()
+                ctx = GraphRunContext(state=state, deps=deps)
+                await node.run(ctx)
+
+        asyncio.run(run())
+        assert any("<<<2>>>" in c for c in captured)
+
+
+class TestNullStringActionNormalization:
+    """The classifier's output_validator normalizes the literal string "null"
+    (some models emit this instead of omitting the field) to a real None —
+    otherwise a future encounter authored with id="null" could be triggered
+    by an LLM typo.
+    """
+
+    def test_literal_null_string_normalized_to_none(self):
+        def _emit_null_string(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            return ModelResponse(
+                parts=[ToolCallPart(
+                    tool_name="final_result",
+                    args={"action": "null", "confidence": 0.8, "template": "move", "params": {}},
+                )]
+            )
+
+        async def run():
+            from pydantic_ai.models.function import FunctionModel as FM
+            agent = build_classifier_agent(FM(_emit_null_string))
+            result = await agent.run("irrelevant prompt")
+            return result.output
+
+        classification = asyncio.run(run())
+        assert classification.action is None
+        assert classification.template is None
+        assert classification.confidence == 0.0
