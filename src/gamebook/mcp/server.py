@@ -1,34 +1,3 @@
-"""MCP server — the façade that exposes the engine to a harness (swap point #3).
-
-This module is the *only* place the AI narrator talks to the engine. It contains
-**no game rules of its own**: every tool merely orchestrates the pure ``rules``
-math, the ``combat`` lifecycle, and a ``StorageBackend``. This is what makes the
-hard rule of the project enforceable — "the AI never rolls dice in prose", because
-all randomness and state flow through these tools.
-
-Layering / golden rule
-----------------------
-``build_server`` takes only *interfaces* (a ``storage_factory`` callable and a
-``RandomSource``) and never constructs a concrete storage implementation. The
-single exception is :func:`main`, the **composition root**, which is the one place
-allowed to build concretes (``JSONStorage``, ``PostgresStorage``, ``CombatService``,
-``random.Random``) and inject them via the factory. Those concrete imports live
-*inside* ``main`` precisely so that merely importing this module never drags a
-storage backend into ``sys.modules``.
-
-Multi-tenancy (ADR-018, Option A)
-----------------------------------
-Every MCP tool takes ``campaign_id: str`` as its **first parameter**. The tool body
-calls ``storage = storage_factory(campaign_id)`` to obtain the per-campaign backend.
-A single server process serves all campaigns; the factory caches backends keyed by
-``campaign_id``. This eliminates the cross-account data-leakage risk (A01) and
-avoids the N×50 MB memory cost of one subprocess per campaign.
-
-At module scope we import only ``domain`` (persistent entities), the stable pure
-core ``rules`` (allowed cross-import — it is not a swap boundary), and the
-``*.interfaces`` result types used as tool return annotations.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -39,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from gamebook.combat.interfaces import FinalResult, FleeResult, RoundOutcome
 from gamebook.domain.models import (
     ArchiveRecord,
+    Attribute,
     CharacterSheet,
     Combat,
     Enemy,
@@ -55,18 +25,15 @@ if TYPE_CHECKING:
 SERVER_NAME = "gamebook"
 _DEFAULT_SLOT = "autosave"
 
-# Patch surface for ``update_character_sheet`` (kept in sync with CharacterSheet).
-_ATTRIBUTE_FIELDS = frozenset({"skill", "stamina", "luck"})
-_SCALAR_FIELDS = frozenset(
-    {"name", "inventory", "gold", "provisions", "conditions", "alive"}
+# Patch surface for ``update_character_sheet`` — derived from CharacterSheet.model_fields
+_ATTRIBUTE_FIELDS = frozenset(
+    name for name, field in CharacterSheet.model_fields.items()
+    if field.annotation is Attribute
 )
-_UPDATABLE_FIELDS = _ATTRIBUTE_FIELDS | _SCALAR_FIELDS
+_UPDATABLE_FIELDS = frozenset(CharacterSheet.model_fields.keys())
 
-# Patch surface for ``update_world`` (kept in sync with World). ``flags`` is merged
-# key-wise; the rest are shallow-replaced.
-_UPDATABLE_WORLD_FIELDS = frozenset(
-    {"current_location", "visited_locations", "known_npcs", "flags", "turn"}
-)
+# Patch surface for ``update_world`` — derived from World.model_fields. ``flags`` is
+_UPDATABLE_WORLD_FIELDS = frozenset(World.model_fields.keys())
 
 # Which archive a final state belongs to, and the outcome it records.
 _ARCHIVE_OUTCOME = {"hall_of_fame": "victory", "graveyard": "death"}
@@ -93,9 +60,6 @@ def build_server(
     storage backend on each call via ``storage_factory(campaign_id)``. This makes
     a single server process serve all campaigns with full isolation (ADR-018).
     """
-    # Import the concrete CombatService here (inside build_server, not at module
-    # scope) so that importing this module never drags CombatService into
-    # sys.modules — preserving the "no concretes at module scope" invariant.
     from gamebook.combat.implementation import CombatService
 
     server: FastMCP = FastMCP(name=SERVER_NAME, instructions=_INSTRUCTIONS)
@@ -190,6 +154,44 @@ def build_server(
         updated = CharacterSheet.model_validate(data)
         storage.save_character(updated)
         return updated
+
+    @server.tool(
+        name="apply_healing",
+        description=(
+            "Heal the hero by a relative amount (not an absolute value). Clamped "
+            "to stamina.initial — cannot over-heal. Used by the deterministic "
+            "dispatcher (spec 009, ADR-033), not narrator-reachable."
+        ),
+    )
+    def apply_healing(campaign_id: str, amount: int, source: str) -> CharacterSheet:
+        if amount <= 0:
+            raise ValueError(f"amount must be a positive int, got {amount}")
+        storage = storage_factory(campaign_id)
+        sheet = _require_character(campaign_id)
+        new_current = min(sheet.stamina.initial, sheet.stamina.current + amount)
+        sheet.stamina = sheet.stamina.model_copy(update={"current": new_current})
+        storage.save_character(sheet)
+        return sheet
+
+    @server.tool(
+        name="apply_damage",
+        description=(
+            "Damage the hero by a relative amount (not an absolute value). "
+            "Clamped to 0 — sets alive=False if stamina reaches 0. Used by the "
+            "deterministic dispatcher (spec 009, ADR-033), not narrator-reachable."
+        ),
+    )
+    def apply_damage(campaign_id: str, amount: int, source: str) -> CharacterSheet:
+        if amount <= 0:
+            raise ValueError(f"amount must be a positive int, got {amount}")
+        storage = storage_factory(campaign_id)
+        sheet = _require_character(campaign_id)
+        new_current = max(0, sheet.stamina.current - amount)
+        sheet.stamina = sheet.stamina.model_copy(update={"current": new_current})
+        if new_current == 0:
+            sheet.alive = False
+        storage.save_character(sheet)
+        return sheet
 
     # --- World / events / summary ----------------------------------------
     @server.tool(name="read_world", description="Return the current world state.")

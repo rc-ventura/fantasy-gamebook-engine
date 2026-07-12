@@ -14,6 +14,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 # Now copy the actual project and install it
 COPY README.md ./
 COPY src/ src/
+COPY adventure_modules/ adventure_modules/
 COPY alembic/ alembic/
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev

@@ -18,7 +18,7 @@ import pytest
 
 from pydantic import ValidationError
 
-from gamebook_web.harness.base import FakeNarrator
+from gamebook_web.harness.narrator import FakeNarrator
 from gamebook_web.harness.scene import Choice, Scene
 
 
@@ -103,7 +103,7 @@ class TestSceneContractSimplified:
 
     def test_turn_response_has_no_effects_applied_field(self):
         """FR-003: TurnResponse must not contain effects_applied after the refactor."""
-        from gamebook_web.api.play import TurnResponse
+        from gamebook_web.api.schemas import TurnResponse
         fields = TurnResponse.model_fields
         assert "effects_applied" not in fields, (
             "TurnResponse.effects_applied was removed in spec 007"

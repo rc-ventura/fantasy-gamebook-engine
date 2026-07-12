@@ -1,27 +1,3 @@
-"""Per-request tracing helpers (T020).
-
-Provides:
-  - ``get_tracer()``   — tracer for gamebook-web spans
-  - ``record_turn_span()`` — context manager for a /turn span with campaign metadata
-  - ``span_set_error()``  — mark a span ERROR and record the exception (no raw traceback)
-
-PII rules (FR-015):
-  - Allowed span attributes: campaign_id, account_id, turn_number (opaque IDs)
-  - Forbidden: character name, inventory, narrative text, player email/sub
-
-Usage example in a route::
-
-    from gamebook_web.observability.tracing import get_tracer, span_set_error
-
-    tracer = get_tracer()
-    with tracer.start_as_current_span("turn") as span:
-        span.set_attribute("campaign_id", campaign_id)
-        try:
-            ...
-        except Exception as exc:
-            span_set_error(span, exc)
-            raise
-"""
 
 from __future__ import annotations
 
@@ -86,6 +62,63 @@ def narrator_span(campaign_id: str) -> Generator[Span, None, None]:
     tracer = get_tracer()
     with tracer.start_as_current_span("gamebook.narrator") as span:
         span.set_attribute("campaign_id", campaign_id)
+        try:
+            yield span
+        except Exception as exc:
+            span_set_error(span, exc)
+            raise
+
+
+@contextmanager
+def classify_intent_span(
+    campaign_id: str,
+    location: str,
+    num_candidates: int,
+) -> Generator[Span, None, None]:
+    """Span for ClassifyIntent node — records routing decision."""
+    tracer = get_tracer()
+    with tracer.start_as_current_span("gamebook.dispatch.classify") as span:
+        span.set_attribute("campaign_id", campaign_id)
+        span.set_attribute("location", location)
+        span.set_attribute("num_candidates", num_candidates)
+        try:
+            yield span
+        except Exception as exc:
+            span_set_error(span, exc)
+            raise
+
+
+@contextmanager
+def mechanical_dispatch_span(
+    campaign_id: str,
+    action: str,
+    template: str,
+) -> Generator[Span, None, None]:
+    """Span for MechanicalDispatch node — records template execution."""
+    tracer = get_tracer()
+    with tracer.start_as_current_span("gamebook.dispatch.mechanical") as span:
+        span.set_attribute("campaign_id", campaign_id)
+        span.set_attribute("action", action)
+        span.set_attribute("template", template)
+        try:
+            yield span
+        except Exception as exc:
+            span_set_error(span, exc)
+            raise
+
+
+@contextmanager
+def combat_round_span(
+    campaign_id: str,
+    combat_id: str,
+    round_n: int,
+) -> Generator[Span, None, None]:
+    """Span for one CombatRound cycle."""
+    tracer = get_tracer()
+    with tracer.start_as_current_span("gamebook.dispatch.combat_round") as span:
+        span.set_attribute("campaign_id", campaign_id)
+        span.set_attribute("combat_id", combat_id)
+        span.set_attribute("round_n", round_n)
         try:
             yield span
         except Exception as exc:

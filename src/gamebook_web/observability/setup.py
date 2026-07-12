@@ -1,18 +1,3 @@
-"""OpenTelemetry setup — traces, metrics, logs via OTLP (T019).
-
-Called from ``app.py`` lifespan.  Safe to call multiple times (idempotent).
-
-Environment variables
----------------------
-OTLP_ENDPOINT       — gRPC endpoint for OTLP exporter, e.g. "http://localhost:4317"
-                      If unset, uses a no-op exporter (dev/test).
-OTEL_SERVICE_NAME   — overrides the service_name argument.
-
-No PII in spans (FR-015):
-  - campaign_id and account_id as span attributes (opaque identifiers).
-  - No character name, inventory, or narrative text in span attributes.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -20,8 +5,8 @@ import os
 from typing import Any
 
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -33,12 +18,8 @@ logger = logging.getLogger(__name__)
 
 _SETUP_DONE = False
 _IN_MEMORY_EXPORTER: InMemorySpanExporter | None = None
-# References to the providers we create, kept so ``reset_telemetry`` can shut
-# them down (flushing/closing exporters) rather than orphaning them.
 _TRACER_PROVIDER: TracerProvider | None = None
 _METER_PROVIDER: MeterProvider | None = None
-# The app instrumented via ``instrument_app`` (T045), so ``reset_telemetry`` can
-# uninstrument exactly it rather than the global instrumentor.
 _INSTRUMENTED_APP: Any | None = None
 
 
@@ -57,8 +38,9 @@ def setup_telemetry(
     service_name:
         OTel resource service name.
     otlp_endpoint:
-        OTLP gRPC endpoint.  Defaults to ``OTLP_ENDPOINT`` env var.
-        If neither is set, an in-memory exporter is used (dev/test).
+        OTLP HTTP endpoint (e.g. "http://localhost:4318"). Defaults to
+        ``OTLP_ENDPOINT`` env var. If neither is set, an in-memory exporter
+        is used (dev/test).
     app:
         The FastAPI app to instrument (T045).  When provided, only this app is
         instrumented via ``FastAPIInstrumentor.instrument_app(app)`` rather than
@@ -73,15 +55,11 @@ def setup_telemetry(
     service_name = os.getenv("OTEL_SERVICE_NAME", service_name)
     endpoint = otlp_endpoint or os.getenv("OTLP_ENDPOINT", "")
 
-    # TLS by default (T051/FR-032): the OTLP exporter uses a secure channel
-    # unless OTLP_INSECURE is explicitly enabled (local collector without TLS).
-    # L-OTLP: refuse insecure OTLP in production — a plaintext telemetry channel
-    # enables MITM interception/spoofing of traces and metrics.
-    insecure = os.getenv("OTLP_INSECURE", "0") in ("1", "true", "True")
-    if insecure and os.getenv("ENV", "").lower() == "production":
+    # TLS by default (T051/FR-032): the http-exporter migration
+    if endpoint and os.getenv("ENV", "").lower() == "production" and not endpoint.startswith("https://"):
         raise RuntimeError(
-            "OTLP_INSECURE=1 is not allowed in production (ENV=production). "
-            "Use a TLS-secured OTLP collector endpoint."
+            f"OTLP_ENDPOINT={endpoint!r} is not TLS-secured (https://) and "
+            "ENV=production. Use a TLS-secured OTLP collector endpoint."
         )
 
     resource = Resource.create({"service.name": service_name})
@@ -92,9 +70,10 @@ def setup_telemetry(
     tracer_provider = TracerProvider(resource=resource)
 
     if endpoint:
-        span_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
+        traces_url = endpoint.rstrip("/") + "/v1/traces"
+        span_exporter = OTLPSpanExporter(endpoint=traces_url)
         tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
-        logger.info("OTel traces → OTLP %s (insecure=%s)", endpoint, insecure)
+        logger.info("OTel traces → %s", traces_url)
         _IN_MEMORY_EXPORTER = None
     else:
         in_mem = InMemorySpanExporter()
@@ -109,7 +88,8 @@ def setup_telemetry(
     # Metrics
     # ---------------------------------------------------------------
     if endpoint:
-        metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
+        metrics_url = endpoint.rstrip("/") + "/v1/metrics"
+        metric_exporter = OTLPMetricExporter(endpoint=metrics_url)
         reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=10_000)
         meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     else:
@@ -117,6 +97,13 @@ def setup_telemetry(
 
     metrics.set_meter_provider(meter_provider)
     _METER_PROVIDER = meter_provider
+
+    # ---------------------------------------------------------------
+    # pydantic-ai auto-instrumentation — emits GenAI semantic-convention spans
+    # ---------------------------------------------------------------
+    from pydantic_ai import Agent as _PydanticAgent
+    _PydanticAgent.instrument_all()
+    logger.info("pydantic-ai GenAI instrumentation enabled (Agent.instrument_all)")
 
     # ---------------------------------------------------------------
     # FastAPI auto-instrumentation
@@ -158,6 +145,13 @@ def reset_telemetry() -> None:
     """
     global _SETUP_DONE, _IN_MEMORY_EXPORTER, _TRACER_PROVIDER, _METER_PROVIDER
     global _INSTRUMENTED_APP
+
+    # Turn off pydantic-ai's GenAI instrumentation so a later setup_telemetry
+    try:
+        from pydantic_ai import Agent as _PydanticAgent
+        _PydanticAgent.instrument_all(False)
+    except Exception:  # pragma: no cover — best-effort cleanup
+        pass
 
     # Flush and close the providers we created.
     if _TRACER_PROVIDER is not None:

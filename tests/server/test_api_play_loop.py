@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from gamebook_web.harness.base import FakeNarrator
+from gamebook_web.harness.narrator import FakeNarrator
 from gamebook_web.harness.scene import Choice, Scene
 
 # ---------------------------------------------------------------------------

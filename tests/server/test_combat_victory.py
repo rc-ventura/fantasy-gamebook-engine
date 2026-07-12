@@ -15,7 +15,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from gamebook.domain.models import World
-from gamebook_web.harness.base import NarratorContext
+from gamebook_web.harness.narrator import NarratorContext
 from gamebook_web.harness.scene import Scene
 
 
@@ -86,17 +86,17 @@ class TestCombatVictoryViaTurn:
     def test_victory_turn_ends_and_archives_campaign(
         self, victory_client, engine_storage, monkeypatch
     ):
-        import gamebook_web.api.play as play_mod
+        import gamebook_web.api.turn as turn_mod
 
-        # Spy on _check_terminal_state without changing its behavior.
+        # Spy on check_terminal_state without changing its behavior.
         terminal_checks: list[str] = []
-        original = play_mod._check_terminal_state
+        original = turn_mod.check_terminal_state
 
         async def spy(campaign_id, character, world, toolset, registry, **kwargs):
             terminal_checks.append(campaign_id)
             return await original(campaign_id, character, world, toolset, registry, **kwargs)
 
-        monkeypatch.setattr(play_mod, "_check_terminal_state", spy)
+        monkeypatch.setattr(turn_mod, "check_terminal_state", spy)
 
         # Set up a run and a hero.
         resp = victory_client.post(
