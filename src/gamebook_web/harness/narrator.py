@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from gamebook_web.harness.scene import Choice, Scene
+
+# A streaming turn yields narrative text deltas (str) as they're generated,
+# then exactly one final validated Scene as the terminal item.
+StreamEvent = str | Scene
 
 
 @dataclass
@@ -41,6 +45,27 @@ class NarratorBackend(Protocol):
         context: NarratorContext,
     ) -> Scene:
         """Produce the next ``Scene`` given the campaign id and engine context."""
+        ...
+
+
+@runtime_checkable
+class StreamingNarratorBackend(Protocol):
+    """Optional capability (issue #20): stream narrative text as it's generated.
+
+    Separate from ``NarratorBackend`` so a narrator implementation can opt in
+    without every existing/future narrator having to implement it — callers
+    check ``isinstance(narrator, StreamingNarratorBackend)`` and fall back to
+    plain ``narrate()`` when it's absent (see ``api/turn.py``'s streaming
+    route), so adding a narrator that only implements ``narrate()`` never
+    breaks the stream endpoint, it just degrades to a single chunk.
+    """
+
+    def narrate_stream(
+        self,
+        campaign_id: str,
+        context: NarratorContext,
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield narrative text deltas, then exactly one final validated Scene."""
         ...
 
 
@@ -87,6 +112,18 @@ class FakeNarrator:
         if self._call_count % 2 == 1:
             return _DEFAULT_OPENING_SCENE
         return _DEFAULT_FOLLOWUP_SCENE
+
+    async def narrate_stream(
+        self, campaign_id: str, context: NarratorContext
+    ) -> AsyncIterator[StreamEvent]:
+        """Single-chunk stream: the whole narrative at once, then the Scene.
+
+        Exercises the streaming route's wiring in tests without needing a
+        real LLM's token-by-token delivery.
+        """
+        scene = await self.narrate(campaign_id, context)
+        yield scene.narrative
+        yield scene
 
 
 def get_narrator(request: Any) -> NarratorBackend:  # noqa: ANN401
