@@ -25,6 +25,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from gamebook_web.db import pg_engine_kwargs
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -74,16 +76,9 @@ class AccountRepository:
     """Async SQLAlchemy-backed account and ownership queries."""
 
     def __init__(self, url: str) -> None:
-        # Bounded pool (L-POOL): matches LeaseService — an unbounded pool can
-        # exhaust Postgres connections under load; these limits cap worst-case
-        # connection usage per process while still allowing reasonable concurrency.
-        self._engine = create_async_engine(
-            url,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
-        )
+        # TLS (ADR-026) + bounded pool (L-POOL), shared with LeaseService via
+        # pg_engine_kwargs() — account traffic must not travel plaintext.
+        self._engine = create_async_engine(url, **pg_engine_kwargs())
 
     def _session(self) -> AsyncSession:
         return AsyncSession(self._engine, expire_on_commit=False)

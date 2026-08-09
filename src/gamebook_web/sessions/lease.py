@@ -50,6 +50,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from gamebook_web.db import pg_engine_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Default lease TTL: 30 minutes
@@ -98,16 +100,9 @@ class LeaseService:
     """Async SQLAlchemy-backed session-lease manager."""
 
     def __init__(self, url: str, lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS) -> None:
-        # Bounded pool (L-POOL): an unbounded pool can exhaust Postgres
-        # connections under load; these limits cap worst-case connection usage
-        # per process while still allowing reasonable concurrency.
-        self._engine = create_async_engine(
-            url,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
-        )
+        # TLS (ADR-026) + bounded pool (L-POOL), shared with AccountRepository
+        # via pg_engine_kwargs() — lease tokens must not travel plaintext.
+        self._engine = create_async_engine(url, **pg_engine_kwargs())
         self._ttl = lease_ttl_seconds
 
     def _session(self) -> AsyncSession:
