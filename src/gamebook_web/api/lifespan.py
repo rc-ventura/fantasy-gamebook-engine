@@ -26,11 +26,11 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "engine_toolset", None) is None:
         async with engine_toolset_lifespan() as toolset:
             app.state.engine_toolset = toolset
-            _init_app_state(app)
+            await _init_app_state(app)
             yield
             app.state.engine_toolset = None
     else:
-        _init_app_state(app)
+        await _init_app_state(app)
         yield
 
 
@@ -92,16 +92,24 @@ def _install_auth_override(app: FastAPI) -> None:
     logger.info("Auth: OIDC enabled (JWKS=%s)", oidc_uri)
 
 
-def _init_app_state(app: FastAPI) -> None:
+async def _init_app_state(app: FastAPI) -> None:
     """Initialize campaign registry and narrator if not already set by tests."""
     if getattr(app.state, "campaign_registry", None) is None:
         # DB-backed when DATABASE_URL is configured (issues #14/#25): campaign
         # existence/status survive restarts and are shared across replicas.
         from gamebook_web.accounts import get_account_repository_if_configured
 
-        app.state.campaign_registry = CampaignRegistry(
-            repository=get_account_repository_if_configured()
-        )
+        repo = get_account_repository_if_configured()
+        app.state.campaign_registry = CampaignRegistry(repository=repo)
+
+        # Dev-stub accounts have no OIDC login to provision their `account`
+        # row (that only happens in oidc_auth.get_current_account) — without
+        # this, the dev account's first campaign/lease write 500s on a
+        # foreign-key violation against a real database (issue #15).
+        if repo is not None and os.getenv("GAMEBOOK_DEV_MODE", "0") in ("1", "true", "True"):
+            from gamebook_web.auth.dev_auth import DEV_ACCOUNT_ID
+
+            await repo.ensure_account(DEV_ACCOUNT_ID)
 
     if getattr(app.state, "narrator", None) is None:
         _configure_narrator(app)

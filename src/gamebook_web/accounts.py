@@ -87,6 +87,28 @@ class AccountRepository:
     # Account lifecycle
     # ------------------------------------------------------------------
 
+    async def ensure_account(self, account_id: str) -> None:
+        """Idempotently ensure a row exists with this exact ``id`` (dev-stub only).
+
+        Unlike ``get_or_create`` (keyed by ``sub``, assigns a random ``id``),
+        the dev auth stub (``dev_auth.DEV_ACCOUNT_ID``) hands out a fixed,
+        well-known account_id with no OIDC subject behind it. Every other
+        table FKs to ``account.id`` directly, so that id must exist as a row
+        before a dev-mode campaign/lease can be created against a real
+        database — otherwise the very first write 500s on a foreign-key
+        violation (found via live two-tab session-lease testing, issue #15).
+        """
+        async with self._session() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        "INSERT INTO account (id, sub, created_at) "
+                        "VALUES (:id, :id, NOW()) "
+                        "ON CONFLICT (id) DO NOTHING"
+                    ),
+                    {"id": account_id},
+                )
+
     async def get_or_create(self, sub: str) -> dict[str, Any]:
         """Upsert an account by OIDC subject; return ``{"account_id": ..., "sub": ..., "created_at": ...}``.
 

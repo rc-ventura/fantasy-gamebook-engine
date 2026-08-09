@@ -29,7 +29,7 @@ import {
 } from '../api'
 import { redirectToAuth } from '../utils/navigation'
 
-/** Session-lease flag (FR-007): default OFF until slice 004 ships real leases.
+/** Session-lease flag (FR-007, issue #15): default ON.
  *  Read lazily so tests can stub the env var without re-importing the module. */
 function sessionLeaseEnabled(): boolean {
   return import.meta.env.VITE_SESSION_LEASE === 'true'
@@ -280,6 +280,10 @@ export function useGame(): GameState {
       setLastSavedAt(new Date().toISOString())
     } catch (err) {
       if (isAuthError(err)) { redirectToAuth(); return }
+      if (err instanceof ApiError && err.code === 'not_session_holder') {
+        setSessionConflict(true)
+        return
+      }
       setError(sanitizeError(err, 'Failed to save'))
     }
   }, [])

@@ -89,7 +89,7 @@ resume the exact recorded state; open a second tab and confirm it is read-only u
 - [x] T017 [US2] "My campaigns" view showing only the signed-in player's campaigns in `frontend/src/pages/` (FR-011)
 - [x] T018 [US2] Single-active-session UX: acquire/refresh/takeover/release session lease; second tab read-only until takeover, in `frontend/src/components/` (FR-013)
 - [ ] T019 [P] [US2] E2E (Playwright): resume across devices — sign out on A, sign in on B, state intact — in `frontend/tests/` (FR-012, SC-002)
-- [ ] T020 [P] [US2] E2E (Playwright): single active session — second tab read-only until takeover — in `frontend/tests/` (FR-013)
+- [x] T020 [P] [US2] E2E (Playwright): single active session — second tab read-only until takeover — in `frontend/tests/` (FR-013)
 
 **Checkpoint**: US2 — sign-in, resume, and single-active-session UX work in the browser.
 

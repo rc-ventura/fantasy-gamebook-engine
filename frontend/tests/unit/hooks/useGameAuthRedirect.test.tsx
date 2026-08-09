@@ -35,6 +35,7 @@ describe('useGame auth redirects', () => {
   })
 
   it('redirects to /auth when the initial load gets a 401', async () => {
+    vi.stubEnv('VITE_SESSION_LEASE', 'false')
     vi.mocked(getGame).mockRejectedValue(new ApiError(401, 'unauthenticated', 'nope'))
 
     renderHook(() => useGame())
@@ -45,6 +46,7 @@ describe('useGame auth redirects', () => {
   })
 
   it('redirects to /auth when a turn gets a 403', async () => {
+    vi.stubEnv('VITE_SESSION_LEASE', 'false')
     vi.mocked(getGame).mockResolvedValue(READY_STATE)
     vi.mocked(takeTurn).mockRejectedValue(new ApiError(403, 'forbidden', 'nope'))
 
@@ -103,7 +105,8 @@ describe('useGame auth redirects', () => {
     expect(takeTurn).toHaveBeenCalledWith({ choice: '1' })
   })
 
-  it('skips lease acquisition entirely when VITE_SESSION_LEASE is off (default)', async () => {
+  it('skips lease acquisition entirely when VITE_SESSION_LEASE is off', async () => {
+    vi.stubEnv('VITE_SESSION_LEASE', 'false')
     vi.mocked(getGame).mockResolvedValue(READY_STATE)
 
     const { result } = renderHook(() => useGame())
@@ -114,6 +117,7 @@ describe('useGame auth redirects', () => {
   })
 
   it('onStart takes the opening turn with no choice', async () => {
+    vi.stubEnv('VITE_SESSION_LEASE', 'false')
     vi.mocked(getGame).mockResolvedValue(READY_STATE)
     vi.mocked(takeTurn).mockResolvedValue({
       scene: { narrative: 'You stand at the mountain base.', choices: [{ id: '1', label: 'Climb' }] },

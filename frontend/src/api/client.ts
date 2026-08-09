@@ -59,12 +59,21 @@ export function setAuthToken(token: string): void {
 /** Clear the stored auth token. */
 export function clearAuthToken(): void {
   sessionStorage.removeItem('auth_token')
+  _leaseToken = null
 }
 
 /** True if an auth token is currently available. */
 export function isAuthenticated(): boolean {
   return _tokenProvider() !== null
 }
+
+// ── Session-lease seam (issue #15) ──────────────────────────────────────────
+//
+// The held lease token, set by acquireSession()/takeoverSession() and cleared
+// by releaseSession(). request() attaches it as X-Session-Lease on every
+// mutating call so require_lease (backend) can enforce single-writer-per-
+// campaign — see ADR-023/031/032.
+let _leaseToken: string | null = null
 
 // ── HTTP core ─────────────────────────────────────────────────────────────────
 
@@ -80,6 +89,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
+  }
+  if (_leaseToken && method !== 'GET') {
+    headers['X-Session-Lease'] = _leaseToken
   }
 
   let response: Response
@@ -203,6 +215,7 @@ export async function takeTurnStream(
   const token = _tokenProvider()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
+  if (_leaseToken) headers['X-Session-Lease'] = _leaseToken
 
   let response: Response
   try {
@@ -295,23 +308,49 @@ export async function getGraveyard(): Promise<GraveyardEntry[]> {
   return request<GraveyardEntry[]>('GET', '/me/graveyard')
 }
 
-// ── Session lease (stub — real impl in slice 004) ─────────────────────────────
+// ── Session lease (issue #15) ───────────────────────────────────────────────
 
-/** POST /me/game/session — acquire the play-session lease (slice 004). */
+/**
+ * POST /me/game/session — acquire the play-session write lease.
+ *
+ * Succeeds unconditionally for the authenticated account (the backend only
+ * 409s an *unexpired* lease held by a *different* account — see
+ * LeaseService.acquire), so this also doubles as the reclaim path after a
+ * 409: see takeoverSession() below.
+ */
 export async function acquireSession(): Promise<SessionLease> {
   if (USE_MOCK) return mockApi.acquireSession()
-  // Slice 004 will replace with: request<SessionLease>('POST', '/me/game/session')
-  return { session_token: 'stub', expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
+  const lease = await request<SessionLease>('POST', '/me/game/session')
+  _leaseToken = lease.session_token
+  return lease
 }
 
-/** POST /me/game/session/takeover — forcibly take over the lease (slice 004). */
+/**
+ * "Take over" the session lease after a 409 not_session_holder conflict.
+ *
+ * The backend also exposes a dedicated POST /me/game/session/takeover route,
+ * but it requires presenting the *current* holder's live token (ADR-023/
+ * FR-027) — a token a dispossessed tab structurally cannot know, since it
+ * only ever saw its own (now-stale) one. For this single-account-per-
+ * campaign app there is no cross-account takeover UI, so reclaiming your own
+ * lease is just re-acquiring it: acquireSession() already succeeds
+ * unconditionally for the authenticated account regardless of who currently
+ * holds it. Delegating here keeps the dedicated /takeover route available
+ * for a future multi-account scenario without leaving this call permanently
+ * broken for the one it's actually wired to today.
+ */
 export async function takeoverSession(): Promise<SessionLease> {
   if (USE_MOCK) return mockApi.takeoverSession()
-  return { session_token: 'stub-takeover', expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
+  return acquireSession()
 }
 
-/** DELETE /me/game/session — release the lease (slice 004). */
+/** DELETE /me/game/session — release the write lease. */
 export async function releaseSession(): Promise<void> {
   if (USE_MOCK) { await mockApi.releaseSession(); return }
-  // Best-effort release — no-op until slice 004 implements real sessions
+  if (!_leaseToken) return
+  try {
+    await request<void>('DELETE', '/me/game/session')
+  } finally {
+    _leaseToken = null
+  }
 }
