@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from pydantic_ai import UsageLimits
 from pydantic_ai.mcp import MCPToolset
@@ -30,7 +31,7 @@ from gamebook_web.harness.dispatch_types import (
     CONFIDENCE_THRESHOLD,
     build_classifier_agent,
 )
-from gamebook_web.harness.narrator import NarratorContext
+from gamebook_web.harness.narrator import NarratorContext, StreamEvent, StreamingNarratorBackend
 from gamebook_web.harness.scene import Scene
 from gamebook_web.mcp_host import call_engine
 
@@ -466,6 +467,44 @@ _LAYER3_ONLY = AdventureStructure(
 )
 
 
+class _StreamFailed:
+    """Internal sentinel: the graph run failed before ``Narrate`` ever produced
+    a Scene (e.g. the classifier LLM call errored) — pushed onto the bridge
+    queue so the consumer stops waiting instead of blocking forever."""
+
+
+_STREAM_FAILED = _StreamFailed()
+
+
+class _StreamingNarratorProxy:
+    """One-shot ``NarratorBackend``: forwards to the real narrator's
+    ``narrate_stream()``, pushing every delta onto ``queue`` as it arrives,
+    and returns the final ``Scene`` — satisfying the ``Narrate`` graph node's
+    ``await narrator.narrate(...)`` call unmodified.
+
+    This is the bridge that lets ``DispatcherNarrator.narrate_stream()`` reuse
+    ``dispatcher_graph.run()`` byte-for-byte (``ClassifyIntent`` /
+    ``MechanicalDispatch`` / ``CombatRound`` untouched) while only the final
+    ``Narrate`` node's LLM call streams.
+    """
+
+    def __init__(self, inner: StreamingNarratorBackend, queue: asyncio.Queue) -> None:
+        self._inner = inner
+        self._queue = queue
+
+    async def narrate(self, campaign_id: str, context: NarratorContext) -> Scene:
+        scene: Scene | None = None
+        async for event in self._inner.narrate_stream(campaign_id, context):
+            if isinstance(event, Scene):
+                scene = event
+            else:
+                await self._queue.put(event)
+        if scene is None:
+            raise RuntimeError(f"narrator produced no output for campaign {campaign_id}")
+        await self._queue.put(scene)
+        return scene
+
+
 class DispatcherNarrator:
     """``NarratorBackend`` implementation backed by ``dispatcher_graph``.
 
@@ -523,3 +562,61 @@ class DispatcherNarrator:
             templates=self._templates,
         )
         return await dispatcher_graph.run(inputs=ClassifyIntent(), state=state, deps=self._deps)
+
+    async def narrate_stream(
+        self, campaign_id: str, context: NarratorContext
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream the turn (issue #20): ``ClassifyIntent``/``MechanicalDispatch``/
+        ``CombatRound`` run exactly as in ``narrate()`` — zero behavior change,
+        zero duplicated dispatch logic — only the terminal ``Narrate`` node's
+        LLM call streams, via ``_StreamingNarratorProxy`` bridging the graph's
+        synchronous ``await narrator.narrate(...)`` call to an
+        ``asyncio.Queue`` this method drains concurrently.
+
+        Falls back to a single-chunk stream if the configured narrator
+        doesn't implement ``StreamingNarratorBackend`` (defense in depth —
+        production always constructs ``PydanticNarrator``, which does).
+        """
+        if not isinstance(self._deps.narrator, StreamingNarratorBackend):
+            scene = await self.narrate(campaign_id, context)
+            yield scene.narrative
+            yield scene
+            return
+
+        queue: asyncio.Queue[StreamEvent | _StreamFailed] = asyncio.Queue()
+        proxy_deps = replace(
+            self._deps, narrator=_StreamingNarratorProxy(self._deps.narrator, queue)
+        )
+        state = DispatchState(
+            campaign_id=campaign_id,
+            toolset=self._toolset,
+            context=context,
+            adventure=self._adventure,
+            templates=self._templates,
+        )
+
+        async def _run_graph() -> None:
+            try:
+                await dispatcher_graph.run(inputs=ClassifyIntent(), state=state, deps=proxy_deps)
+            except Exception:
+                await queue.put(_STREAM_FAILED)
+                raise
+
+        task = asyncio.create_task(_run_graph())
+        try:
+            while True:
+                item = await queue.get()
+                if item is _STREAM_FAILED:
+                    break
+                yield item
+                if isinstance(item, Scene):
+                    break
+        finally:
+            # A client disconnecting mid-stream (GeneratorExit on aclose())
+            # must not leave an abandoned graph run burning LLM/MCP calls.
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass

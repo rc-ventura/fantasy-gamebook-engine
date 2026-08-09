@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import AsyncIterator
 
 from pydantic_ai import Agent, ModelRetry, UsageLimits
 from pydantic_ai.settings import ModelSettings
 
-from gamebook_web.harness.narrator import NarratorContext
+from gamebook_web.harness.narrator import NarratorContext, StreamEvent
 from gamebook_web.harness.scene import Scene
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,55 @@ class PydanticNarrator:
             )
 
         return result.output
+
+    async def narrate_stream(
+        self, campaign_id: str, context: NarratorContext
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream narrative text as it's generated, then the final Scene (issue #20).
+
+        Uses pydantic-ai's structured-output streaming (``run_stream`` +
+        ``stream_output``), which validates the accumulating JSON in partial
+        mode (pydantic's ``trailing-strings`` mode: the in-progress
+        ``narrative`` string is usable before its closing quote arrives) —
+        the exact same ``Scene`` model and ``output_validator`` as ``narrate()``,
+        just observed incrementally. ``choices``/``terminal`` only resolve once
+        the model emits them near the end, so early partials carry growing
+        narrative text and an empty/partial ``choices`` list; only *narrative
+        growth* is surfaced here as deltas — the caller gets the authoritative
+        choices from the final ``Scene`` item, never from a partial one.
+
+        The last item ``stream_output`` yields is always the fully,
+        strictly-validated ``Scene`` (``allow_partial=False`` — the same
+        validation path ``narrate()`` uses, ``output_validator`` included), so
+        callers can treat "iteration ends" and "the final Scene has been
+        yielded" as the same event.
+        """
+        from gamebook_web.observability.tracing import narrator_span
+
+        prompt = self._build_prompt(context)
+
+        with narrator_span(campaign_id):
+            async with self._agent.run_stream(
+                prompt,
+                toolsets=[],
+                usage_limits=UsageLimits(request_limit=_MAX_LLM_REQUESTS),
+                model_settings=self._model_settings,
+                conversation_id=campaign_id,
+            ) as result:
+                last_narrative = ""
+                final_scene: Scene | None = None
+                async for partial in result.stream_output(debounce_by=0.1):
+                    final_scene = partial
+                    narrative = partial.narrative
+                    if len(narrative) > len(last_narrative) and narrative.startswith(last_narrative):
+                        yield narrative[len(last_narrative):]
+                        last_narrative = narrative
+                    # A non-append change (rare — the model revising earlier
+                    # text) is not surfaced as a delta; the final Scene below
+                    # always carries the authoritative full text regardless.
+                if final_scene is None:
+                    raise RuntimeError(f"narrator produced no output for campaign {campaign_id}")
+                yield final_scene
 
     # ------------------------------------------------------------------
 

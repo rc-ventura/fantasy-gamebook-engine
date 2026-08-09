@@ -28,6 +28,7 @@ export default function PlayPage() {
     error,
     sessionConflict,
     lastSavedAt,
+    streamingNarrative,
     onStart,
     onChoose,
     onFreeText,
@@ -321,7 +322,14 @@ export default function PlayPage() {
                     </div>
                   )}
 
-                  <NarratorPanel narrative={scene?.narrative} loading={isDataLoading || creatingCharacter || (actionPending && !scene?.narrative)} isTerminal={isTerminal} />
+                  {/* streamingNarrative (issue #20): once the first delta arrives,
+                      show the growing text instead of the stale prior scene — a
+                      typewriter effect rather than a single 10-30s spinner. */}
+                  <NarratorPanel
+                    narrative={streamingNarrative !== null ? streamingNarrative : scene?.narrative}
+                    loading={isDataLoading || creatingCharacter || (actionPending && streamingNarrative === null && !scene?.narrative)}
+                    isTerminal={isTerminal}
+                  />
 
                   {error && actionState === 'error' && (
                     <div role="alert" style={{ fontFamily: 'var(--font-body)', fontSize: '0.9rem', color: '#c0392b', padding: 'var(--space-sm) var(--space-md)', background: 'rgba(192,57,43,0.1)', border: '1px solid rgba(192,57,43,0.3)', borderRadius: 'var(--radius-sm)' }}>
