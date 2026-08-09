@@ -359,9 +359,18 @@ def main() -> None:
     if database_url:
         from gamebook.storage.postgres import PostgresStorage
 
+        # GAMEBOOK_ACCOUNT_ID: optional owner for campaigns created by this
+        # process. Only meaningful when the MCP server is run standalone for a
+        # single account — the multi-account web path persists ownership at its
+        # own composition root (create_game) since the tool contract carries
+        # only campaign_id (ADR-018).
+        account_id = os.environ.get("GAMEBOOK_ACCOUNT_ID") or None
+
         def factory(campaign_id: str) -> PostgresStorage:
             if campaign_id not in _cache:
-                _cache[campaign_id] = PostgresStorage(database_url, campaign_id)
+                _cache[campaign_id] = PostgresStorage(
+                    database_url, campaign_id, account_id=account_id
+                )
             return _cache[campaign_id]
 
     else:

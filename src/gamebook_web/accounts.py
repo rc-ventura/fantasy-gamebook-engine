@@ -51,6 +51,21 @@ def set_account_repository(repo: AccountRepository | None) -> None:
     _REPOSITORY = repo
 
 
+def get_account_repository_if_configured() -> AccountRepository | None:
+    """Return the repository when one is available, else ``None``.
+
+    Unlike ``get_account_repository`` this never raises: it returns the
+    injected (test) repository when set, builds the singleton when
+    ``DATABASE_URL`` is configured, and returns ``None`` for pure in-memory
+    runs where there is no database to persist ownership into.
+    """
+    if _REPOSITORY is not None:
+        return _REPOSITORY
+    if not os.getenv("DATABASE_URL"):
+        return None
+    return get_account_repository()
+
+
 # ---------------------------------------------------------------------------
 # Repository
 # ---------------------------------------------------------------------------

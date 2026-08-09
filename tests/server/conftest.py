@@ -153,12 +153,35 @@ def fake_narrator():
     return FakeNarrator()
 
 
+class RecordingAccountRepository:
+    """Minimal ``AccountRepository`` stand-in for API tests (issue #19).
+
+    Records ownership writes so tests can assert the ``create_game`` wiring,
+    and keeps ``api_client`` hermetic when the developer's environment has a
+    real ``DATABASE_URL`` set.
+    """
+
+    def __init__(self) -> None:
+        self.created: list[tuple[str, str | None]] = []
+
+    async def create_campaign(self, account_id: str, campaign_id: str | None = None):
+        self.created.append((account_id, campaign_id))
+        return {"campaign_id": campaign_id, "status": "active", "account_id": account_id}
+
+
 @pytest.fixture
-def api_client(engine_server: Any, fake_narrator: Any):
+def account_repo():
+    """Recording account repository injected into ``api_client``."""
+    return RecordingAccountRepository()
+
+
+@pytest.fixture
+def api_client(engine_server: Any, fake_narrator: Any, account_repo: Any):
     """Synchronous FastAPI TestClient with:
     - In-process engine toolset (no subprocess)
     - FakeNarrator (no LLM)
     - Fresh CampaignRegistry per test
+    - RecordingAccountRepository (no live DB, even if DATABASE_URL is set)
 
     Routes work identically to production — only the backing implementations differ.
     The ``mcp_host`` factory is patched before the lifespan starts so the lifespan
@@ -168,6 +191,7 @@ def api_client(engine_server: Any, fake_narrator: Any):
     from starlette.testclient import TestClient
 
     import gamebook_web.mcp_host as mcp_host_mod
+    from gamebook_web.accounts import set_account_repository
     from gamebook_web.api.app import app
     from gamebook_web.sessions.campaign import CampaignRegistry
 
@@ -178,12 +202,14 @@ def api_client(engine_server: Any, fake_narrator: Any):
     # lifespan does not try to create a real narrator or registry.
     app.state.campaign_registry = CampaignRegistry()
     app.state.narrator = fake_narrator
+    set_account_repository(account_repo)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
     # Reset after the test
     mcp_host_mod.set_engine_toolset_factory(None)
+    set_account_repository(None)
     app.state.campaign_registry = None  # type: ignore[assignment]
     app.state.narrator = None  # type: ignore[assignment]
     app.state.engine_toolset = None  # type: ignore[assignment]
