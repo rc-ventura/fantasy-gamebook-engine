@@ -34,6 +34,15 @@ class NarratorContext:
     # Full label of the chosen option recovered from the previous Scene, so the
     choice_label: str | None = None
 
+    # Consecutive turns spent in world.current_location, and the zones one
+    # "move" away from it (issue #28: the narrator can loop a player inside a
+    # zone indefinitely — mechanically correct classification, narratively
+    # stuck — because it has no signal that it's happening). Computed
+    # deterministically by ClassifyIntent from World.flags; None before the
+    # first classified turn.
+    turns_in_zone: int | None = None
+    adjacent_zones: list[str] = field(default_factory=list)
+
 
 @runtime_checkable
 class NarratorBackend(Protocol):

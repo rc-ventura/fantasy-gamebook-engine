@@ -67,7 +67,10 @@ class World(BaseModel):
     current_location: str = ""
     visited_locations: list[str] = Field(default_factory=list)
     known_npcs: list[Npc] = Field(default_factory=list)
-    flags: dict[str, bool] = Field(default_factory=dict)
+    # bool | int | str (not just bool): most flags are booleans (encounter
+    # presence, victory conditions), but issue #28's zone-dwell tracking
+    # needs a small counter (int) and a zone id (str) too.
+    flags: dict[str, bool | int | str] = Field(default_factory=dict)
     turn: int = Field(default=0, ge=0)
 
 

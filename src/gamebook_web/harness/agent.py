@@ -21,6 +21,10 @@ DEFAULT_MODEL = "anthropic:claude-opus-4-8"
 # LLM request budget per turn: 1 real call + up to 2 ModelRetry retries.
 _MAX_LLM_REQUESTS = 3
 
+# issue #28: after this many consecutive turns in the same zone, force the
+# narrator to offer a concrete exit choice rather than looping local beats.
+_ZONE_DWELL_PACING_THRESHOLD = 3
+
 _DEFAULT_SKILL_PATH = (
     Path(__file__).resolve().parents[3]  # repo root
     / ".claude" / "skills" / "ignarok" / "SKILL.md"
@@ -53,6 +57,65 @@ Return a Scene with:
     On terminal scenes, leave choices empty.
     On all other scenes, choices MUST be non-empty or you will be asked to retry.
 """
+
+
+def _summarize_turn_outcome(outcome: dict) -> str:
+    """Render a `TurnOutcome` dict as plain-language facts instead of a raw
+    Python-dict repr (issue #27).
+
+    A dense `checks: [{"tool": "resolve_combat_round", "result": {...}}, ...]`
+    repr makes the narrator infer "did the enemy ever hit me across N rounds"
+    itself — exactly the aggregation that produced a live, confirmed bug: the
+    narrator asserted a hit ("barely grazing you") on a fight where
+    `hero_damage=0` in every round. Precomputing the aggregate here removes
+    that inference step entirely for the one fact class that's been shown to
+    fail; other check types are listed compactly rather than aggregated,
+    since no live failure has been observed there.
+    """
+    checks = outcome.get("checks", [])
+    combat_rounds = [c for c in checks if c.get("tool") == "resolve_combat_round"]
+    end_combat = next((c for c in checks if c.get("tool") == "end_combat"), None)
+    other_checks = [
+        c for c in checks if c.get("tool") not in ("resolve_combat_round", "end_combat")
+    ]
+
+    lines: list[str] = []
+
+    if combat_rounds:
+        enemy_hits = [c for c in combat_rounds if c.get("result", {}).get("hitter") == "enemy"]
+        hero_hits = [c for c in combat_rounds if c.get("result", {}).get("hitter") == "hero"]
+        hero_damage_taken = sum(c["result"].get("damage_applied", 0) for c in enemy_hits)
+        enemy_damage_dealt = sum(c["result"].get("damage_applied", 0) for c in hero_hits)
+
+        lines.append(f"COMBAT SUMMARY ({len(combat_rounds)} round(s) this turn):")
+        if hero_damage_taken == 0:
+            lines.append(
+                "- The enemy did NOT land a single hit this fight. Do not narrate the "
+                "hero being struck, grazed, wounded, or taking damage in any way."
+            )
+        else:
+            lines.append(
+                f"- The enemy hit the hero {len(enemy_hits)} time(s), "
+                f"for {hero_damage_taken} total damage."
+            )
+        if enemy_damage_dealt == 0:
+            lines.append("- The hero did NOT land a single hit this fight.")
+        else:
+            lines.append(
+                f"- The hero hit the enemy {len(hero_hits)} time(s), "
+                f"for {enemy_damage_dealt} total damage."
+            )
+        if end_combat is not None:
+            lines.append(f"- Combat ended: winner = {end_combat.get('result', {}).get('winner')}.")
+
+    for c in other_checks:
+        lines.append(f"- {c.get('tool', '?')}: {c.get('result', {})}")
+
+    final_state = outcome.get("final_state")
+    if final_state:
+        lines.append(f"FINAL STATE: {final_state}")
+
+    return "\n".join(lines) if lines else "(no mechanical checks this turn)"
 
 
 def _model_settings(model: object) -> ModelSettings | None:
@@ -225,7 +288,7 @@ class PydanticNarrator:
             parts.append(
                 "THIS TURN'S OUTCOME (settled fact from the deterministic dispatcher — "
                 "narrate exactly this, never alter or add a number):\n"
-                f"{ctx.turn_outcome}"
+                f"{_summarize_turn_outcome(ctx.turn_outcome)}"
             )
 
         if ctx.choice is not None:
@@ -240,6 +303,20 @@ class PydanticNarrator:
             )
         else:
             parts.append("PLAYER ACTION: start of session / fresh turn")
+
+        if (
+            ctx.turns_in_zone is not None
+            and ctx.turns_in_zone >= _ZONE_DWELL_PACING_THRESHOLD
+            and ctx.adjacent_zones
+        ):
+            parts.append(
+                f"PACING (NON-NEGOTIABLE): the player has been in this area for "
+                f"{ctx.turns_in_zone} turns in a row without moving on — the story has "
+                f"stalled. One of your numbered choices MUST clearly offer to leave this "
+                f"area now (toward {' or '.join(ctx.adjacent_zones)}), phrased as a "
+                f"concrete departure, not more local exploration. Weave it into the "
+                f"narrative naturally, but it must be present and unambiguous."
+            )
 
         parts.append(
             "Narrate the next scene from the state and outcome given above. "

@@ -163,7 +163,7 @@ class World(BaseModel):
     current_location: str = ""
     visited_locations: list[str] = []
     known_npcs: list[Npc] = []
-    flags: dict[str, bool] = {}
+    flags: dict[str, bool | int | str] = {}   # mostly bool; zone-dwell tracking (issue #28) needs int/str too
     turn: int = 0           # >= 0
 
 class Event(BaseModel):

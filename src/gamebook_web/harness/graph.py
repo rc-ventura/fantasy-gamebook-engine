@@ -60,6 +60,26 @@ def _adjacent_zones(zones: list[str], current: str) -> list[str]:
     return neighbors
 
 
+async def _track_zone_dwell(
+    world_flags: dict[str, Any], current_location: str, toolset: MCPToolset, campaign_id: str,
+) -> int:
+    """Increment (or reset) the consecutive-turns-in-this-zone counter, persist
+    it to `World.flags`, and return the new count (issue #28).
+
+    Same flag-in-World-state pattern as `resolve_zone_encounters` — deterministic,
+    zero LLM calls. Resets to 1 whenever `current_location` differs from the
+    last turn's recorded zone (a real move happened).
+    """
+    last_zone = world_flags.get("_zone_turn_location")
+    count = int(world_flags.get("_zone_turn_count", 0)) + 1 if last_zone == current_location else 1
+    await call_engine(
+        toolset, "update_world",
+        campaign_id=campaign_id,
+        changes={"flags": {"_zone_turn_location": current_location, "_zone_turn_count": count}},
+    )
+    return count
+
+
 def _extract_combat_id(checks_log: list[dict[str, Any]]) -> str:
     """Scan checks_log (most-recent first) for the combat_id set by start_combat."""
     for check in reversed(checks_log):
@@ -108,6 +128,18 @@ class ClassifyIntent(BaseNode[DispatchState, DispatchDeps, Scene]):
         )
         # "move" gets its valid destinations spelled out as the ADJACENT zones
         adjacent = _adjacent_zones(ctx.state.adventure.zones, current_location)
+
+        # issue #28: track consecutive turns in this zone so Narrate can be
+        # told to build pressure toward an exit once the player has stalled —
+        # the dispatcher classifies correctly every turn, but nothing
+        # previously told the LLM narrator that it kept re-offering local
+        # scene beats instead of ever converging on a "move" choice.
+        turns_in_zone = await _track_zone_dwell(
+            world_flags, current_location, ctx.state.toolset, ctx.state.campaign_id,
+        )
+        ctx.state.context = replace(
+            ctx.state.context, turns_in_zone=turns_in_zone, adjacent_zones=adjacent,
+        )
 
         def _template_bounds(name: str, tmpl: MechanicalSituationTemplate) -> str:
             if name == "move":

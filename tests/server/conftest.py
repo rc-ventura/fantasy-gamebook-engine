@@ -210,6 +210,21 @@ class RecordingAccountRepository:
         return True
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The shared ``slowapi`` Limiter is a module-level singleton (CWE-770
+    rate limiting keys on ``account:dev-account`` for every dev-mode test) —
+    without a reset, request counts accumulate across the whole test session
+    and an unrelated test late in the run can trip a 429 that has nothing to
+    do with what it's testing.
+    """
+    from gamebook_web.api.limiter import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture
 def account_repo():
     """Recording account repository injected into ``api_client``."""

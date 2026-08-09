@@ -1574,3 +1574,100 @@ class TestNullStringActionNormalization:
         assert classification.action is None
         assert classification.template is None
         assert classification.confidence == 0.0
+
+
+class TestZoneDwellTracking:
+    """issue #28: the narrator can loop a player inside a zone indefinitely —
+    mechanically correct classification every turn, but nothing tracked or
+    surfaced how long the player had been stuck. ClassifyIntent now counts
+    consecutive turns in `world.current_location` and threads it (plus the
+    adjacent zones) onto NarratorContext for the Narrate step.
+    """
+
+    async def _classify_once(self, world_flags: dict, current_location: str = "zone_b"):
+        server, storage = _fresh_in_memory_server()
+        async with MCPToolset(server) as toolset:
+            await _seed_character(toolset)
+            state = DispatchState(
+                campaign_id=CAMPAIGN,
+                toolset=toolset,
+                context=NarratorContext(
+                    choice="look around",
+                    world={"current_location": current_location, "flags": world_flags},
+                ),
+                adventure=_linear_adventure(),
+                templates=_load_ignarok_templates(),
+            )
+            deps = DispatchDeps(
+                # Low confidence → routes to Narrate, but ClassifyIntent's
+                # zone-dwell tracking runs regardless of where it routes.
+                classifier_agent=_make_classifier(
+                    IntentClassification(action=None, confidence=0.0, template=None)
+                ),
+                narrator=_make_fake_narrator(),
+            )
+            node = ClassifyIntent()
+            ctx = GraphRunContext(state=state, deps=deps)
+            await node.run(ctx)
+
+            updated_world = await toolset.direct_call_tool(
+                "read_world", {"campaign_id": CAMPAIGN}
+            )
+            return ctx.state.context, updated_world.get("flags", {})
+
+    def test_first_turn_in_a_zone_counts_as_one(self):
+        context, _ = asyncio.run(self._classify_once(world_flags={}))
+        assert context.turns_in_zone == 1
+        assert context.adjacent_zones == ["zone_a", "zone_c"]
+
+    def test_consecutive_turns_in_the_same_zone_increment(self):
+        async def run():
+            context1, flags1 = await self._classify_once(world_flags={}, current_location="zone_b")
+            context2, flags2 = await self._classify_once(world_flags=flags1, current_location="zone_b")
+            context3, _ = await self._classify_once(world_flags=flags2, current_location="zone_b")
+            return context1, context2, context3
+
+        c1, c2, c3 = asyncio.run(run())
+        assert (c1.turns_in_zone, c2.turns_in_zone, c3.turns_in_zone) == (1, 2, 3)
+
+    def test_moving_to_a_new_zone_resets_the_counter(self):
+        async def run():
+            _, flags1 = await self._classify_once(world_flags={}, current_location="zone_b")
+            _, flags2 = await self._classify_once(world_flags=flags1, current_location="zone_b")
+            context3, _ = await self._classify_once(world_flags=flags2, current_location="zone_c")
+            return context3
+
+        context = asyncio.run(run())
+        assert context.turns_in_zone == 1
+
+
+class TestZoneDwellPacingInPrompt:
+    """The narrator prompt only escalates once the player has genuinely
+    stalled — no false pressure on a normal, moving-forward playthrough.
+    """
+
+    def _prompt_for(self, turns_in_zone: int | None, adjacent_zones: list[str]) -> str:
+        from gamebook_web.harness.agent import PydanticNarrator
+        from pydantic_ai.models.function import FunctionModel as FM
+
+        narrator = PydanticNarrator(model=FM(_make_scene_response))
+        ctx = NarratorContext(
+            choice="look around", turns_in_zone=turns_in_zone, adjacent_zones=adjacent_zones,
+        )
+        return narrator._build_prompt(ctx)
+
+    def test_below_threshold_no_pacing_note(self):
+        prompt = self._prompt_for(turns_in_zone=2, adjacent_zones=["zone_c"])
+        assert "PACING" not in prompt
+
+    def test_at_threshold_forces_an_exit_choice(self):
+        prompt = self._prompt_for(turns_in_zone=3, adjacent_zones=["zone_c"])
+        assert "PACING" in prompt
+        assert "zone_c" in prompt
+        assert "MUST clearly offer to leave" in prompt
+
+    def test_no_adjacent_zones_suppresses_the_note_even_past_threshold(self):
+        """A dead-end zone with no adjacency has nowhere to send the player —
+        forcing an exit choice there would just be a new fabrication."""
+        prompt = self._prompt_for(turns_in_zone=5, adjacent_zones=[])
+        assert "PACING" not in prompt
