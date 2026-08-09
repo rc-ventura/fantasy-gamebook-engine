@@ -137,7 +137,7 @@ async def take_turn_stream(
     from gamebook_web.observability.tracing import get_metrics, turn_span
 
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     assert_not_ended(state)
 
     campaign_id = state.campaign_id

@@ -27,7 +27,7 @@ async def create_character(
     account: Account = Depends(get_current_account),
 ) -> dict[str, Any]:
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     assert_not_ended(state)
 
     toolset: MCPToolset = get_engine_toolset(request)
@@ -61,7 +61,7 @@ async def read_character(
     account: Account = Depends(get_current_account),
 ) -> dict[str, Any]:
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     toolset: MCPToolset = get_engine_toolset(request)
     campaign_id = state.campaign_id
 
@@ -80,5 +80,5 @@ async def get_scene(
     account: Account = Depends(get_current_account),
 ) -> dict[str, Any]:
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = get_active_campaign(account.account_id, registry)
+    state = await get_active_campaign(account.account_id, registry)
     return {"scene": state.current_scene}

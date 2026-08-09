@@ -15,6 +15,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 
 from gamebook_web.auth.dev_auth import Account
@@ -40,12 +41,12 @@ class FakeLeaseService:
             raise self._validate_error
 
 
-@pytest.fixture
-def request_with_campaign(monkeypatch):
+@pytest_asyncio.fixture
+async def request_with_campaign(monkeypatch):
     """A fake Request whose registry has an active campaign for ACCOUNT."""
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://fake/db")
     registry = CampaignRegistry()
-    registry.create(ACCOUNT.account_id, name="Run")
+    await registry.create(ACCOUNT.account_id, name="Run")
     app = SimpleNamespace(state=SimpleNamespace(campaign_registry=registry))
     yield SimpleNamespace(app=app)
     set_lease_service(None)
