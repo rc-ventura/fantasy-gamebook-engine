@@ -99,11 +99,36 @@ def setup_telemetry(
     _METER_PROVIDER = meter_provider
 
     # ---------------------------------------------------------------
-    # pydantic-ai auto-instrumentation — emits GenAI semantic-convention spans
+    # pydantic-ai GenAI instrumentation (ADR-030 §4 — privacy)
+    #
+    # Emits GenAI semantic-convention spans + the gen_ai token-usage metric
+    # for every Agent.run() via plain OpenTelemetry (no Logfire SDK).
+    # include_content=False keeps prompts/completions/tool args OUT of span
+    # attributes — player narrative and the narrator system prompt must never
+    # reach the OTel pipeline (issue #22).  Dev/eval runs can opt in with
+    # OTEL_GENAI_INCLUDE_CONTENT=1; production refuses the override, same as
+    # the OTLP_INSECURE guard above.
     # ---------------------------------------------------------------
-    from pydantic_ai import Agent as _PydanticAgent
-    _PydanticAgent.instrument_all()
-    logger.info("pydantic-ai GenAI instrumentation enabled (Agent.instrument_all)")
+    include_content = os.getenv("OTEL_GENAI_INCLUDE_CONTENT", "0") in ("1", "true", "True")
+    if include_content and os.getenv("ENV", "").lower() == "production":
+        raise RuntimeError(
+            "OTEL_GENAI_INCLUDE_CONTENT=1 is not allowed in production "
+            "(ENV=production). Prompts/completions must not be exported in "
+            "span content (ADR-030 §4)."
+        )
+    try:
+        from pydantic_ai import Agent as _PydanticAgent
+        from pydantic_ai.models.instrumented import InstrumentationSettings
+
+        _PydanticAgent.instrument_all(
+            InstrumentationSettings(include_content=include_content)
+        )
+        logger.info(
+            "pydantic-ai GenAI instrumentation enabled (include_content=%s)",
+            include_content,
+        )
+    except ImportError:
+        logger.warning("pydantic-ai not installed — skipping GenAI instrumentation")
 
     # ---------------------------------------------------------------
     # FastAPI auto-instrumentation
@@ -146,9 +171,12 @@ def reset_telemetry() -> None:
     global _SETUP_DONE, _IN_MEMORY_EXPORTER, _TRACER_PROVIDER, _METER_PROVIDER
     global _INSTRUMENTED_APP
 
-    # Turn off pydantic-ai's GenAI instrumentation so a later setup_telemetry
+    # Turn pydantic-ai GenAI instrumentation back off so a later
+    # setup_telemetry starts from a clean slate (mirrors the FastAPI/httpx
+    # uninstrument below) rather than layering onto stale providers.
     try:
         from pydantic_ai import Agent as _PydanticAgent
+
         _PydanticAgent.instrument_all(False)
     except Exception:  # pragma: no cover — best-effort cleanup
         pass
