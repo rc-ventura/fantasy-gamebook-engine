@@ -230,7 +230,9 @@ class AccountRepository:
                 "summary": result[5] or "",
             }
 
-    async def create_campaign(self, account_id: str, campaign_id: str | None = None) -> dict[str, Any]:
+    async def create_campaign(
+        self, account_id: str, campaign_id: str | None = None, name: str | None = None
+    ) -> dict[str, Any]:
         """Insert a new campaign row owned by ``account_id``.
 
         The ``account_id`` is always set (FR-023) so no campaign is created
@@ -243,12 +245,12 @@ class AccountRepository:
             async with session.begin():
                 result = await session.execute(
                     text(
-                        "INSERT INTO campaign (id, account_id, status, created_at, updated_at, summary_text) "
-                        "VALUES (:id, :account_id, 'active', NOW(), NOW(), '') "
+                        "INSERT INTO campaign (id, account_id, status, name, created_at, updated_at, summary_text) "
+                        "VALUES (:id, :account_id, 'active', :name, NOW(), NOW(), '') "
                         "ON CONFLICT (id) DO NOTHING "
                         "RETURNING id"
                     ),
-                    {"id": cid, "account_id": account_id},
+                    {"id": cid, "account_id": account_id, "name": name},
                 )
                 if result.fetchone() is None:
                     raise HTTPException(
@@ -260,7 +262,74 @@ class AccountRepository:
                             }
                         },
                     )
-        return {"campaign_id": cid, "status": "active", "account_id": account_id}
+        return {"campaign_id": cid, "status": "active", "account_id": account_id, "name": name}
+
+    async def get_active_campaign(self, account_id: str) -> dict[str, Any] | None:
+        """The account's single active campaign, or None (issues #14/#25).
+
+        This is the durable resolution behind ``GET /me/game`` after a backend
+        restart: the in-memory registry is empty, the row is not.
+        """
+        async with self._session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT id, status, name, created_at, ended_at, ended_reason "
+                    "FROM campaign "
+                    "WHERE account_id = :account_id AND status = 'active' "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"account_id": account_id},
+            )
+            result = row.fetchone()
+            return None if result is None else self._campaign_row_to_dict(result)
+
+    async def list_ended_campaigns(self, account_id: str) -> list[dict[str, Any]]:
+        """All ended campaigns for this account (graveyard), newest first."""
+        async with self._session() as session:
+            rows = await session.execute(
+                text(
+                    "SELECT id, status, name, created_at, ended_at, ended_reason "
+                    "FROM campaign "
+                    "WHERE account_id = :account_id AND status = 'ended' "
+                    "ORDER BY created_at DESC"
+                ),
+                {"account_id": account_id},
+            )
+            return [self._campaign_row_to_dict(r) for r in rows.fetchall()]
+
+    async def end_campaign(
+        self, account_id: str, campaign_id: str, reason: str | None = None
+    ) -> bool:
+        """Mark a campaign ended with its end-state metadata (ownership-checked).
+
+        Like ``set_campaign_status``, the ``account_id`` filter makes
+        cross-account mutation structurally impossible (CWE-639).  Returns
+        True if a row was updated.
+        """
+        async with self._session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "UPDATE campaign "
+                        "SET status = 'ended', ended_reason = :reason, "
+                        "    ended_at = NOW(), updated_at = NOW() "
+                        "WHERE id = :cid AND account_id = :account_id "
+                        "RETURNING id"
+                    ),
+                    {"reason": reason, "cid": campaign_id, "account_id": account_id},
+                )
+                return result.fetchone() is not None
+
+    @staticmethod
+    def _campaign_row_to_dict(result: Any) -> dict[str, Any]:
+        return {
+            "campaign_id": result[0],
+            "status": result[1],
+            "name": result[2],
+            "created_at": result[3].isoformat() if result[3] else None,
+            "ended_at": result[4].isoformat() if result[4] else None,
+            "ended_reason": result[5],
+        }
 
     async def set_campaign_status(
         self, account_id: str, campaign_id: str, status: str

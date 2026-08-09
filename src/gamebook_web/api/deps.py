@@ -7,8 +7,8 @@ from fastapi import HTTPException, status
 from gamebook_web.sessions.campaign import CampaignRegistry, CampaignState
 
 
-def get_active_campaign(account_id: str, registry: CampaignRegistry) -> CampaignState:
-    state = registry.get_active_for_account(account_id)
+async def get_active_campaign(account_id: str, registry: CampaignRegistry) -> CampaignState:
+    state = await registry.get_active_for_account(account_id)
     if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

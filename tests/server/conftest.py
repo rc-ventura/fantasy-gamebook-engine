@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import random
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -154,19 +156,58 @@ def fake_narrator():
 
 
 class RecordingAccountRepository:
-    """Minimal ``AccountRepository`` stand-in for API tests (issue #19).
+    """Functional in-memory ``AccountRepository`` stand-in (issues #19, #14/#25).
 
-    Records ownership writes so tests can assert the ``create_game`` wiring,
-    and keeps ``api_client`` hermetic when the developer's environment has a
-    real ``DATABASE_URL`` set.
+    Faithful enough for the registry's DB-first reads — campaigns live in a
+    dict keyed by campaign_id — so ``api_client`` exercises the same
+    repository-backed code path as production while staying hermetic (no live
+    DB, even when the developer's environment has ``DATABASE_URL`` set).
+    Ownership writes are recorded in ``created`` for wiring asserts.
     """
 
     def __init__(self) -> None:
         self.created: list[tuple[str, str | None]] = []
+        self._campaigns: dict[str, dict] = {}
 
-    async def create_campaign(self, account_id: str, campaign_id: str | None = None):
-        self.created.append((account_id, campaign_id))
-        return {"campaign_id": campaign_id, "status": "active", "account_id": account_id}
+    async def create_campaign(
+        self, account_id: str, campaign_id: str | None = None, name: str | None = None
+    ):
+        cid = campaign_id or str(uuid.uuid4())
+        self.created.append((account_id, cid))
+        self._campaigns[cid] = {
+            "campaign_id": cid,
+            "account_id": account_id,
+            "status": "active",
+            "name": name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "ended_at": None,
+            "ended_reason": None,
+        }
+        return {"campaign_id": cid, "status": "active", "account_id": account_id, "name": name}
+
+    async def get_active_campaign(self, account_id: str):
+        for row in self._campaigns.values():
+            if row["account_id"] == account_id and row["status"] == "active":
+                return dict(row)
+        return None
+
+    async def list_ended_campaigns(self, account_id: str):
+        return [
+            dict(r)
+            for r in self._campaigns.values()
+            if r["account_id"] == account_id and r["status"] == "ended"
+        ]
+
+    async def end_campaign(
+        self, account_id: str, campaign_id: str, reason: str | None = None
+    ) -> bool:
+        row = self._campaigns.get(campaign_id)
+        if row is None or row["account_id"] != account_id:
+            return False
+        row["status"] = "ended"
+        row["ended_reason"] = reason
+        row["ended_at"] = datetime.now(timezone.utc).isoformat()
+        return True
 
 
 @pytest.fixture
@@ -200,7 +241,7 @@ def api_client(engine_server: Any, fake_narrator: Any, account_repo: Any):
 
     # Install a fresh registry and the FakeNarrator on app.state so the
     # lifespan does not try to create a real narrator or registry.
-    app.state.campaign_registry = CampaignRegistry()
+    app.state.campaign_registry = CampaignRegistry(repository=account_repo)
     app.state.narrator = fake_narrator
     set_account_repository(account_repo)
 

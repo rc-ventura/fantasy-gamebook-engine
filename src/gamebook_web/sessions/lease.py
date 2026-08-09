@@ -591,7 +591,7 @@ async def require_lease(
     from gamebook_web.sessions.campaign import CampaignRegistry, get_campaign_registry
 
     registry: CampaignRegistry = get_campaign_registry(request)
-    state = registry.get_active_for_account(account.account_id)
+    state = await registry.get_active_for_account(account.account_id)
     if state is None:
         return  # no active campaign — the route itself will 404
 
