@@ -199,6 +199,10 @@ principles; when in conflict, the constitution wins.
 - [Probabilistic encounter rolls must use the engine's seeded RNG (`roll_dice` MCP call), not Python's `random` module — keeps all game randomness under one seed, tests stay deterministic](./docs/learning-lessons/probabilistic_encounter_roll_via_engine_rng.md) — 2026-07-11
 - [One live-validation session is not a regression suite — a classifier field silently unpopulated shipped past a task marked "accepted"](./docs/learning-lessons/one_live_validation_session_is_not_a_regression_suite.md) — 2026-07-11
 - [The narrator can loop inside a zone indefinitely without ever narrating toward an exit — mechanically correct classification, narratively stuck](./docs/learning-lessons/narrator_can_loop_in_a_zone_without_offering_an_exit.md) — 2026-07-11
+- [Merging independent PRs without CI hides integration bugs each PR's own tests can't see](./docs/learning-lessons/merging_independent_prs_without_ci_hides_integration_bugs.md) — 2026-08-09
+- [LeaseService.acquire() lets the same account silently reclaim a lease — the dedicated /takeover endpoint can't be used by a dispossessed tab](./docs/learning-lessons/lease_service_same_account_acquire_bypasses_takeover_token_check.md) — 2026-08-09
+- [pydantic-ai's output_validator can see per-call context via deps_type + RunContext, enabling semantic validation](./docs/learning-lessons/pydantic_ai_output_validator_deps_type_for_semantic_checks.md) — 2026-08-09
+- [World.flags was typed dict[str, bool] — widening it for a counter needs a domain-model + CONTRACTS.md change, not a workaround](./docs/learning-lessons/world_flags_domain_model_was_bool_only.md) — 2026-08-09
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure, shell commands,
