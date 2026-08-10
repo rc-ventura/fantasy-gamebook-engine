@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import AsyncIterator
 
-from pydantic_ai import Agent, ModelRetry, UsageLimits
+from pydantic_ai import Agent, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.settings import ModelSettings
 
 from gamebook_web.harness.narrator import NarratorContext, StreamEvent
@@ -59,6 +60,39 @@ Return a Scene with:
 """
 
 
+def _hero_damage_taken(outcome: dict) -> int | None:
+    """Total damage the hero took this turn's combat rounds, or None if there
+    were no combat rounds at all (nothing to assert either way).
+    """
+    combat_rounds = [c for c in outcome.get("checks", []) if c.get("tool") == "resolve_combat_round"]
+    if not combat_rounds:
+        return None
+    return sum(
+        c["result"].get("damage_applied", 0)
+        for c in combat_rounds
+        if c.get("result", {}).get("hitter") == "enemy"
+    )
+
+
+# issue #27, defense-in-depth: a curated, 2nd-person-anchored phrase set — not
+# an NLP judge (that's pydantic-evals/ADR-035 territory, spec 011), just a
+# deterministic tripwire for the exact failure mode already observed live
+# ("barely grazing you" when hero_damage_taken == 0). Anchored to "you" so it
+# doesn't fire on the enemy being hit, which is the correct/expected case.
+_HERO_HIT_PHRASES = re.compile(
+    r"\b(hits?|strikes?|wounds?|grazes?|cuts?|pierces?|slashes?|gouges?|slices?|"
+    r"bites?|claws?|gashes?)\s+you\b"
+    r"|\byour\s+(fresh\s+)?(wound|blood|gash|cut)\b"
+    r"|\byou\s+(take|suffer)\s+(a\s+|the\s+)?(hit|wound|damage|blow)\b"
+    r"|\byou\s+(stagger|reel|cry out)\s+(from|as)\s+(the|a)\s+(blow|strike|hit)\b",
+    re.IGNORECASE,
+)
+
+
+def _narrative_claims_hero_was_hit(narrative: str) -> bool:
+    return _HERO_HIT_PHRASES.search(narrative) is not None
+
+
 def _summarize_turn_outcome(outcome: dict) -> str:
     """Render a `TurnOutcome` dict as plain-language facts instead of a raw
     Python-dict repr (issue #27).
@@ -84,7 +118,7 @@ def _summarize_turn_outcome(outcome: dict) -> str:
     if combat_rounds:
         enemy_hits = [c for c in combat_rounds if c.get("result", {}).get("hitter") == "enemy"]
         hero_hits = [c for c in combat_rounds if c.get("result", {}).get("hitter") == "hero"]
-        hero_damage_taken = sum(c["result"].get("damage_applied", 0) for c in enemy_hits)
+        hero_damage_taken = _hero_damage_taken(outcome) or 0
         enemy_damage_dealt = sum(c["result"].get("damage_applied", 0) for c in hero_hits)
 
         lines.append(f"COMBAT SUMMARY ({len(combat_rounds)} round(s) this turn):")
@@ -168,16 +202,20 @@ class PydanticNarrator:
             f"{_NUMBERS_NEVER_IN_PROSE_RULE}"
         )
 
-        self._agent: Agent[None, Scene] = Agent(
+        self._agent: Agent[NarratorContext, Scene] = Agent(
             model=model,
             output_type=Scene,
             instructions=system,
             name="gamebook_narrator",
+            deps_type=NarratorContext,
         )
 
-        # Output validator: reject structurally invalid scenes only.
+        # Output validator: structural checks, plus a semantic guard (issue #27)
+        # against the one fabrication pattern already confirmed live — deps
+        # carries the same NarratorContext _build_prompt() used, so the check
+        # sees the identical settled facts the model was given.
         @self._agent.output_validator
-        def _validate_scene_structure(scene: Scene) -> Scene:
+        def _validate_scene_structure(ctx: RunContext[NarratorContext], scene: Scene) -> Scene:
             if not scene.narrative.strip():
                 raise ModelRetry("Scene narrative is empty — narrator must produce prose.")
             if not scene.terminal and not scene.choices:
@@ -185,6 +223,17 @@ class PydanticNarrator:
                     "Non-terminal scene must include player choices. "
                     "Add 2–4 numbered options, or set terminal=True for death/victory."
                 )
+
+            outcome = ctx.deps.turn_outcome if ctx.deps is not None else None
+            if outcome is not None:
+                hero_damage = _hero_damage_taken(outcome)
+                if hero_damage == 0 and _narrative_claims_hero_was_hit(scene.narrative):
+                    raise ModelRetry(
+                        "This turn's outcome shows the enemy did NOT land a single hit, "
+                        "but the narrative describes the hero being struck, grazed, "
+                        "wounded, or otherwise hit. Rewrite the narrative so the hero is "
+                        "NOT described as taking a hit — the enemy's attack failed."
+                    )
             return scene
 
     async def narrate(self, campaign_id: str, context: NarratorContext) -> Scene:
@@ -202,6 +251,7 @@ class PydanticNarrator:
         with narrator_span(campaign_id):
             result = await self._agent.run(
                 prompt,
+                deps=context,
                 toolsets=[],
                 usage_limits=UsageLimits(request_limit=_MAX_LLM_REQUESTS),
                 model_settings=self._model_settings,
@@ -239,6 +289,7 @@ class PydanticNarrator:
         with narrator_span(campaign_id):
             async with self._agent.run_stream(
                 prompt,
+                deps=context,
                 toolsets=[],
                 usage_limits=UsageLimits(request_limit=_MAX_LLM_REQUESTS),
                 model_settings=self._model_settings,
